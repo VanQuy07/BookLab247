@@ -1,15 +1,8 @@
-> **⚠️ LƯU Ý QUAN TRỌNG:**
-> Ở ĐÂY CÓ CẤU TRÚC THƯ MỤC, MỌI NGƯỜI LẤY XUỐNG VÀ LÀM VÀO ĐÚNG FILE ĐÚNG THƯ MỤC ĐỂ TIỆN CHO MỌI NGƯỜI CÙNG DÙNG NHÉ.
+```markdown
+**Lưu ý:** Ở ĐÂY CÓ CẤU TRÚC THƯ MỤC, MỌI NGƯỜI LẤY XUỐNG VÀ LÀM VÀO ĐÚNG FILE ĐÚNG THƯ MỤC ĐỂ TIỆN CHO MỌI NGƯỜI CÙNG DÙNG NHÉ.
 
-**LƯU Ý:**
-**Chạy Backend:**
-
-````bash
-uvicorn app.main:app --reload --port 8000
-
-**Chạy Frontend:**
-```bash
-npm run dev
+**Backend:** `uvicorn app.main:app --reload --port 8000`  
+**Frontend:** `npm run dev`
 
 **Account ADMIN:**
 'admin@booklab247.com
@@ -18,4 +11,4 @@ admin123'
 **Account MANAGER:**
 'manager@booklab247.com
 manager123'
-````
+```
