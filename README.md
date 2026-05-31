@@ -1,6 +1,7 @@
 > **⚠️ LƯU Ý QUAN TRỌNG:**
 > Ở ĐÂY CÓ CẤU TRÚC THƯ MỤC, MỌI NGƯỜI LẤY XUỐNG VÀ LÀM VÀO ĐÚNG FILE ĐÚNG THƯ MỤC ĐỂ TIỆN CHO MỌI NGƯỜI CÙNG DÙNG NHÉ.
 
+**LƯU Ý:**
 **Chạy Backend:**
 
 ````bash
