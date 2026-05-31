@@ -1,42 +1,53 @@
-from fastapi import APIRouter, HTTPException, status
-from typing import List
-from bson import ObjectId
-
-# Import đúng chuẩn theo cấu trúc mới
-from app.schemas.lab import LabCreate, LabResponse
-from app.models.lab import LAB_COLLECTION_NAME, lab_helper
+from fastapi import APIRouter, HTTPException, UploadFile, File
+from pydantic import BaseModel
 from app.core.database import db
+import shutil
+import uuid
 
 router = APIRouter()
-labs_collection = db[LAB_COLLECTION_NAME]
 
+class LabCreate(BaseModel):
+    title: str
+    capacity: str
+    priceText: str
+    price: str
+    imageUrl: str
 
-@router.get("/", response_model=List[LabResponse])
+# Chú ý: Bỏ dấu gạch chéo đi (thành chuỗi rỗng "")
+@router.get("")
 async def get_all_labs():
     labs = []
-    cursor = labs_collection.find()
-    async for lab in cursor:
-        labs.append(lab_helper(lab))
+    cursor = db["labs"].find({})
+    async for document in cursor:
+        document["id"] = str(document["_id"])
+        del document["_id"]
+        labs.append(document)
     return labs
 
-
-@router.post("/", response_model=LabResponse, status_code=status.HTTP_201_CREATED)
+# Chú ý: Bỏ dấu gạch chéo đi
+@router.post("")
 async def create_lab(lab_data: LabCreate):
-    new_lab_dict = lab_data.dict()
-    result = await labs_collection.insert_one(new_lab_dict)
+    new_lab = lab_data.model_dump()
+    result = await db["labs"].insert_one(new_lab)
+    
+    # 1. Ép kiểu ID thành chuỗi cho Frontend dễ dùng
+    new_lab["id"] = str(result.inserted_id)
+    
+    # 2. Xóa bỏ cái trường _id gốc của MongoDB đi để FastAPI không bị lỗi
+    del new_lab["_id"] 
+    
+    return new_lab
 
-    inserted_lab = await labs_collection.find_one({"_id": result.inserted_id})
-    if inserted_lab:
-        return lab_helper(inserted_lab)
-    raise HTTPException(status_code=500, detail="Không thể thêm phòng Lab")
-
-
-@router.delete("/{lab_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_lab(lab_id: str):
-    if not ObjectId.is_valid(lab_id):
-        raise HTTPException(status_code=400, detail="ID không hợp lệ")
-
-    delete_result = await labs_collection.delete_one({"_id": ObjectId(lab_id)})
-    if delete_result.deleted_count == 0:
-        raise HTTPException(status_code=404, detail="Không tìm thấy phòng Lab để xóa")
-    return None
+@router.post("/upload-image")
+async def upload_image(file: UploadFile = File(...)):
+    try:
+        file_extension = file.filename.split(".")[-1]
+        new_file_name = f"{uuid.uuid4()}.{file_extension}"
+        file_path = f"uploads/{new_file_name}"
+        
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+            
+        return {"imageUrl": f"http://127.0.0.1:8000/uploads/{new_file_name}"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Không thể lưu ảnh!")
