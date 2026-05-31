@@ -3,16 +3,18 @@
 
 **Chạy Backend:**
 
-```bash
+````bash
 uvicorn app.main:app --reload --port 8000
 
-Chạy Frontend: npm run dev
+**Chạy Frontend:**
+```bash
+npm run dev
 
-Account ADMIN:
-Email: admin@booklab247.com
-Password: admin123
+**Account ADMIN:**
+'admin@booklab247.com
+admin123'
 
-Account MANAGER:
-Email: manager@booklab247.com
-Password: manager123
-```
+**Account MANAGER:**
+'manager@booklab247.com
+manager123'
+````
