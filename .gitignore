@@ -1,0 +1,57 @@
+# =========================
+# 1. FRONTEND (Node.js / Next.js)
+# =========================
+# Bỏ qua thư viện khổng lồ
+node_modules/
+
+# Bỏ qua các file build và cache của Next.js
+.next/
+out/
+build/
+.swc/
+
+# Bỏ qua log lỗi của npm
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# =========================
+# 2. BACKEND (Python / FastAPI)
+# =========================
+# Bỏ qua cache của Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Bỏ qua môi trường ảo (Virtual Environment)
+venv/
+env/
+.venv/
+env.bak/
+venv.bak/
+
+# =========================
+# 3. BẢO MẬT & BIẾN MÔI TRƯỜNG (Cực kỳ quan trọng)
+# =========================
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+*.pem
+
+# =========================
+# 4. FILE HỆ THỐNG & TRÌNH SOẠN THẢO
+# =========================
+# Hệ điều hành
+.DS_Store
+Thumbs.db
+
+# Trình code (VS Code, IntelliJ)
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?

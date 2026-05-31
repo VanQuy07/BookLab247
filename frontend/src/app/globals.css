@@ -1,0 +1,9 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Đảm bảo body chiếm toàn bộ chiều cao màn hình */
+html,
+body {
+  height: 100%;
+}
