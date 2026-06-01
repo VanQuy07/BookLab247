@@ -22,4 +22,4 @@ print("🚀 ĐANG KẾT NỐI TỚI LINK:", MONGO_URL)
 
 # Khởi tạo kết nối
 client = AsyncIOMotorClient(MONGO_URL)
-db = client[DATABASE_NAME]
+db = client["booklab247"]

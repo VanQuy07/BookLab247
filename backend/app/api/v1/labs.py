@@ -1,8 +1,20 @@
+import os
+import cloudinary
+import cloudinary.uploader
 from fastapi import APIRouter, HTTPException, UploadFile, File
 from pydantic import BaseModel
+from dotenv import load_dotenv
 from app.core.database import db
-import shutil
-import uuid
+
+# 1. Tải các biến môi trường (Khóa bảo mật Cloudinary) từ file .env
+load_dotenv()
+
+# 2. Khởi tạo kết nối với Cloudinary
+cloudinary.config(
+    cloud_name=os.getenv("CLOUDINARY_CLOUD_NAME"),
+    api_key=os.getenv("CLOUDINARY_API_KEY"),
+    api_secret=os.getenv("CLOUDINARY_API_SECRET")
+)
 
 router = APIRouter()
 
@@ -13,7 +25,9 @@ class LabCreate(BaseModel):
     price: str
     imageUrl: str
 
-# Chú ý: Bỏ dấu gạch chéo đi (thành chuỗi rỗng "")
+# ==========================================
+# API LẤY DANH SÁCH PHÒNG TỪ MONGODB
+# ==========================================
 @router.get("")
 async def get_all_labs():
     labs = []
@@ -24,7 +38,9 @@ async def get_all_labs():
         labs.append(document)
     return labs
 
-# Chú ý: Bỏ dấu gạch chéo đi
+# ==========================================
+# API THÊM PHÒNG MỚI VÀO MONGODB
+# ==========================================
 @router.post("")
 async def create_lab(lab_data: LabCreate):
     new_lab = lab_data.model_dump()
@@ -38,16 +54,20 @@ async def create_lab(lab_data: LabCreate):
     
     return new_lab
 
+# ==========================================
+# API UPLOAD ẢNH (CHỈ LƯU LÊN CLOUDINARY)
+# ==========================================
 @router.post("/upload-image")
 async def upload_image(file: UploadFile = File(...)):
     try:
-        file_extension = file.filename.split(".")[-1]
-        new_file_name = f"{uuid.uuid4()}.{file_extension}"
-        file_path = f"uploads/{new_file_name}"
+        # Code mới: Đẩy thẳng file lên Cloudinary, bỏ qua ổ cứng
+        upload_result = cloudinary.uploader.upload(file.file)
         
-        with open(file_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
-            
-        return {"imageUrl": f"http://127.0.0.1:8000/uploads/{new_file_name}"}
+        # Lấy đường link HTTPS an toàn do Cloudinary trả về
+        secure_url = upload_result.get("secure_url")
+        
+        return {"imageUrl": secure_url}
+        
     except Exception as e:
-        raise HTTPException(status_code=500, detail="Không thể lưu ảnh!")
+        print("Lỗi upload ảnh:", str(e))
+        raise HTTPException(status_code=500, detail="Không thể tải ảnh lên Cloudinary!")

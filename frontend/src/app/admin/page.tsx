@@ -279,7 +279,7 @@ export default function AdminDashboardPage() {
                       type="submit"
                       className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3.5 rounded-xl text-sm mt-2 shadow-lg shadow-blue-600/20 active:scale-[0.98] transition-all"
                     >
-                      Lưu Trực Tiếp Vào MongoDB
+                      LƯU PHÒNG LAB
                     </button>
                   </form>
                 </div>
