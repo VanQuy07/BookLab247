@@ -68,7 +68,7 @@ export default function ManagerDashboardPage() {
     setUploadingImage(true);
     try {
       const response = await fetch(
-        "http://127.0.0.1:8000/api/v1/labs/upload-image",
+        "https://booklab247.onrender.com/api/v1/labs/upload-image",
         {
           method: "POST",
           body: formData, // KHÔNG set Content-Type, trình duyệt sẽ tự động làm
