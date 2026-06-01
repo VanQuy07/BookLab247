@@ -1,7 +1,7 @@
 import { LabRoom } from '../types/lab';
 
 // CHÚ Ý: Đã thêm dấu "/" vào cuối đường dẫn để khớp với FastAPI
-const API_URL = 'http://127.0.0.1:8000/api/v1/labs';
+const API_URL = 'https://booklab247.onrender.com/api/v1/labs';
 
 export const labService = {
   getAllLabs: async (): Promise<LabRoom[]> => {
