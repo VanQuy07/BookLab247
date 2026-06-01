@@ -4,132 +4,70 @@ import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  Plus,
-  Trash2,
-  Layers,
-  Cpu,
-  Users,
-  Wrench,
-  LogOut,
-  Banknote,
-} from "lucide-react"; // Đã thêm Banknote
+  LayoutDashboard, CalendarDays, LogOut,
+  X, AlertTriangle, Clock, MapPin, 
+  ShieldCheck, TrendingUp, QrCode, Search, FileText, CheckCircle2, Users, Wrench
+} from "lucide-react";
+import {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer,
+  PieChart, Pie, Cell, Legend
+} from "recharts";
 
-// Đảm bảo đường dẫn import đúng với cấu trúc thư mục của bạn
-import { LabRoom } from "../../types/lab";
 import { labService } from "../../services/lab";
+
+type MenuTab = "dashboard" | "timeline" | "reports" | "lookup";
+type TimeFilter = "today" | "yesterday" | "7days" | "month" | "custom";
+
+const COLORS = ["#3b82f6", "#ef4444", "#f59e0b"];
+
+// ================= DỮ LIỆU MẪU ĐẶT PHÒNG =================
+const INITIAL_BOOKINGS = [
+  { id: "b1", roomId: "r1", customerName: "Nguyễn Văn A", phone: "0901234567", status: "checked-in", startTime: "07:30", durationMins: 120, bufferMins: 15, note: "Khách VIP" },
+  { id: "b2", roomId: "r2", customerName: "Lê Thị B", phone: "0987654321", status: "confirmed", startTime: "10:00", durationMins: 90, bufferMins: 15, note: "Học nhóm" },
+];
 
 export default function ManagerDashboardPage() {
   const router = useRouter();
-
-  const [activeTab, setActiveTab] = useState<"labs" | "devices">("labs");
-  const [labs, setLabs] = useState<LabRoom[]>([]);
+  const [activeMenu, setActiveMenu] = useState<MenuTab>("dashboard");
   const [loading, setLoading] = useState<boolean>(true);
-  const [uploadingImage, setUploadingImage] = useState(false);
+  
+  // States cho Bộ lọc
+  const [timeFilter, setTimeFilter] = useState<TimeFilter>("today");
+  const [customDate, setCustomDate] = useState<string>("");
 
-  // Đã bổ sung trường price vào state
-  const [newLab, setNewLab] = useState<Omit<LabRoom, "id">>({
-    title: "",
-    capacity: "",
-    priceText: "",
-    price: "",
-    imageUrl: "",
+  // States Dữ liệu
+  const [rooms, setRooms] = useState<any[]>([
+    // Mock phòng hiển thị trên lưới (Bao gồm phòng trống)
+    { id: "r1", name: "Lab Máy tính 01", building: "Tòa A", floor: "Tầng 3", capacity: 40 },
+    { id: "r2", name: "Lab Hóa - Sinh 02", building: "Tòa B", floor: "Tầng 1", capacity: 20 },
+    { id: "r3", name: "Phòng Hội thảo VIP", building: "Tòa C", floor: "Tầng 5", capacity: 100 },
+    { id: "r4", name: "Không gian học nhóm", building: "Tòa A", floor: "Tầng 1", capacity: 15 },
+  ]);
+  const [bookings, setBookings] = useState(INITIAL_BOOKINGS);
+
+  // States cho Quick Book
+  const [showQuickBook, setShowQuickBook] = useState(false);
+  const [quickBookData, setQuickBookData] = useState({
+    roomId: "", roomName: "", customerName: "", phone: "", startTime: "08:00", durationMins: 60, note: ""
   });
+
+  const API_URL = "http://localhost:8000/api/v1";
 
   useEffect(() => {
     const token = localStorage.getItem("access_token");
-    if (!token) {
-      router.push("/login");
-    } else {
-      loadLabs();
-    }
+    if (!token) router.push("/login");
+    else loadData();
   }, [router]);
 
-  const loadLabs = async () => {
+  const loadData = async () => {
     try {
       setLoading(true);
       const data = await labService.getAllLabs();
-      setLabs(data);
+      if(data.length > 0) setRooms(data); 
     } catch (error) {
       console.error(error);
-      alert("Không thể kết nối đến máy chủ!");
     } finally {
       setLoading(false);
-    }
-  };
-
-  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    // Gói file lại để gửi đi
-    const formData = new FormData();
-    formData.append("file", file);
-
-    setUploadingImage(true);
-    try {
-      const response = await fetch(
-        "https://booklab247.onrender.com/api/v1/labs/upload-image",
-        {
-          method: "POST",
-          body: formData, // KHÔNG set Content-Type, trình duyệt sẽ tự động làm
-        },
-      );
-
-      if (!response.ok) throw new Error("Lỗi upload");
-
-      const data = await response.json();
-      // Lấy link ảnh Backend trả về, tự động điền vào state newLab
-      setNewLab((prev) => ({ ...prev, imageUrl: data.imageUrl }));
-    } catch (error) {
-      console.error(error);
-      alert("Không thể tải ảnh lên!");
-    } finally {
-      setUploadingImage(false);
-    }
-  };
-
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const { name, value } = e.target;
-    setNewLab((prev) => ({ ...prev, [name]: value }));
-  };
-
-  const handleAddLab = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    // Validate thêm trường price
-    if (
-      !newLab.title ||
-      !newLab.capacity ||
-      !newLab.price ||
-      !newLab.imageUrl
-    ) {
-      alert("Vui lòng điền các thông tin bắt buộc (có dấu *)");
-      return;
-    }
-    try {
-      const createdLab = await labService.createLab(newLab);
-      setLabs((prev) => [...prev, createdLab]);
-      setNewLab({
-        title: "",
-        capacity: "",
-        priceText: "",
-        price: "",
-        imageUrl: "",
-      });
-      alert("Đã lưu thành công!");
-    } catch (error) {
-      console.error(error);
-      alert("Thêm phòng thất bại!");
-    }
-  };
-
-  const handleDeleteLab = async (id: string) => {
-    if (!confirm("Bạn có chắc chắn muốn xóa phòng này?")) return;
-    try {
-      await labService.deleteLab(id);
-      setLabs((prev) => prev.filter((lab) => lab.id !== id));
-    } catch (error) {
-      console.error(error);
-      alert("Không thể xóa dữ liệu!");
     }
   };
 
@@ -138,222 +76,387 @@ export default function ManagerDashboardPage() {
     router.push("/login");
   };
 
-  return (
-    <div className="min-h-screen bg-gray-50 p-6 md:p-10 text-gray-900">
-      <div className="max-w-7xl mx-auto">
-        {/* Header Manager (Đã đổi tên để phân biệt với Admin) */}
-        <div className="flex justify-between items-center mb-8">
-          <h1 className="text-3xl font-black text-gray-900 tracking-tight">
-            BẢNG QUẢN LÝ (MANAGER)
-          </h1>
-          <button
-            onClick={handleLogout}
-            className="flex items-center gap-2 text-sm bg-red-50 text-red-600 px-4 py-2.5 rounded-xl font-bold hover:bg-red-100 transition-colors"
-          >
-            <LogOut className="w-4 h-4" /> Đăng xuất
-          </button>
-        </div>
+  const handleQuickBookSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const newBooking = {
+      id: `b${Date.now()}`,
+      roomId: quickBookData.roomId,
+      customerName: quickBookData.customerName,
+      phone: quickBookData.phone,
+      status: "checked-in", // Đơn tạo nhanh được tính là đang sử dụng luôn
+      startTime: quickBookData.startTime,
+      durationMins: quickBookData.durationMins,
+      bufferMins: 15,
+      note: quickBookData.note || "Khách Walk-in (Đặt nhanh)"
+    };
+    setBookings([...bookings, newBooking]);
+    setShowQuickBook(false);
+    alert("Đã tạo lịch nhanh và check-in thành công!");
+  };
 
-        {/* Tabs Điều hướng */}
-        <div className="flex gap-4 border-b border-gray-200 mb-8">
-          <button
-            onClick={() => setActiveTab("labs")}
-            className={`flex items-center gap-2 pb-4 font-semibold border-b-2 px-2 transition-colors ${
-              activeTab === "labs"
-                ? "border-blue-600 text-blue-600"
-                : "border-transparent text-gray-500 hover:text-gray-700"
-            }`}
+  // ================= GIAO DIỆN APP SHELL =================
+  const renderSidebar = () => (
+    <aside className="w-64 bg-slate-900 text-slate-300 flex flex-col h-screen sticky top-0 shrink-0 shadow-2xl z-30 hidden md:flex">
+      <div className="p-6 border-b border-slate-800">
+        <h1 className="text-2xl font-black text-white tracking-tight flex items-center gap-2">
+          <ShieldCheck className="w-7 h-7 text-emerald-500" />
+          Manager<span className="text-emerald-500">Ops</span>
+        </h1>
+      </div>
+      <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
+        {[
+          { id: "dashboard", icon: LayoutDashboard, label: "Giám sát Vận hành" },
+          { id: "timeline", icon: CalendarDays, label: "Lịch Điều phối" },
+          { id: "reports", icon: FileText, label: "Báo cáo Sự cố" },
+          { id: "lookup", icon: Search, label: "Tra cứu Thông tin" },
+        ].map(item => (
+          <button key={item.id} onClick={() => setActiveMenu(item.id as MenuTab)}
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium transition-all ${activeMenu === item.id ? "bg-emerald-600 text-white shadow-lg shadow-emerald-900/20" : "hover:bg-slate-800"}`}
           >
-            <Layers className="w-5 h-5" /> Quản lý Phòng Lab
+            <item.icon className="w-5 h-5" /> {item.label}
           </button>
-          <button
-            onClick={() => setActiveTab("devices")}
-            className={`flex items-center gap-2 pb-4 font-semibold border-b-2 px-2 transition-colors ${
-              activeTab === "devices"
-                ? "border-blue-600 text-blue-600"
-                : "border-transparent text-gray-500 hover:text-gray-700"
-            }`}
-          >
-            <Cpu className="w-5 h-5" /> Quản lý Thiết bị
-          </button>
-        </div>
+        ))}
+      </nav>
+      <div className="p-4 border-t border-slate-800">
+        <button onClick={handleLogout} className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-bold bg-slate-800 text-red-400 hover:bg-red-500 hover:text-white transition-colors">
+          <LogOut className="w-4 h-4" /> Đăng xuất
+        </button>
+      </div>
+    </aside>
+  );
 
-        {loading ? (
-          <div className="text-center py-20 text-gray-500 font-medium flex flex-col items-center justify-center gap-3">
-            <div className="w-8 h-8 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin"></div>
-            Đang tải dữ liệu...
+  // ================= TAB 1: GIÁM SÁT VẬN HÀNH (CÓ DATE PICKER) =================
+  const renderDashboard = () => {
+    const utilizationData = [
+      { name: "07:00", active: 10 }, { name: "09:00", active: 35 }, { name: "13:00", active: 40 }, { name: "15:00", active: 20 }
+    ];
+    const damageData = [
+      { name: "Bình thường", value: 300 }, { name: "Hỏng do khách", value: 5 }, { name: "Hao mòn", value: 15 }
+    ];
+
+    return (
+      <div className="space-y-6 pb-10">
+        {/* Header & Lọc thời gian có Date Picker */}
+        <div className="flex flex-col xl:flex-row justify-between items-start xl:items-end gap-4 bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
+          <div>
+            <h2 className="text-2xl font-black text-gray-900">Giám sát Trực tiếp</h2>
+            <p className="text-gray-500 text-sm mt-1">Cập nhật trạng thái phòng và thiết bị realtime.</p>
           </div>
-        ) : (
-          <AnimatePresence mode="wait">
-            {activeTab === "labs" && (
-              <motion.div
-                key="labs-tab"
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -10 }}
-                className="grid grid-cols-1 lg:grid-cols-3 gap-8"
-              >
-                {/* Form Thêm */}
-                <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 h-fit">
-                  <h2 className="text-xl font-bold mb-6 flex items-center gap-2 text-blue-900">
-                    <Plus className="w-5 h-5 text-blue-600" /> Thêm Phòng Mới
-                  </h2>
-                  <form onSubmit={handleAddLab} className="space-y-4">
-                    <div>
-                      <label className="block text-sm font-semibold text-gray-700 mb-1">
-                        Tên phòng Lab *
-                      </label>
-                      <input
-                        type="text"
-                        name="title"
-                        value={newLab.title}
-                        onChange={handleInputChange}
-                        className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600 outline-none transition-all"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-semibold text-gray-700 mb-1">
-                        Sức chứa *
-                      </label>
-                      <input
-                        type="text"
-                        name="capacity"
-                        value={newLab.capacity}
-                        onChange={handleInputChange}
-                        className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600 outline-none transition-all"
-                        placeholder="VD: 40 Sinh viên"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-semibold text-gray-700 mb-1">
-                        Cấu hình / Thiết bị
-                      </label>
-                      <input
-                        type="text"
-                        name="priceText"
-                        value={newLab.priceText}
-                        onChange={handleInputChange}
-                        className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600 outline-none transition-all"
-                        placeholder="VD: Màn chiếu, Đèn LED"
-                      />
-                    </div>
+          <div className="flex flex-wrap items-center gap-3 w-full xl:w-auto">
+            <button className="flex-1 sm:flex-none flex items-center justify-center gap-2 bg-slate-900 text-white px-4 py-2.5 rounded-xl text-sm font-bold shadow-md hover:bg-black transition-colors">
+              <QrCode className="w-4 h-4" /> Quét mã QR
+            </button>
+            <div className="flex bg-gray-100 p-1 rounded-xl border border-gray-200 w-full sm:w-auto items-center overflow-x-auto scrollbar-hide">
+              {[{ id: "today", label: "Hôm nay" }, { id: "yesterday", label: "Hôm qua" }, { id: "7days", label: "7 Ngày" }].map(f => (
+                <button key={f.id} onClick={() => { setTimeFilter(f.id as TimeFilter); setCustomDate(""); }}
+                  className={`px-4 py-1.5 text-sm font-bold rounded-lg whitespace-nowrap transition-all ${timeFilter === f.id && !customDate ? "bg-white text-emerald-600 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}
+                >{f.label}</button>
+              ))}
+              <div className="h-4 w-px bg-gray-300 mx-2"></div>
+              {/* DATE PICKER TÙY CHỌN NGÀY */}
+              <input 
+                type="date" 
+                value={customDate}
+                onChange={(e) => { setCustomDate(e.target.value); setTimeFilter("custom"); }}
+                className={`px-3 py-1 text-sm font-bold rounded-lg bg-transparent outline-none cursor-pointer ${customDate ? "text-emerald-600 bg-white shadow-sm" : "text-gray-500"}`}
+              />
+            </div>
+          </div>
+        </div>
 
-                    {/* KHỐI NHẬP GIÁ TIỀN */}
-                    <div>
-                      <label className="block text-sm font-semibold text-gray-700 mb-1">
-                        Giá tiền *
-                      </label>
-                      <input
-                        type="text"
-                        name="price"
-                        value={newLab.price}
-                        onChange={handleInputChange}
-                        className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600 outline-none transition-all"
-                        placeholder="VD: 400.000đ/giờ"
-                      />
-                    </div>
+        {/* Báo cáo thống kê... (Giữ nguyên như cũ) */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
+            <p className="text-xs font-bold text-gray-500 mb-1">ĐANG SỬ DỤNG</p>
+            <h3 className="text-2xl font-black text-emerald-600">18/25 <span className="text-sm font-medium text-gray-400">Phòng</span></h3>
+          </div>
+          <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
+            <p className="text-xs font-bold text-gray-500 mb-1">CHỜ DUYỆT</p>
+            <h3 className="text-2xl font-black text-amber-500">12 <span className="text-sm font-medium text-gray-400">Đơn</span></h3>
+          </div>
+          <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
+            <p className="text-xs font-bold text-gray-500 mb-1">THIẾT BỊ RỜI KHO</p>
+            <h3 className="text-2xl font-black text-blue-600">45 <span className="text-sm font-medium text-gray-400">Món</span></h3>
+          </div>
+          <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
+            <p className="text-xs font-bold text-gray-500 mb-1">BẢO TRÌ ĐỘT XUẤT</p>
+            <h3 className="text-2xl font-black text-red-500">2 <span className="text-sm font-medium text-gray-400">Sự cố</span></h3>
+          </div>
+        </div>
 
-                    <div>
-                      <label className="block text-sm font-semibold text-gray-700 mb-1">
-                        Hình ảnh phòng Lab *
-                      </label>
-                      <input
-                        type="file"
-                        accept="image/*"
-                        onChange={handleImageUpload}
-                        className="w-full text-sm text-gray-500 file:mr-4 file:py-2.5 file:px-4 file:rounded-xl file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 cursor-pointer"
-                      />
-                      {uploadingImage && (
-                        <p className="text-xs text-blue-500 mt-2 font-medium animate-pulse">
-                          Đang tải ảnh lên server...
-                        </p>
-                      )}
-                      {newLab.imageUrl && !uploadingImage && (
-                        <div className="mt-3 relative w-full h-32 rounded-xl overflow-hidden border border-gray-200">
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img
-                            src={newLab.imageUrl}
-                            alt="Preview"
-                            className="w-full h-full object-cover"
-                          />
-                        </div>
-                      )}
-                    </div>
-                    <button
-                      type="submit"
-                      className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3.5 rounded-xl text-sm mt-2 shadow-lg shadow-blue-600/20 active:scale-[0.98] transition-all"
-                    >
-                      LƯU PHÒNG LAB
-                    </button>
-                  </form>
-                </div>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm flex flex-col h-[350px]">
+            <div className="p-4 border-b border-gray-100"><h3 className="font-bold text-gray-900 flex items-center gap-2"><Clock className="w-5 h-5 text-emerald-500"/> Ca sắp diễn ra (Trong 2h)</h3></div>
+            <div className="p-4 overflow-y-auto space-y-3">
+               <div className="text-center text-sm text-gray-500 py-10">Hiển thị lịch sắp tới...</div>
+            </div>
+          </div>
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm flex flex-col h-[350px]">
+            <div className="p-4 border-b border-gray-100"><h3 className="font-bold text-gray-900 flex items-center gap-2"><AlertTriangle className="w-5 h-5 text-amber-500"/> Đơn chờ duyệt khẩn</h3></div>
+            <div className="p-4 overflow-y-auto space-y-3">
+                <div className="text-center text-sm text-gray-500 py-10">Không có đơn chờ duyệt.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
 
-                {/* Danh Sách */}
-                <div className="lg:col-span-2 bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
-                  <h2 className="text-xl font-bold mb-6 text-gray-900">
-                    Danh Sách Phòng
-                  </h2>
-                  <div className="space-y-4">
-                    {labs.map((lab) => (
-                      <div
-                        key={lab.id}
-                        className="flex items-center justify-between p-4 border border-gray-100 rounded-xl gap-4 hover:bg-gray-50 transition-colors group"
-                      >
-                        <div className="flex items-center gap-4">
-                          <div className="relative w-20 h-20 rounded-lg overflow-hidden bg-gray-100 flex-shrink-0">
-                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img
-                              src={lab.imageUrl}
-                              alt={lab.title}
-                              className="object-cover w-full h-full group-hover:scale-110 transition-transform duration-500"
-                            />
-                          </div>
-                          <div>
-                            <h3 className="font-bold text-gray-900 text-base">
-                              {lab.title}
-                            </h3>
-                            <div className="flex flex-wrap gap-x-4 gap-y-2 text-xs text-gray-500 mt-2">
-                              <span className="flex items-center gap-1">
-                                <Users className="w-3.5 h-3.5" /> {lab.capacity}
-                              </span>
-                              {lab.priceText && (
-                                <span className="flex items-center gap-1">
-                                  <Wrench className="w-3.5 h-3.5" />{" "}
-                                  {lab.priceText}
-                                </span>
-                              )}
-                              {lab.price && (
-                                <span className="flex items-center gap-1 font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded-md">
-                                  <Banknote className="w-3.5 h-3.5" />{" "}
-                                  {lab.price}
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                        <button
-                          onClick={() => handleDeleteLab(lab.id)}
-                          className="p-2.5 text-red-500 hover:bg-red-50 rounded-xl transition-colors"
+  // ================= TAB 2: LỊCH ĐIỀU PHỐI (CÓ QUICK BOOK) =================
+  const renderTimeline = () => {
+    const startHour = 7;
+    const endHour = 21;
+    const totalMins = (endHour - startHour) * 60;
+    const timeHeaders = [];
+    for (let i = startHour; i <= endHour; i++) timeHeaders.push(`${i.toString().padStart(2, '0')}:00`);
+
+    const getStatusColor = (status: string) => {
+      if (status === 'checked-in') return 'bg-emerald-500 border-emerald-600 text-white';
+      if (status === 'confirmed') return 'bg-blue-500 border-blue-600 text-white';
+      if (status === 'pending') return 'bg-amber-400 border-amber-500 text-amber-950';
+      return 'bg-gray-400 text-white';
+    };
+
+    return (
+      <div className="space-y-6 flex flex-col h-[calc(100vh-6rem)]">
+        <div className="flex justify-between items-end shrink-0">
+          <div>
+            <h2 className="text-2xl font-black text-gray-900">Lịch Điều Phối (Excel Grid)</h2>
+            <p className="text-gray-500 mt-1 flex gap-4 text-sm font-medium">
+              <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-emerald-500"></span> Đang dùng</span>
+              <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-blue-500"></span> Đã duyệt</span>
+              <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-gray-200"></span> Lịch trống (Click để đặt)</span>
+            </p>
+          </div>
+          <div className="flex items-center gap-3">
+             <input type="date" defaultValue={new Date().toISOString().split('T')[0]} className="px-4 py-2 border border-gray-200 rounded-xl text-sm font-bold bg-white" />
+          </div>
+        </div>
+
+        <div className="flex-1 bg-white border border-gray-200 rounded-2xl overflow-auto relative shadow-sm">
+          <div className="min-w-[1200px]">
+            {/* Header Khung giờ */}
+            <div className="flex sticky top-0 z-20 bg-slate-50 border-b border-gray-200 shadow-sm">
+              <div className="w-64 shrink-0 sticky left-0 z-30 bg-slate-50 border-r border-gray-200 p-4 font-black text-gray-700 flex items-center justify-between">
+                Danh sách Phòng
+              </div>
+              <div className="flex-1 relative flex">
+                {timeHeaders.map((time, idx) => (
+                  <div key={idx} className="flex-1 border-r border-gray-100 p-3 text-xs font-bold text-gray-400 text-center relative">
+                    <span className="absolute -left-3 top-3 bg-slate-50 px-1">{time}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Các Hàng: Từng Phòng Lab (HIỂN THỊ CẢ PHÒNG TRỐNG) */}
+            {rooms.map((room) => {
+              const roomBookings = bookings.filter(b => b.roomId === room.id);
+
+              return (
+                <div key={room.id} className="flex border-b border-gray-100 group hover:bg-emerald-50/30 transition-colors h-24">
+                  <div className="w-64 shrink-0 sticky left-0 z-10 bg-white group-hover:bg-emerald-50/50 border-r border-gray-200 p-4 flex flex-col justify-center">
+                    <h3 className="font-bold text-gray-900 leading-tight">{room.name}</h3>
+                    <p className="text-xs text-gray-500 font-medium mt-1"><MapPin className="w-3 h-3 inline" /> {room.building} - {room.floor}</p>
+                    <p className="text-xs text-gray-400 mt-0.5"><Users className="w-3 h-3 inline" /> {room.capacity} người</p>
+                  </div>
+
+                  {/* Khu vực lưới: Click background để gọi Modal Quick Book */}
+                  <div 
+                    className="flex-1 relative bg-[url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAGXRFWHRTb2Z0d2FyZQBBZG9iZSBJbWFnZVJlYWR5ccllPAAAABZJREFUeNpi2rVq1X8GBgYQwgcsAAgwAA9GA9/5o7wLAAAAAElFTkSuQmCC')] cursor-pointer hover:bg-emerald-50/20"
+                    onClick={() => {
+                      setQuickBookData(prev => ({ ...prev, roomId: room.id, roomName: room.name }));
+                      setShowQuickBook(true);
+                    }}
+                    title="Click vào ô trống để Đặt phòng nhanh"
+                  >
+                    {roomBookings.map((booking) => {
+                      const [h, m] = booking.startTime.split(':').map(Number);
+                      const startMins = (h - startHour) * 60 + m;
+                      const leftPct = (startMins / totalMins) * 100;
+                      const widthPct = (booking.durationMins / totalMins) * 100;
+
+                      return (
+                        <div 
+                          key={booking.id} 
+                          className={`absolute top-2 bottom-2 ${getStatusColor(booking.status)} border rounded-lg p-2 shadow-sm z-10 flex flex-col justify-center cursor-default`}
+                          style={{ left: `${leftPct}%`, width: `${widthPct}%` }}
+                          onClick={(e) => { e.stopPropagation(); /* Mở form sửa nếu cần */ }}
                         >
-                          <Trash2 className="w-5 h-5" />
-                        </button>
-                      </div>
-                    ))}
-                    {labs.length === 0 && (
-                      <div className="flex flex-col items-center justify-center py-12 text-gray-400">
-                        <Layers className="w-12 h-12 mb-3 text-gray-200" />
-                        <p className="text-sm font-medium">
-                          Chưa có phòng nào trong cơ sở dữ liệu.
-                        </p>
-                      </div>
-                    )}
+                          <p className="text-xs font-bold truncate leading-tight">{booking.customerName}</p>
+                          <p className="text-[10px] opacity-90 truncate font-medium">{booking.startTime}</p>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* MODAL ĐẶT PHÒNG NHANH (QUICK BOOK) */}
+        {showQuickBook && (
+          <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+            <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
+              <div className="bg-emerald-600 p-4 flex justify-between items-center text-white">
+                <h3 className="font-black text-lg">Đặt phòng nhanh (Walk-in)</h3>
+                <button onClick={() => setShowQuickBook(false)}><X className="w-5 h-5 hover:bg-emerald-700 rounded-full" /></button>
+              </div>
+              <form onSubmit={handleQuickBookSubmit} className="p-6 space-y-4">
+                <div className="p-3 bg-emerald-50 border border-emerald-100 rounded-xl mb-4">
+                  <p className="text-xs font-bold text-emerald-700 uppercase">Phòng được chọn:</p>
+                  <p className="font-black text-emerald-900">{quickBookData.roomName}</p>
+                </div>
+                <div>
+                  <label className="block text-sm font-bold text-gray-700 mb-1">Tên khách hàng / GV *</label>
+                  <input type="text" required value={quickBookData.customerName} onChange={e => setQuickBookData({...quickBookData, customerName: e.target.value})} className="w-full px-4 py-2 border rounded-lg" placeholder="Nhập tên..." />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-bold text-gray-700 mb-1">Giờ bắt đầu</label>
+                    <input type="time" required value={quickBookData.startTime} onChange={e => setQuickBookData({...quickBookData, startTime: e.target.value})} className="w-full px-4 py-2 border rounded-lg" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-gray-700 mb-1">Thời lượng (Phút)</label>
+                    <input type="number" required value={quickBookData.durationMins} onChange={e => setQuickBookData({...quickBookData, durationMins: parseInt(e.target.value)})} className="w-full px-4 py-2 border rounded-lg" />
+                  </div>
+                </div>
+                <button type="submit" className="w-full mt-4 bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 rounded-xl shadow-md transition-all">
+                  Tạo ca & Check-in ngay
+                </button>
+              </form>
+            </motion.div>
+          </div>
         )}
       </div>
+    );
+  };
+
+  // ================= TAB 3: BÁO CÁO (REPORTS) =================
+  const renderReports = () => (
+    <div className="space-y-6 max-w-4xl mx-auto">
+      <div>
+        <h2 className="text-2xl font-black text-gray-900">Báo cáo Sự cố & Vận hành</h2>
+        <p className="text-gray-500 mt-1">Gửi trực tiếp các vấn đề phát sinh lên Ban quản trị (Admin).</p>
+      </div>
+
+      <form className="bg-white p-6 md:p-8 rounded-2xl shadow-sm border border-gray-200">
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+              <label className="block text-sm font-bold text-gray-700 mb-1">Loại báo cáo</label>
+              <select className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-emerald-500">
+                <option>Hỏng hóc thiết bị</option>
+                <option>Cơ sở hạ tầng (Điện, Nước, Điều hòa)</option>
+                <option>Phản ánh của Khách hàng</option>
+                <option>Đề xuất mua sắm mới</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-bold text-gray-700 mb-1">Mức độ nghiêm trọng</label>
+              <select className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-red-500">
+                <option>Bình thường</option>
+                <option>Khẩn cấp (Cần xử lý ngay)</option>
+              </select>
+            </div>
+          </div>
+          <div>
+            <label className="block text-sm font-bold text-gray-700 mb-1">Tiêu đề báo cáo</label>
+            <input type="text" className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-emerald-500" placeholder="VD: Hỏng điều hòa phòng Lab 01" />
+          </div>
+          <div>
+            <label className="block text-sm font-bold text-gray-700 mb-1">Chi tiết mô tả</label>
+            <textarea rows={5} className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-emerald-500" placeholder="Mô tả rõ tình trạng sự cố..."></textarea>
+          </div>
+          <div>
+            <label className="block text-sm font-bold text-gray-700 mb-1">Đính kèm ảnh hiện trường</label>
+            <input type="file" className="text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-sm file:font-semibold file:bg-emerald-50 file:text-emerald-700" />
+          </div>
+          <button type="button" onClick={() => alert("Đã gửi báo cáo lên Admin!")} className="w-full md:w-auto px-8 py-3 bg-slate-900 hover:bg-black text-white font-bold rounded-xl shadow-md">
+            Gửi Báo Cáo
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+
+  // ================= TAB 4: TRA CỨU (LOOKUP) =================
+  const renderLookup = () => (
+    <div className="space-y-8 max-w-5xl mx-auto">
+      <div className="text-center py-8">
+        <h2 className="text-3xl font-black text-gray-900 mb-4">Hệ thống Tra cứu Nhanh</h2>
+        <div className="relative max-w-2xl mx-auto">
+          <Search className="w-6 h-6 absolute left-4 top-1/2 -translate-y-1/2 text-emerald-600" />
+          <input 
+            type="text" 
+            placeholder="Nhập Số điện thoại, Mã đơn đặt phòng, hoặc Serial Thiết bị..." 
+            className="w-full pl-12 pr-4 py-4 text-lg bg-white border-2 border-emerald-100 rounded-2xl focus:outline-none focus:border-emerald-500 shadow-sm"
+          />
+          <button className="absolute right-2 top-1/2 -translate-y-1/2 bg-emerald-600 text-white font-bold px-6 py-2 rounded-xl">Tìm</button>
+        </div>
+      </div>
+
+      <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-sm">
+        <div className="p-4 bg-gray-50 border-b border-gray-200 font-bold text-gray-700">Kết quả tìm kiếm mẫu</div>
+        <table className="w-full text-left text-sm">
+          <tbody>
+            <tr className="border-b hover:bg-gray-50">
+              <td className="p-4"><span className="bg-blue-100 text-blue-700 text-xs font-bold px-2 py-1 rounded">Mã Đơn</span></td>
+              <td className="p-4 font-bold">BK-99120</td>
+              <td className="p-4 text-gray-600">Khách: Lê Thị B - SĐT: 0987654321</td>
+              <td className="p-4 text-emerald-600 font-bold">Hoàn tất</td>
+            </tr>
+            <tr className="hover:bg-gray-50">
+              <td className="p-4"><span className="bg-amber-100 text-amber-700 text-xs font-bold px-2 py-1 rounded">Thiết bị</span></td>
+              <td className="p-4 font-bold">SN: PROJ-4K-01</td>
+              <td className="p-4 text-gray-600">Máy chiếu 4K Sony</td>
+              <td className="p-4 text-amber-600 font-bold">Đang cho mượn</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="flex h-screen bg-slate-50 font-sans overflow-hidden">
+      {renderSidebar()}
+      
+      <main className="flex-1 overflow-y-auto p-4 md:p-8 lg:p-10">
+        {/* Mobile Header */}
+        <div className="md:hidden flex justify-between items-center mb-6 bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
+           <h1 className="text-xl font-black flex items-center gap-2"><ShieldCheck className="w-6 h-6 text-emerald-500" /> Manager<span className="text-emerald-500">Ops</span></h1>
+           <button onClick={handleLogout} className="p-2 text-red-500 bg-red-50 rounded-lg"><LogOut className="w-5 h-5"/></button>
+        </div>
+        
+        {/* Mobile Nav Tabs */}
+        <div className="md:hidden flex overflow-x-auto gap-2 mb-6 pb-2 scrollbar-hide">
+          {[
+            { id: "dashboard", label: "Giám sát" }, { id: "timeline", label: "Điều phối" },
+            { id: "reports", label: "Báo cáo" }, { id: "lookup", label: "Tra cứu" }
+          ].map(t => (
+            <button key={t.id} onClick={() => setActiveMenu(t.id as MenuTab)}
+              className={`px-4 py-2 rounded-xl text-sm font-bold whitespace-nowrap ${activeMenu === t.id ? "bg-emerald-600 text-white" : "bg-white text-gray-500 border border-gray-200"}`}
+            >{t.label}</button>
+          ))}
+        </div>
+
+        <AnimatePresence mode="wait">
+          {loading ? (
+            <div className="flex justify-center items-center py-20">
+               <div className="w-10 h-10 border-4 border-emerald-200 border-t-emerald-600 rounded-full animate-spin"></div>
+            </div>
+          ) : (
+            <motion.div key={activeMenu} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2 }}>
+              {activeMenu === "dashboard" && renderDashboard()}
+              {activeMenu === "timeline" && renderTimeline()}
+              {activeMenu === "reports" && renderReports()}
+              {activeMenu === "lookup" && renderLookup()}
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </main>
     </div>
   );
 }

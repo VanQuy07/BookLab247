@@ -65,15 +65,15 @@ export default function LandingPage() {
           <nav className="hidden md:flex gap-8 text-sm font-bold text-gray-600">
             <Link href="/" className="text-blue-600">Trang chủ</Link>
             {/* Chuyển hướng sang trang danh sách phòng */}
-            <Link href="/labs" className="hover:text-blue-600 transition-colors">Danh sách phòng</Link>
-            <Link href="/devices" className="hover:text-blue-600 transition-colors">Thiết bị</Link>
+            <Link href="/dashboard/user/labs" className="hover:text-blue-600 transition-colors">Danh sách phòng</Link>
+            <Link href="/dashboard/user/device" className="hover:text-blue-600 transition-colors">Thiết bị</Link>
           </nav>
           <div className="flex items-center gap-3">
             <Link href="/login" className="hidden md:flex items-center font-bold text-sm text-gray-600 hover:text-blue-600 transition-colors">
               Đăng nhập
             </Link>
             <Link href="/register" className="px-5 py-2 text-sm font-bold bg-blue-600 text-white rounded-full hover:bg-blue-700 transition-all shadow-md hover:shadow-lg">
-              Bắt đầu ngay
+              Dăng kí
             </Link>
           </div>
         </div>
