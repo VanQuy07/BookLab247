@@ -44,11 +44,26 @@ export default function AdminDashboardPage() {
     }
   }, [router]);
 
+  // const loadLabs = async () => {
+  //   try {
+  //     setLoading(true);
+  //     const data = await labService.getAllLabs();
+  //     setLabs(data);
+  //   } catch (error) {
+  //     console.error(error);
+  //     alert("Không thể kết nối đến máy chủ!");
+  //   } finally {
+  //     setLoading(false);
+  //   }
+  // };
+
   const loadLabs = async () => {
     try {
       setLoading(true);
-      const data = await labService.getAllLabs();
-      setLabs(data);
+      const response = await labService.getAllLabs(0, 100); 
+      
+      setLabs(response.data || []); 
+      
     } catch (error) {
       console.error(error);
       alert("Không thể kết nối đến máy chủ!");
