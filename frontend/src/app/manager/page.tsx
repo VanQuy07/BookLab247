@@ -167,17 +167,28 @@ export default function ManagerDashboardPage() {
     }
   };
 
-  const handleQuickBookSubmit = (e: React.FormEvent) => {
+  // Chuyển hàm thành async để gọi API
+  const handleQuickBookSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    // 1. KIỂM TRA THỜI LƯỢNG
     const durationMins = timeToMins(quickBookData.endTime) - timeToMins(quickBookData.startTime);
     if(durationMins <= 0) return alert("Giờ kết thúc phải lớn hơn giờ bắt đầu!");
 
+    // 2. KIỂM TRA QUÁ KHỨ (Ghép selectedDate và startTime)
+    const bookingDateTime = new Date(`${selectedDate}T${quickBookData.startTime}`);
+    const now = new Date();
+    if (bookingDateTime < now) {
+      return alert("⛔ LỖI THỜI GIAN!\nKhông thể đặt lịch cho một thời điểm trong quá khứ. Vui lòng chọn khung giờ khác.");
+    }
+
     const targetId = quickBookData.roomId || rooms[0]?.id || rooms[0]?._id || "";
+    
+    // 3. KIỂM TRA TRÙNG LỊCH (FRONTEND VALIDATION)
     const newStart = timeToMins(quickBookData.startTime);
     const newEndWithBuffer = newStart + durationMins + 15;
     const roomBookings = bookings.filter(b => b.roomId === targetId);
 
-    // Vòng lặp check trùng và hiển thị alert chi tiết khung giờ
     for (const existBooking of roomBookings) {
       const existStart = timeToMins(existBooking.startTime);
       const existEndMins = existStart + existBooking.durationMins;
@@ -190,43 +201,91 @@ export default function ManagerDashboardPage() {
         return alert(
           `⛔ LỖI TRÙNG LỊCH PHÒNG!\n\n` +
           `Phòng này đã có lịch đặt từ ${existBooking.startTime} đến ${existEndTimeStr} ` +
-          `(Thời gian dọn dẹp kéo dài tới ${existEndBufferStr}).\n` +
-          `Bởi khách hàng: [${existBooking.customerName}]\n\n` +
-          `Vui lòng chọn khung giờ khác hoặc đổi sang phòng trống!`
+          `(Dọn dẹp tới ${existEndBufferStr}).\n` +
+          `Bởi khách hàng: [${existBooking.customerName}]`
         );
       }
     }
 
+    // 4. CHUẨN BỊ DỮ LIỆU ĐỂ GỬI LÊN BACKEND
     const borrowedEquipments: BorrowedEquipment[] = Object.entries(quickBookData.equipments).map(
       ([id, data]) => ({ id, name: data.name, quantity: data.quantity })
     );
 
-    const newBooking: BookingItem = {
-      id: `b${Date.now()}`,
-      roomId: targetId,
-      customerName: quickBookData.customerName,
+    const payload = {
+      room_id: targetId,
+      customer_name: quickBookData.customerName,
       phone: quickBookData.phone,
-      status: "checked-in", 
-      startTime: quickBookData.startTime,
-      durationMins: durationMins,
-      bufferMins: 15, 
+      date: selectedDate, // Phải gửi kèm ngày đang chọn
+      start_time: quickBookData.startTime,
+      duration_mins: durationMins,
+      buffer_mins: 15,
       note: quickBookData.note || "Khách vãng lai",
       equipments: borrowedEquipments
     };
 
-    const updatedEquipments = equipments.map(eq => {
-      const eqId = eq.id || eq._id || "";
-      if (quickBookData.equipments[eqId]) {
-        return { ...eq, inUseQuantity: (eq.inUseQuantity || 0) + quickBookData.equipments[eqId].quantity };
-      }
-      return eq;
-    });
+    // 5. GỌI API LƯU VÀO MONGODB
+    try {
+      // Hiển thị trạng thái đang xử lý (tùy chọn)
+      const submitBtn = document.getElementById("btn-submit-quickbook") as HTMLButtonElement;
+      if(submitBtn) { submitBtn.disabled = true; submitBtn.innerText = "Đang lưu..."; }
 
-    setEquipments(updatedEquipments);
-    setBookings([...bookings, newBooking]);
-    setShowQuickBook(false);
-    setQuickBookData({ ...quickBookData, customerName: "", phone: "", equipments: {} });
-    alert("✅ Đã tạo lịch nhanh và check-in thành công!");
+      const response = await fetch(`${API_URL}/bookings`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          // "Authorization": `Bearer ${localStorage.getItem("access_token")}` // Mở dòng này nếu API yêu cầu token
+        },
+        body: JSON.stringify(payload)
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        // Bắt lỗi 409 Conflict từ Redis/MongoDB mà Backend trả về
+        throw new Error(errorData.detail || "Có lỗi xảy ra khi lưu vào Database");
+      }
+
+      const responseData = await response.json();
+
+      // 6. CẬP NHẬT LẠI GIAO DIỆN SAU KHI LƯU THÀNH CÔNG
+      // Tạo object booking mới cho UI dựa trên dữ liệu trả về từ DB
+      const newBooking: BookingItem = {
+        id: responseData.data?.id || `b${Date.now()}`,
+        roomId: targetId,
+        customerName: quickBookData.customerName,
+        phone: quickBookData.phone,
+        status: "checked-in", 
+        startTime: quickBookData.startTime,
+        durationMins: durationMins,
+        bufferMins: 15, 
+        note: quickBookData.note || "Khách vãng lai",
+        equipments: borrowedEquipments
+      };
+
+      // Tự động trừ số lượng thiết bị trên giao diện
+      const updatedEquipments = equipments.map(eq => {
+        const eqId = eq.id || eq._id || "";
+        if (quickBookData.equipments[eqId]) {
+          return { ...eq, inUseQuantity: (eq.inUseQuantity || 0) + quickBookData.equipments[eqId].quantity };
+        }
+        return eq;
+      });
+
+      setEquipments(updatedEquipments);
+      setBookings([...bookings, newBooking]);
+      setShowQuickBook(false);
+      
+      // Xóa trắng form sau khi xong
+      setQuickBookData({ ...quickBookData, customerName: "", phone: "", equipments: {} });
+      alert("✅ Đã lưu ca đặt phòng vào Database thành công!");
+
+    } catch (err: any) {
+      alert(`⛔ LỖI SERVER:\n${err.message}`);
+    } finally {
+      // Nhả nút submit
+      const submitBtn = document.getElementById("btn-submit-quickbook") as HTMLButtonElement;
+      if(submitBtn) { submitBtn.disabled = false; submitBtn.innerText = "Xác nhận Check-in"; }
+    }
   };
 
   const changeDate = (days: number) => {
