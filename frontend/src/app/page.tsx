@@ -1,8 +1,9 @@
 "use client";
 
-import React from "react";
+import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import { motion } from "framer-motion";
+import { useRouter } from "next/navigation";
 import {
   Hexagon,
   LogIn,
@@ -16,7 +17,10 @@ import {
   MapPin,
   Phone,
   Mail,
-  ArrowRight
+  ArrowRight,
+  ChevronDown, 
+  User, 
+  LogOut
 } from "lucide-react";
 
 // Định nghĩa Type an toàn cho dữ liệu tĩnh
@@ -33,6 +37,27 @@ interface ReviewItem {
 }
 
 export default function LandingPage() {
+  const router = useRouter();
+  const [userName, setUserName] = useState<string | null>(null);
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+
+  // Lấy tên từ localStorage khi trang vừa load xong
+  useEffect(() => {
+    const storedName = localStorage.getItem("user_name");
+    if (storedName) {
+      setUserName(storedName);
+    }
+  }, []);
+
+  // Hàm xử lý Đăng xuất
+  const handleLogout = () => {
+    localStorage.removeItem("access_token");
+    localStorage.removeItem("user_name");
+    setUserName(null);
+    setIsDropdownOpen(false);
+    router.push("/");
+  };
+
   const services: ServiceItem[] = [
     { icon: Zap, title: "Đặt phòng siêu tốc", desc: "Chỉ với 3 cú click chuột, không gian nghiên cứu lý tưởng đã sẵn sàng cho bạn." },
     { icon: Clock, title: "Quản lý Real-time", desc: "Kiểm tra tình trạng phòng và thiết bị theo thời gian thực, không lo trùng lịch." },
@@ -68,13 +93,58 @@ export default function LandingPage() {
             <Link href="/dashboard/user/labs" className="hover:text-blue-600 transition-colors">Danh sách phòng</Link>
             <Link href="/dashboard/user/device" className="hover:text-blue-600 transition-colors">Thiết bị</Link>
           </nav>
-          <div className="flex items-center gap-3">
-            <Link href="/login" className="hidden md:flex items-center font-bold text-sm text-gray-600 hover:text-blue-600 transition-colors">
-              Đăng nhập
-            </Link>
-            <Link href="/register" className="px-5 py-2 text-sm font-bold bg-blue-600 text-white rounded-full hover:bg-blue-700 transition-all shadow-md hover:shadow-lg">
-              Dăng kí
-            </Link>
+          {/* 👇 KHU VỰC NÚT ĐĂNG NHẬP / THÔNG TIN TÀI KHOẢN 👇 */}
+          <div className="flex items-center gap-4 relative">
+            {userName ? (
+              // NẾU ĐÃ ĐĂNG NHẬP: HIỂN THỊ TÊN + DROPDOWN
+              <div className="relative">
+                <button 
+                  onClick={() => setIsDropdownOpen(!isDropdownOpen)}
+                  className="flex items-center gap-2 px-4 py-2 bg-blue-50 text-blue-700 font-semibold rounded-full hover:bg-blue-100 transition-colors"
+                >
+                  <div className="w-7 h-7 bg-blue-600 text-white rounded-full flex items-center justify-center text-sm">
+                    {userName.charAt(0).toUpperCase()}
+                  </div>
+                  {userName}
+                  <ChevronDown className={`w-4 h-4 transition-transform ${isDropdownOpen ? "rotate-180" : ""}`} />
+                </button>
+
+                {/* MENU DROPDOWN */}
+                {isDropdownOpen && (
+                  <div className="absolute right-0 mt-2 w-56 bg-white border border-gray-100 rounded-2xl shadow-xl overflow-hidden z-50">
+                    <div className="p-2">
+                      <Link 
+                        href="/profile" 
+                        className="flex items-center gap-3 px-4 py-3 text-sm font-medium text-gray-700 hover:bg-gray-50 hover:text-blue-600 rounded-xl transition-colors"
+                      >
+                        <User className="w-4 h-4" />
+                        Hồ sơ cá nhân
+                      </Link>
+                      
+                      <div className="h-px bg-gray-100 my-1"></div>
+                      
+                      <button 
+                        onClick={handleLogout}
+                        className="flex items-center gap-3 w-full text-left px-4 py-3 text-sm font-medium text-red-600 hover:bg-red-50 rounded-xl transition-colors"
+                      >
+                        <LogOut className="w-4 h-4" />
+                        Đăng xuất
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              // NẾU CHƯA ĐĂNG NHẬP: HIỂN THỊ 2 NÚT CŨ
+              <div className="flex items-center gap-3">
+                <Link href="/login" className="hidden md:flex items-center font-bold text-sm text-gray-600 hover:text-blue-600 transition-colors">
+                  Đăng nhập
+                </Link>
+                <Link href="/register" className="px-5 py-2 text-sm font-bold bg-blue-600 text-white rounded-full hover:bg-blue-700 transition-all shadow-md hover:shadow-lg">
+                  Đăng kí
+                </Link>
+              </div>
+            )}
           </div>
         </div>
       </header>
