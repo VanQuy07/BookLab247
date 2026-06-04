@@ -31,6 +31,24 @@ interface DeviceItem {
   image: string;
   specs: string[];
   rating: number;
+  totalQuantity: number;
+  managementType: string;
+  roomName: string;
+}
+
+
+interface ApiEquipment {
+  id: string;
+  name: string;
+  category: string;
+  managementType: string;
+  serialNumber?: string;
+  totalQuantity: number;
+  inUseQuantity: number;
+  status: string;
+  imageUrl: string;
+  price?: number;
+  pricePerHour?: number;
 }
 
 type ViewMode = "grid" | "list";
@@ -52,35 +70,40 @@ export default function UserDevicesPage() {
     const fetchDevicesFromAdmin = async () => {
       try {
         setLoading(true);
-        // Địa chỉ API lấy thiết bị (Thay đổi port nếu cần)
-        const response = await fetch("http://localhost:8000/api/v1/equipments");
+        // 1. Gọi song song 2 API
+        const [eqRes, labRes] = await Promise.all([
+          fetch("http://localhost:8000/api/v1/equipments"),
+          fetch("http://localhost:8000/api/v1/labs")
+        ]);
         
-        if (!response.ok) {
-          throw new Error("Không thể kết nối với máy chủ");
-        }
-        
-        const data = await response.json();
+        const eqData = await eqRes.json();
+        const labData = await labRes.json();
 
-        // Ánh xạ (Map) dữ liệu từ Backend sang Frontend UI
-        const formattedDevices: DeviceItem[] = data.map((item: any) => {
-          // Tính toán số lượng tồn kho thực tế
-          const availableQuantity = item.totalQuantity - (item.inUseQuantity || 0);
+        // 2. Map dữ liệu
+        const formattedDevices: DeviceItem[] = eqData.map((item: any) => {
+          const availableQuantity = (item.totalQuantity || 0) - (item.inUseQuantity || 0);
           
-          // Xác định trạng thái
+          // Dò tìm tên phòng từ labData
+          const matchedRoom = labData.find((r: any) => (r.id || r._id) === item.roomId);
+          const roomName = matchedRoom ? matchedRoom.name : "Để trong kho";
+
           let deviceStatus: "available" | "maintenance" | "out_of_stock" = "available";
           if (item.status === "maintenance") deviceStatus = "maintenance";
-          else if (availableQuantity <= 0) deviceStatus = "out_of_stock";
+          else if (item.managementType === "pool" && availableQuantity <= 0) deviceStatus = "out_of_stock";
 
           return {
-            id: item.id,
+            id: item.id || item._id,
             name: item.name,
-            category: item.category,
+            category: item.category || "Vật tư",
             quantity: availableQuantity,
-            price: item.price || 50000, // Giá thuê (nếu backend có thì dùng item.price)
+            totalQuantity: item.totalQuantity || 0,
+            managementType: item.managementType,
+            price: item.pricePerHour || item.price || 0,
             status: deviceStatus,
             image: item.imageUrl || "https://images.unsplash.com/photo-1581092335397-9583eb92d232?auto=format&fit=crop&q=80&w=800",
             specs: item.managementType === "serial" ? [`Serial: ${item.serialNumber}`] : ["Quản lý theo số lượng"],
-            rating: 5.0, // Đánh giá mặc định
+            roomName: roomName, // <--- Gán tên phòng vào đây
+            rating: 5.0,
           };
         });
 
@@ -112,7 +135,7 @@ export default function UserDevicesPage() {
           <nav className="hidden md:flex gap-8 text-sm font-bold text-gray-600">
             <Link href="/" className="hover:text-blue-600 transition-colors">Trang chủ</Link>
             <Link href="/dashboard/user/labs" className="hover:text-blue-600 transition-colors">Danh sách phòng</Link>
-            <Link href="/dashboard/user/device" className="text-blue-600">Thiết bị</Link>
+            <Link href="/dashboard/user/device" className="text-blue-600">Danh Sách Thiết Bị</Link>
           </nav>
           <div className="flex items-center gap-3">
             <Link href="/dashboard/user" className="px-5 py-2 text-sm font-bold bg-blue-600 text-white rounded-full hover:bg-blue-700 transition-all shadow-md">
@@ -253,19 +276,30 @@ export default function UserDevicesPage() {
                           <Star className="w-3.5 h-3.5 fill-yellow-400 text-yellow-400" /> {device.rating}
                         </div>
                       </div>
-                      <div className="flex items-center gap-3 text-sm text-gray-600 mb-4 mt-3">
-                        <span className={`flex items-center gap-1.5 font-bold px-2.5 py-1 rounded-md border ${device.quantity > 0 ? 'bg-blue-50 border-blue-100 text-blue-700' : 'bg-red-50 border-red-100 text-red-600'}`}>
-                          <Package className="w-4 h-4" /> Kho: {device.quantity}
-                        </span>
+                     <div className="space-y-2 mt-4 text-sm text-gray-600 mb-4">
+                        <p className="flex items-center gap-2">
+                          📍 Vị trí: <span className="font-bold text-gray-800">{device.roomName}</span>
+                        </p>
+                        
+                        {/* Nếu là Pool thì hiện số lượng, Serial thì hiện chữ "Đơn chiếc" */}
+                        {device.managementType === 'pool' ? (
+                          <p className="flex items-center gap-2">
+                            📦 Còn lại: <span className="font-bold text-blue-600 text-base">{device.quantity}</span> / {device.totalQuantity} cái
+                          </p>
+                        ) : (
+                          <p className="flex items-center gap-2">
+                            🔢 Phân loại: <span className="font-bold text-gray-800">Đơn chiếc (Serial)</span>
+                          </p>
+                        )}
                       </div>
                       <div className="text-xs text-gray-500 line-clamp-1 mb-4">{device.specs.join(" • ")}</div>
                       <div className="mt-auto pt-4 border-t border-gray-100 flex items-center justify-between">
                         <div>
                           <span className="text-xl font-black text-blue-600">{device.price.toLocaleString('vi-VN')}đ</span>
-                          <span className="text-xs text-gray-500 font-medium ml-1">/ ngày</span>
+                          <span className="text-xs text-gray-500 font-medium ml-1">/ giờ</span>
                         </div>
                         <div className="flex gap-2">
-                          <button disabled={device.status !== 'available'} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white text-sm font-bold rounded-lg shadow-md transition-all active:scale-95">Mượn ngay</button>
+                          <button disabled={device.status !== 'available' || (device.managementType === 'pool' && device.quantity <= 0)} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white text-sm font-bold rounded-lg shadow-md transition-all active:scale-95">Mượn ngay</button>
                         </div>
                       </div>
                     </div>
