@@ -11,7 +11,7 @@ from app.core.security import (
 # IMPORT THÊM CÁC THƯ VIỆN ĐỂ XỬ LÝ GOOGLE AUTH
 from google.oauth2 import id_token
 from google.auth.transport import requests as google_requests
-
+from bson import ObjectId
 router = APIRouter()
 
 
@@ -92,8 +92,11 @@ async def login_user(login_data: LoginRequest):
     if not user or not verify_password(login_data.password, user["password"]):
         raise HTTPException(
             status_code=400, detail="Email hoặc mật khẩu không chính xác!"
-        )
-
+        )  
+     #Chặn đăng nhập nếu bị khoá
+    if not user.get("is_active", True):
+        raise HTTPException(status_code=403, detail="Tài khoản của bạn đã bị khóa do vi phạm nội quy!")
+     
     return {
         "message": "Đăng nhập thành công!",
         "access_token": f"token_cua_{user['_id']}",
@@ -128,7 +131,9 @@ async def google_login(request: GoogleLoginRequest):
 
         # 3. Truy vấn xem email này đã tồn tại trong CSDL MongoDB chưa
         user = await db["users"].find_one({"email": email})
-
+        #Chặn đăng nhập bằng Google nếu bị khoá
+        if user and not user.get("is_active", True):
+            raise HTTPException(status_code=403, detail="Tài khoản của bạn đã bị khóa do vi phạm nội quy!")
         if not user:
             # Nếu chưa có tài khoản -> Tự động đăng ký mới với quyền mặc định là STUDENT
             new_user = {
@@ -174,3 +179,36 @@ async def get_all_users():
         del user["password"]  # Bảo mật: Ẩn mật khẩu khi trả về
         users.append(user)
     return users
+
+# ==========================================
+# 4. API CẬP NHẬT TRẠNG THÁI KHÓA/MỞ KHÓA
+# ==========================================
+class UserStatusUpdate(BaseModel):
+    is_active: bool
+
+@router.patch("/{user_id}/status")
+async def update_user_status(user_id: str, status_data: UserStatusUpdate):
+    try:
+        result = await db["users"].update_one(
+            {"_id": ObjectId(user_id)},
+            {"$set": {"is_active": status_data.is_active}}
+        )
+        if result.modified_count == 0:
+            raise HTTPException(status_code=404, detail="Không tìm thấy tài khoản để cập nhật")
+        return {"message": "Cập nhật trạng thái thành công"}
+    except Exception:
+        raise HTTPException(status_code=400, detail="ID người dùng không hợp lệ")
+
+
+# ==========================================
+# 5. API XÓA TÀI KHOẢN VĨNH VIỄN
+# ==========================================
+@router.delete("/{user_id}")
+async def delete_user(user_id: str):
+    try:
+        result = await db["users"].delete_one({"_id": ObjectId(user_id)})
+        if result.deleted_count == 0:
+            raise HTTPException(status_code=404, detail="Không tìm thấy tài khoản để xóa")
+        return {"message": "Đã xóa vĩnh viễn tài khoản"}
+    except Exception:
+        raise HTTPException(status_code=400, detail="ID người dùng không hợp lệ")
