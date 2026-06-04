@@ -16,7 +16,11 @@ import {
   CheckCircle2,
   AlertCircle,
   Wrench,
-  Hexagon // Đã thêm icon Hexagon cho Logo Navbar
+  Hexagon, // Đã thêm icon Hexagon cho Logo Navbar
+  Monitor,
+  Users,
+  MapPin,
+  Banknote
 } from "lucide-react";
 import Link from "next/link";
 
