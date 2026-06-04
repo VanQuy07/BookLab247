@@ -117,6 +117,16 @@ export default function AdvancedAdminDashboard() {
   // ================= STATE BỘ LỌC THỜI GIAN =================
   const [timeFilter, setTimeFilter] = useState<TimeFilter>("today");
 
+  // ================= STATE DỮ LIỆU TỔNG QUAN THẬT =================
+  const [dashboardStats, setDashboardStats] = useState({
+    totalUsers: 0,
+    totalLabs: 0,
+    totalEquipments: 0,
+    inUseEquipments: 0,
+    userRolesData: [] as any[],
+    equipmentStatusData: [] as any[],
+  });
+
   // ================= STATES DỮ LIỆU CÁC TAB KHÁC =================
   const [rooms, setRooms] = useState<any[]>([
     // Mock 1 vài phòng để test Timeline ngay lập tức
@@ -763,7 +773,64 @@ export default function AdvancedAdminDashboard() {
     };
 
     const currentData = dashboardData[timeFilter];
+    // 1. Lấy thêm một vài con số thật từ Backend để hiển thị chi tiết
+    const availableEq = dashboardStats.totalEquipments - dashboardStats.inUseEquipments;
+    const studentCount = dashboardStats.userRolesData.find((r: any) => r.name === "STUDENT")?.value || 0;
 
+    // 2. Cấu hình đoạn text nhỏ (subValue) linh hoạt theo Tab và DÙNG SỐ THẬT
+    let subValues = { users: "", labs: "", eq: "", inUse: "" };
+
+    switch (timeFilter) {
+      case "yesterday":
+        subValues = { 
+          users: `Hệ thống có ${dashboardStats.totalUsers} tài khoản`, 
+          labs: `Quản lý ${dashboardStats.totalLabs} phòng`, 
+          eq: `Có sẵn ${availableEq} thiết bị`, 
+          inUse: `Chưa thu hồi ${dashboardStats.inUseEquipments} TB` 
+        };
+        break;
+      case "today":
+        subValues = { 
+          users: `Bao gồm ${studentCount} Sinh viên`, 
+          labs: `${dashboardStats.totalLabs} phòng đang hoạt động`, 
+          eq: `Sẵn sàng ${availableEq} thiết bị rảnh`, 
+          inUse: `Đang xuất kho ${dashboardStats.inUseEquipments} TB` 
+        };
+        break;
+      case "7days":
+        subValues = { 
+          users: `Tổng cộng ${dashboardStats.totalUsers} người dùng`, 
+          labs: `Hỗ trợ ${dashboardStats.totalLabs} phòng lab`, 
+          eq: `Tổng kho có ${dashboardStats.totalEquipments} TB`, 
+          inUse: `Đã mượn ${dashboardStats.inUseEquipments} TB` 
+        };
+        break;
+      case "month":
+        subValues = { 
+          users: `Ghi nhận ${dashboardStats.totalUsers} user`, 
+          labs: `Theo dõi ${dashboardStats.totalLabs} phòng`, 
+          eq: `Số lượng: ${dashboardStats.totalEquipments} thiết bị`, 
+          inUse: `Đang dùng ${dashboardStats.inUseEquipments} TB` 
+        };
+        break;
+    }
+
+    // 3. Ghi đè cả TỔNG SỐ và ĐOẠN TEXT NHỎ bằng dữ liệu thật vào giao diện
+    currentData.metrics[0].title = "Tổng người dùng";
+    currentData.metrics[0].value = dashboardStats.totalUsers.toString();
+    currentData.metrics[0].subValue = subValues.users;
+
+    currentData.metrics[1].title = "Tổng phòng Lab";
+    currentData.metrics[1].value = dashboardStats.totalLabs.toString();
+    currentData.metrics[1].subValue = subValues.labs;
+
+    currentData.metrics[2].title = "Tổng thiết bị kho";
+    currentData.metrics[2].value = dashboardStats.totalEquipments.toString();
+    currentData.metrics[2].subValue = subValues.eq;
+
+    currentData.metrics[3].title = "Đang cho mượn";
+    currentData.metrics[3].value = dashboardStats.inUseEquipments.toString();
+    currentData.metrics[3].subValue = subValues.inUse;
     return (
       <div className="space-y-8 pb-10">
         {/* ================= BỘ LỌC THỜI GIAN NHANH ================= */}
@@ -846,7 +913,7 @@ export default function AdvancedAdminDashboard() {
           >
             <div className="mb-6">
               <h3 className="text-lg font-bold text-gray-900">
-                Tần suất đặt phòng
+                Tình trạng Thiết bị kho
               </h3>
               <p className="text-sm text-gray-500">
                 Giúp bố trí nhân sự kỹ thuật & lao công hợp lý.
@@ -855,7 +922,7 @@ export default function AdvancedAdminDashboard() {
             <div className="h-72 w-full">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart
-                  data={currentData.peakHours}
+                  data={dashboardStats.equipmentStatusData}
                   margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
                 >
                   <CartesianGrid
@@ -864,7 +931,7 @@ export default function AdvancedAdminDashboard() {
                     stroke="#f1f5f9"
                   />
                   <XAxis
-                    dataKey="time"
+                    dataKey="name"
                     axisLine={false}
                     tickLine={false}
                     tick={{ fontSize: 12, fill: "#64748b" }}
@@ -884,8 +951,7 @@ export default function AdvancedAdminDashboard() {
                     }}
                   />
                   <Bar
-                    dataKey="bookings"
-                    name="Số ca đặt"
+                    dataKey="value" name="Số lượng"
                     fill="#3b82f6"
                     radius={[6, 6, 0, 0]}
                     barSize={40}
@@ -932,7 +998,7 @@ export default function AdvancedAdminDashboard() {
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
                   <Pie
-                    data={currentData.popularRooms}
+                    data={dashboardStats.userRolesData}
                     cx="50%"
                     cy="45%"
                     innerRadius={60}
