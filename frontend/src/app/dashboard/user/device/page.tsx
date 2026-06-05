@@ -2,21 +2,10 @@
 
 import React, { useState, useEffect } from "react";
 import {
-  Search,
-  SlidersHorizontal,
-  LayoutGrid,
-  List as ListIcon,
-  X,
-  Package,
-  Cpu,
-  Calendar,
-  ChevronDown,
-  ChevronUp,
-  Star,
-  CheckCircle2,
-  AlertCircle,
-  Wrench,
-  Hexagon // Đã thêm icon cho Logo
+  Search, SlidersHorizontal, LayoutGrid, List as ListIcon, X,
+  Package, Cpu, Calendar, ChevronDown, ChevronUp, Star,
+  CheckCircle2, AlertCircle, Wrench, Hexagon, Monitor,
+  Users, MapPin, Banknote
 } from "lucide-react";
 import Link from "next/link";
 
@@ -31,14 +20,15 @@ interface DeviceItem {
   image: string;
   specs: string[];
   rating: number;
+  // Bổ sung các biến quan trọng từ nhánh của bạn
   totalQuantity: number;
   managementType: string;
-  roomName: string;
 }
 
-
+// Định nghĩa kiểu dữ liệu trả về từ API Backend
 interface ApiEquipment {
   id: string;
+  _id?: string;
   name: string;
   category: string;
   managementType: string;
@@ -48,7 +38,7 @@ interface ApiEquipment {
   status: string;
   imageUrl: string;
   price?: number;
-  pricePerHour?: number;
+  pricePerHour?: number; // Cấu trúc giá chuẩn
 }
 
 type ViewMode = "grid" | "list";
@@ -70,40 +60,38 @@ export default function UserDevicesPage() {
     const fetchDevicesFromAdmin = async () => {
       try {
         setLoading(true);
-        // 1. Gọi song song 2 API
-        const [eqRes, labRes] = await Promise.all([
-          fetch("http://localhost:8000/api/v1/equipments"),
-          fetch("http://localhost:8000/api/v1/labs")
-        ]);
+        // SỬA LỖI: Trả lại đúng đường dẫn API equipments thay vì labs của nhánh master
+        const response = await fetch("http://localhost:8000/api/v1/equipments");
         
-        const eqData = await eqRes.json();
-        const labData = await labRes.json();
+        if (!response.ok) {
+          throw new Error("Không thể kết nối với máy chủ");
+        }
+        
+        const data: ApiEquipment[] = await response.json();
 
-        // 2. Map dữ liệu
-        const formattedDevices: DeviceItem[] = eqData.map((item: any) => {
+        // Ánh xạ (Map) dữ liệu từ Backend sang Frontend UI
+        const formattedDevices: DeviceItem[] = data.map((item) => {
+          // Tính toán số lượng tồn kho thực tế
           const availableQuantity = (item.totalQuantity || 0) - (item.inUseQuantity || 0);
           
-          // Dò tìm tên phòng từ labData
-          const matchedRoom = labData.find((r: any) => (r.id || r._id) === item.roomId);
-          const roomName = matchedRoom ? matchedRoom.name : "Để trong kho";
-
+          // Xác định trạng thái thiết bị
           let deviceStatus: "available" | "maintenance" | "out_of_stock" = "available";
           if (item.status === "maintenance") deviceStatus = "maintenance";
-          else if (item.managementType === "pool" && availableQuantity <= 0) deviceStatus = "out_of_stock";
+          else if (item.status === "liquidated" || (item.managementType === 'pool' && availableQuantity <= 0)) deviceStatus = "out_of_stock";
 
           return {
-            id: item.id || item._id,
+            id: item.id || item._id || "",
             name: item.name,
-            category: item.category || "Vật tư",
+            category: item.category || "Chưa phân loại",
             quantity: availableQuantity,
             totalQuantity: item.totalQuantity || 0,
-            managementType: item.managementType,
+            managementType: item.managementType || "pool",
+            // SỬA LỖI: Ưu tiên lấy giá pricePerHour theo đúng thiết kế
             price: item.pricePerHour || item.price || 0,
             status: deviceStatus,
             image: item.imageUrl || "https://images.unsplash.com/photo-1581092335397-9583eb92d232?auto=format&fit=crop&q=80&w=800",
-            specs: item.managementType === "serial" ? [`Serial: ${item.serialNumber}`] : ["Quản lý theo số lượng"],
-            roomName: roomName, // <--- Gán tên phòng vào đây
-            rating: 5.0,
+            specs: item.managementType === "serial" ? [`Serial: ${item.serialNumber || 'N/A'}`] : ["Quản lý theo số lượng"],
+            rating: 5.0, // Mặc định 5 sao
           };
         });
 
@@ -135,10 +123,10 @@ export default function UserDevicesPage() {
           <nav className="hidden md:flex gap-8 text-sm font-bold text-gray-600">
             <Link href="/" className="hover:text-blue-600 transition-colors">Trang chủ</Link>
             <Link href="/dashboard/user/labs" className="hover:text-blue-600 transition-colors">Danh sách phòng</Link>
-            <Link href="/dashboard/user/device" className="text-blue-600">Danh Sách Thiết Bị</Link>
+            <Link href="/dashboard/user/device" className="text-blue-600">Thiết bị</Link>
           </nav>
           <div className="flex items-center gap-3">
-            <Link href="/dashboard/user" className="px-5 py-2 text-sm font-bold bg-blue-600 text-white rounded-full hover:bg-blue-700 transition-all shadow-md">
+            <Link href="/dashboard/user/profile" className="px-5 py-2 text-sm font-bold bg-blue-600 text-white rounded-full hover:bg-blue-700 transition-all shadow-md">
               Hồ sơ của tôi
             </Link>
           </div>
@@ -147,7 +135,7 @@ export default function UserDevicesPage() {
 
       {/* ================= MAIN CONTENT ================= */}
       <div className="p-4 md:p-6 lg:p-8">
-        {/* QUICK BADGES */}
+        {/* QUICK BADGES TỪ MASTER */}
         <div className="max-w-7xl mx-auto mb-6 flex items-center gap-3 overflow-x-auto pb-2 scrollbar-hide">
           <span className="text-sm font-bold text-gray-500 whitespace-nowrap">Danh mục nhanh:</span>
           {["Điện - Điện tử", "Công nghệ thông tin", "Hóa - Sinh", "Vật tư tiêu hao"].map((badge) => (
@@ -158,7 +146,7 @@ export default function UserDevicesPage() {
         </div>
 
         <div className="max-w-7xl mx-auto flex flex-col lg:flex-row gap-8">
-          {/* ================= SIDEBAR FILTER ================= */}
+          {/* ================= SIDEBAR FILTER TỪ MASTER ================= */}
           {isMobileFilterOpen && (
             <div className="fixed inset-0 bg-black/50 z-40 lg:hidden" onClick={() => setIsMobileFilterOpen(false)} />
           )}
@@ -174,7 +162,6 @@ export default function UserDevicesPage() {
               </div>
 
               <div className="p-5 overflow-y-auto space-y-6">
-                {/* 1. Lọc Thời gian */}
                 <div>
                   <button onClick={() => toggleSection('time')} className="flex items-center justify-between w-full font-bold text-gray-900 mb-4">
                     Thời gian cần mượn {openSections['time'] ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
@@ -195,7 +182,6 @@ export default function UserDevicesPage() {
 
                 <hr className="border-gray-100" />
 
-                {/* 2. Loại thiết bị */}
                 <div>
                   <button onClick={() => toggleSection('category')} className="flex items-center justify-between w-full font-bold text-gray-900 mb-3">
                     Nhóm thiết bị {openSections['category'] ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
@@ -240,14 +226,13 @@ export default function UserDevicesPage() {
               </div>
             </div>
 
-            {/* DANH SÁCH THIẾT BỊ */}
             {loading ? (
               <div className="flex flex-col items-center justify-center py-20">
                 <div className="w-10 h-10 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin mb-4"></div>
                 <p className="text-gray-500 font-medium">Đang tải thiết bị từ máy chủ...</p>
               </div>
             ) : devices.length === 0 ? (
-              <div className="text-center py-20 bg-white rounded-2xl border border-gray-200">
+              <div className="text-center py-20 bg-white rounded-2xl border border-gray-200 shadow-sm">
                 <Package className="w-12 h-12 text-gray-300 mx-auto mb-3" />
                 <p className="text-gray-500 font-medium">Chưa có thiết bị nào được lưu trên hệ thống.</p>
               </div>
@@ -276,25 +261,24 @@ export default function UserDevicesPage() {
                           <Star className="w-3.5 h-3.5 fill-yellow-400 text-yellow-400" /> {device.rating}
                         </div>
                       </div>
-                     <div className="space-y-2 mt-4 text-sm text-gray-600 mb-4">
-                        <p className="flex items-center gap-2">
-                          📍 Vị trí: <span className="font-bold text-gray-800">{device.roomName}</span>
-                        </p>
-                        
-                        {/* Nếu là Pool thì hiện số lượng, Serial thì hiện chữ "Đơn chiếc" */}
+                      
+                      {/* KHÔI PHỤC LOGIC HIỂN THỊ CÒN LẠI / ĐƠN CHIẾC TỪ HEAD */}
+                      <div className="flex items-center gap-3 text-sm text-gray-600 mb-4 mt-3">
                         {device.managementType === 'pool' ? (
-                          <p className="flex items-center gap-2">
-                            📦 Còn lại: <span className="font-bold text-blue-600 text-base">{device.quantity}</span> / {device.totalQuantity} cái
-                          </p>
+                          <span className={`flex items-center gap-1.5 font-bold px-2.5 py-1 rounded-md border ${device.quantity > 0 ? 'bg-blue-50 border-blue-100 text-blue-700' : 'bg-red-50 border-red-100 text-red-600'}`}>
+                            <Package className="w-4 h-4" /> Còn lại: {device.quantity} / {device.totalQuantity} cái
+                          </span>
                         ) : (
-                          <p className="flex items-center gap-2">
-                            🔢 Phân loại: <span className="font-bold text-gray-800">Đơn chiếc (Serial)</span>
-                          </p>
+                          <span className="flex items-center gap-1.5 font-bold px-2.5 py-1 rounded-md border bg-gray-50 border-gray-200 text-gray-700">
+                            <Package className="w-4 h-4" /> Phân loại: Đơn chiếc (Serial)
+                          </span>
                         )}
                       </div>
+
                       <div className="text-xs text-gray-500 line-clamp-1 mb-4">{device.specs.join(" • ")}</div>
                       <div className="mt-auto pt-4 border-t border-gray-100 flex items-center justify-between">
                         <div>
+                          {/* SỬA CHỮ / NGÀY THÀNH / GIỜ CHO KHỚP VỚI HỆ THỐNG */}
                           <span className="text-xl font-black text-blue-600">{device.price.toLocaleString('vi-VN')}đ</span>
                           <span className="text-xs text-gray-500 font-medium ml-1">/ giờ</span>
                         </div>

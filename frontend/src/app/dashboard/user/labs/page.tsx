@@ -2,9 +2,26 @@
 
 import React, { useState, useEffect } from "react";
 import {
-  Search, SlidersHorizontal, LayoutGrid, List as ListIcon, X, 
-  MapPin, Users, Calendar, ChevronDown, ChevronUp, Star, 
-  CheckCircle2, AlertCircle, Wrench, Hexagon, Clock
+Search,
+  SlidersHorizontal,
+  LayoutGrid,
+  List as ListIcon,
+  X,
+  MapPin,
+  Users,
+  Calendar,
+  ChevronDown,
+  ChevronUp,
+  Star,
+  CheckCircle2,
+  AlertCircle,
+  Wrench,
+  Hexagon, 
+  Clock,  
+  Package, 
+  Cpu,
+  Monitor,
+  Banknote
 } from "lucide-react";
 import Link from "next/link";
 
