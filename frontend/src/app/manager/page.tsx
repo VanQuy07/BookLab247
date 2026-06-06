@@ -6,7 +6,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   LayoutDashboard, CalendarDays, LogOut,
   X, AlertTriangle, Clock, MapPin, 
-  ShieldCheck, TrendingUp, QrCode, Search, FileText, CheckCircle2, Users, Wrench
+  ShieldCheck, TrendingUp, QrCode, Search, FileText, CheckCircle2, Users, Wrench, DoorOpen, Package
 } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer,
@@ -15,10 +15,23 @@ import {
 
 import { labService } from "../../services/lab";
 
-type MenuTab = "dashboard" | "timeline" | "reports" | "lookup";
+type MenuTab = "dashboard" |"labs" | "equipments" |"timeline" | "reports" | "lookup";
 type TimeFilter = "today" | "yesterday" | "7days" | "month" | "custom";
 
 const COLORS = ["#3b82f6", "#ef4444", "#f59e0b"];
+
+interface EquipmentItem {
+  id: string;
+  _id?: string;
+  name: string;
+  category: string;
+  managementType: string;
+  totalQuantity: number;
+  inUseQuantity: number;
+  status: string;
+  roomId: string;
+  imageUrl?: string;
+}
 
 // ================= DỮ LIỆU MẪU ĐẶT PHÒNG =================
 const INITIAL_BOOKINGS = [
@@ -36,13 +49,17 @@ export default function ManagerDashboardPage() {
   const [customDate, setCustomDate] = useState<string>("");
 
   // States Dữ liệu
-  const [rooms, setRooms] = useState<any[]>([
-    // Mock phòng hiển thị trên lưới (Bao gồm phòng trống)
-    { id: "r1", name: "Lab Máy tính 01", building: "Tòa A", floor: "Tầng 3", capacity: 40 },
-    { id: "r2", name: "Lab Hóa - Sinh 02", building: "Tòa B", floor: "Tầng 1", capacity: 20 },
-    { id: "r3", name: "Phòng Hội thảo VIP", building: "Tòa C", floor: "Tầng 5", capacity: 100 },
-    { id: "r4", name: "Không gian học nhóm", building: "Tòa A", floor: "Tầng 1", capacity: 15 },
-  ]);
+  //const [rooms, setRooms] = useState<any[]>([
+    // // Mock phòng hiển thị trên lưới (Bao gồm phòng trống)
+    // { id: "r1", name: "Lab Máy tính 01", building: "Tòa A", floor: "Tầng 3", capacity: 40 },
+    // { id: "r2", name: "Lab Hóa - Sinh 02", building: "Tòa B", floor: "Tầng 1", capacity: 20 },
+    // { id: "r3", name: "Phòng Hội thảo VIP", building: "Tòa C", floor: "Tầng 5", capacity: 100 },
+    // { id: "r4", name: "Không gian học nhóm", building: "Tòa A", floor: "Tầng 1", capacity: 15 },
+    // Tab nội bộ cho phần Giám sát
+  const [activeInnerTab, setActiveInnerTab] = useState<"overview" | "labs" | "equipments">("overview");
+  const [rooms, setRooms] = useState<any[]>([]);
+  const [equipments, setEquipments] = useState<EquipmentItem[]>([]);
+  
   const [bookings, setBookings] = useState(INITIAL_BOOKINGS);
 
   // States cho Quick Book
@@ -59,11 +76,28 @@ export default function ManagerDashboardPage() {
     else loadData();
   }, [router]);
 
+  // const loadData = async () => {
+  //   try {
+  //     setLoading(true);
+  //     const data = await labService.getAllLabs();
+  //     if(data.length > 0) setRooms(data); 
+  //   } catch (error) {
+  //     console.error(error);
+  //   } finally {
+  //     setLoading(false);
+  //   }
+  // };
+
   const loadData = async () => {
     try {
       setLoading(true);
-      const data = await labService.getAllLabs();
-      if(data.length > 0) setRooms(data); 
+      const [labRes, eqRes] = await Promise.all([
+        fetch(`${API_URL}/labs`),
+        fetch(`${API_URL}/equipments`)
+      ]);
+      
+      if (labRes.ok) setRooms(await labRes.json());
+      if (eqRes.ok) setEquipments(await eqRes.json());
     } catch (error) {
       console.error(error);
     } finally {
@@ -106,6 +140,8 @@ export default function ManagerDashboardPage() {
       <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
         {[
           { id: "dashboard", icon: LayoutDashboard, label: "Giám sát Vận hành" },
+          { id: "labs", icon: DoorOpen, label: "Phòng Thực hành" },
+          { id: "equipments", icon: Package, label: "Thiết Bị" },
           { id: "timeline", icon: CalendarDays, label: "Lịch Điều phối" },
           { id: "reports", icon: FileText, label: "Báo cáo Sự cố" },
           { id: "lookup", icon: Search, label: "Tra cứu Thông tin" },
@@ -126,13 +162,233 @@ export default function ManagerDashboardPage() {
   );
 
   // ================= TAB 1: GIÁM SÁT VẬN HÀNH (CÓ DATE PICKER) =================
+  //const renderDashboard = () => {
+  //   const utilizationData = [
+  //     { name: "07:00", active: 10 }, { name: "09:00", active: 35 }, { name: "13:00", active: 40 }, { name: "15:00", active: 20 }
+  //   ];
+  //   const damageData = [
+  //     { name: "Bình thường", value: 300 }, { name: "Hỏng do khách", value: 5 }, { name: "Hao mòn", value: 15 }
+  //   ];
+
+  //   return (
+  //     <div className="space-y-6 pb-10">
+  //       {/* Header & Lọc thời gian có Date Picker */}
+  //       <div className="flex flex-col xl:flex-row justify-between items-start xl:items-end gap-4 bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
+  //         <div>
+  //           <h2 className="text-2xl font-black text-gray-900">Giám sát Trực tiếp</h2>
+  //           <p className="text-gray-500 text-sm mt-1">Cập nhật trạng thái phòng và thiết bị realtime.</p>
+  //         </div>
+  //         <div className="flex flex-wrap items-center gap-3 w-full xl:w-auto">
+  //           <button className="flex-1 sm:flex-none flex items-center justify-center gap-2 bg-slate-900 text-white px-4 py-2.5 rounded-xl text-sm font-bold shadow-md hover:bg-black transition-colors">
+  //             <QrCode className="w-4 h-4" /> Quét mã QR
+  //           </button>
+  //           <div className="flex bg-gray-100 p-1 rounded-xl border border-gray-200 w-full sm:w-auto items-center overflow-x-auto scrollbar-hide">
+  //             {[{ id: "today", label: "Hôm nay" }, { id: "yesterday", label: "Hôm qua" }, { id: "7days", label: "7 Ngày" }].map(f => (
+  //               <button key={f.id} onClick={() => { setTimeFilter(f.id as TimeFilter); setCustomDate(""); }}
+  //                 className={`px-4 py-1.5 text-sm font-bold rounded-lg whitespace-nowrap transition-all ${timeFilter === f.id && !customDate ? "bg-white text-emerald-600 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}
+  //               >{f.label}</button>
+  //             ))}
+  //             <div className="h-4 w-px bg-gray-300 mx-2"></div>
+  //             {/* DATE PICKER TÙY CHỌN NGÀY */}
+  //             <input 
+  //               type="date" 
+  //               value={customDate}
+  //               onChange={(e) => { setCustomDate(e.target.value); setTimeFilter("custom"); }}
+  //               className={`px-3 py-1 text-sm font-bold rounded-lg bg-transparent outline-none cursor-pointer ${customDate ? "text-emerald-600 bg-white shadow-sm" : "text-gray-500"}`}
+  //             />
+  //           </div>
+  //         </div>
+  //       </div>
+
+  //       {/* Báo cáo thống kê... (Giữ nguyên như cũ) */}
+  //       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+  //         <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
+  //           <p className="text-xs font-bold text-gray-500 mb-1">ĐANG SỬ DỤNG</p>
+  //           <h3 className="text-2xl font-black text-emerald-600">18/25 <span className="text-sm font-medium text-gray-400">Phòng</span></h3>
+  //         </div>
+  //         <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
+  //           <p className="text-xs font-bold text-gray-500 mb-1">CHỜ DUYỆT</p>
+  //           <h3 className="text-2xl font-black text-amber-500">12 <span className="text-sm font-medium text-gray-400">Đơn</span></h3>
+  //         </div>
+  //         <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
+  //           <p className="text-xs font-bold text-gray-500 mb-1">THIẾT BỊ RỜI KHO</p>
+  //           <h3 className="text-2xl font-black text-blue-600">45 <span className="text-sm font-medium text-gray-400">Món</span></h3>
+  //         </div>
+  //         <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
+  //           <p className="text-xs font-bold text-gray-500 mb-1">BẢO TRÌ ĐỘT XUẤT</p>
+  //           <h3 className="text-2xl font-black text-red-500">2 <span className="text-sm font-medium text-gray-400">Sự cố</span></h3>
+  //         </div>
+  //       </div>
+
+  //       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+  //         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm flex flex-col h-[350px]">
+  //           <div className="p-4 border-b border-gray-100"><h3 className="font-bold text-gray-900 flex items-center gap-2"><Clock className="w-5 h-5 text-emerald-500"/> Ca sắp diễn ra (Trong 2h)</h3></div>
+  //           <div className="p-4 overflow-y-auto space-y-3">
+  //              <div className="text-center text-sm text-gray-500 py-10">Hiển thị lịch sắp tới...</div>
+  //           </div>
+  //         </div>
+  //         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm flex flex-col h-[350px]">
+  //           <div className="p-4 border-b border-gray-100"><h3 className="font-bold text-gray-900 flex items-center gap-2"><AlertTriangle className="w-5 h-5 text-amber-500"/> Đơn chờ duyệt khẩn</h3></div>
+  //           <div className="p-4 overflow-y-auto space-y-3">
+  //               <div className="text-center text-sm text-gray-500 py-10">Không có đơn chờ duyệt.</div>
+  //           </div>
+  //         </div>
+  //       </div>
+  //     </div>
+  //   );
+  // };
+
+  const renderLabsTable = () => (
+      <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden animate-in fade-in duration-300">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="bg-gray-50 border-b border-gray-200 text-sm">
+                <th className="p-4 font-bold text-gray-600">Tên Phòng</th>
+                <th className="p-4 font-bold text-gray-600">Vị trí(Tòa Nhà - Tầng)</th>
+                <th className="p-4 font-bold text-gray-600">Sức chứa</th>
+                <th className="p-4 font-bold text-gray-600">Trạng thái</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {rooms.map((room) => (
+                <tr key={room.id || room._id} className="hover:bg-gray-50 transition-colors">
+                  <td className="p-4 font-bold text-gray-900 flex items-center gap-3">
+                    {/* HÌNH ẢNH PHÒNG */}
+                    {room.imageUrl ? (
+                      <img src={room.imageUrl} alt={room.name} className="w-10 h-10 rounded-lg object-cover border border-gray-200 shadow-sm" />
+                    ) : (
+                      <div className="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center text-blue-600"><DoorOpen className="w-5 h-5"/></div>
+                    )}
+                    {room.name}
+                  </td>
+                  <td className="p-4 text-gray-600">{room.building || "Chưa gán"} - {room.floor || "Chưa gán"}</td>
+                  <td className="p-4 text-gray-600">{room.capacity || 0} người</td>
+                  <td className="p-4">
+                    {room.maintenanceMode ? (
+                      <span className="inline-flex items-center gap-1.5 bg-red-50 text-red-700 px-3 py-1 rounded-full text-xs font-bold border border-red-100"><Wrench className="w-3.5 h-3.5"/> Bảo trì</span>
+                    ) : room.isBooked ? (
+                      <span className="inline-flex items-center gap-1.5 bg-amber-50 text-amber-700 px-3 py-1 rounded-full text-xs font-bold border border-amber-100"><Clock className="w-3.5 h-3.5"/> Đã đặt</span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1.5 bg-emerald-50 text-emerald-700 px-3 py-1 rounded-full text-xs font-bold border border-emerald-100"><CheckCircle2 className="w-3.5 h-3.5"/> Sẵn sàng</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  const renderEquipmentsTable = () => (
+      <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden animate-in fade-in duration-300">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="bg-gray-50 border-b border-gray-200 text-sm">
+                <th className="p-4 font-bold text-gray-600">Tên Thiết bị</th>
+                <th className="p-4 font-bold text-gray-600">Danh mục</th>
+                <th className="p-4 font-bold text-gray-600">Số lượng (Kho)</th>
+                <th className="p-4 font-bold text-gray-600">Trạng thái</th>
+                <th className="p-4 font-bold text-gray-600">Vị trí phòng</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {equipments.map((eq) => {
+                const matchedRoom = rooms.find(r => (r.id || r._id) === eq.roomId);
+                const roomName = matchedRoom ? matchedRoom.name : "Trong kho";
+                const availableQty = (eq.totalQuantity || 0) - (eq.inUseQuantity || 0);
+
+                return (
+                  <tr key={eq.id || eq._id} className="hover:bg-gray-50 transition-colors">
+                    <td className="p-4 font-bold text-gray-900 flex items-center gap-3">
+                      {/* HÌNH ẢNH THIẾT BỊ */}
+                      {eq.imageUrl ? (
+                        <img src={eq.imageUrl} alt={eq.name} className="w-10 h-10 rounded-lg object-cover border border-gray-200 shadow-sm" />
+                      ) : (
+                        <div className="w-10 h-10 rounded-lg bg-indigo-100 flex items-center justify-center text-indigo-600"><Package className="w-5 h-5"/></div>
+                      )}
+                      {eq.name}
+                    </td>
+                    <td className="p-4"><span className="bg-gray-100 text-gray-600 px-2.5 py-1 rounded-md text-xs font-bold">{eq.category || "Vật tư"}</span></td>
+                    
+                    {/* CỘT SỐ LƯỢNG */}
+                    <td className="p-4">
+                      {eq.managementType === 'pool' ? (
+                        <span className="inline-flex items-center gap-1.5 bg-blue-50 text-blue-700 px-3 py-1 rounded-full text-xs font-bold border border-blue-100">Còn: {availableQty}/{eq.totalQuantity}</span>
+                      ) : (
+                         <span className="inline-flex items-center gap-1.5 bg-gray-100 text-gray-700 px-3 py-1 rounded-full text-xs font-bold border border-gray-200">Đơn chiếc (Serial)</span>
+                      )}
+                    </td>
+
+                    {/* CỘT TRẠNG THÁI RIÊNG BIỆT */}
+                    <td className="p-4">
+                      {eq.status === 'available' ? (
+                         <span className="inline-flex items-center gap-1.5 bg-emerald-50 text-emerald-700 px-3 py-1 rounded-full text-xs font-bold border border-emerald-100"><CheckCircle2 className="w-3.5 h-3.5"/> Sẵn sàng</span>
+                      ) : eq.status === 'maintenance' ? (
+                        <span className="inline-flex items-center gap-1.5 bg-red-50 text-red-700 px-3 py-1 rounded-full text-xs font-bold border border-red-100"><Wrench className="w-3.5 h-3.5"/> Bảo trì</span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1.5 bg-gray-100 text-gray-700 px-3 py-1 rounded-full text-xs font-bold border border-gray-200">Thanh lý</span>
+                      )}
+                    </td>
+
+                    <td className="p-4 text-gray-600 flex items-center gap-1.5"><MapPin className="w-4 h-4 text-gray-400"/> {roomName}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+
   const renderDashboard = () => {
-    const utilizationData = [
-      { name: "07:00", active: 10 }, { name: "09:00", active: 35 }, { name: "13:00", active: 40 }, { name: "15:00", active: 20 }
-    ];
-    const damageData = [
-      { name: "Bình thường", value: 300 }, { name: "Hỏng do khách", value: 5 }, { name: "Hao mòn", value: 15 }
-    ];
+    // TÍNH TOÁN CON SỐ REAL-TIME TỪ DỮ LIỆU
+    const usedRoomsCount = rooms.filter(l => l.isBooked).length;
+    const maintenanceRoomsCount = rooms.filter(l => l.maintenanceMode).length;
+    const maintenanceEqsCount = equipments.filter(e => e.status === 'maintenance').length;
+    const totalMaintenance = maintenanceRoomsCount + maintenanceEqsCount;
+    const itemsOut = equipments.reduce((sum, eq) => sum + (eq.inUseQuantity || 0), 0);
+
+    const renderOverview = () => (
+      <div className="space-y-6 animate-in fade-in duration-300">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
+            <p className="text-xs font-bold text-gray-500 mb-1">ĐANG SỬ DỤNG</p>
+            <h3 className="text-2xl font-black text-emerald-600">{usedRoomsCount}/{rooms.length} <span className="text-sm font-medium text-gray-400">Phòng</span></h3>
+          </div>
+          <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
+            <p className="text-xs font-bold text-gray-500 mb-1">CHỜ DUYỆT</p>
+            <h3 className="text-2xl font-black text-amber-500">12 <span className="text-sm font-medium text-gray-400">Đơn</span></h3>
+          </div>
+          <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
+            <p className="text-xs font-bold text-gray-500 mb-1">THIẾT BỊ RỜI KHO</p>
+            <h3 className="text-2xl font-black text-blue-600">{itemsOut} <span className="text-sm font-medium text-gray-400">Món</span></h3>
+          </div>
+          <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
+            <p className="text-xs font-bold text-gray-500 mb-1">BẢO TRÌ ĐỘT XUẤT</p>
+            <h3 className="text-2xl font-black text-red-500">{totalMaintenance} <span className="text-sm font-medium text-gray-400">Sự cố</span></h3>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm flex flex-col h-[350px]">
+            <div className="p-4 border-b border-gray-100"><h3 className="font-bold text-gray-900 flex items-center gap-2"><Clock className="w-5 h-5 text-emerald-500"/> Ca sắp diễn ra (Trong 2h)</h3></div>
+            <div className="p-4 overflow-y-auto space-y-3">
+               <div className="text-center text-sm text-gray-500 py-10">Hiển thị lịch sắp tới...</div>
+            </div>
+          </div>
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm flex flex-col h-[350px]">
+            <div className="p-4 border-b border-gray-100"><h3 className="font-bold text-gray-900 flex items-center gap-2"><AlertTriangle className="w-5 h-5 text-amber-500"/> Đơn chờ duyệt khẩn</h3></div>
+            <div className="p-4 overflow-y-auto space-y-3">
+                <div className="text-center text-sm text-gray-500 py-10">Không có đơn chờ duyệt.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+
+    
 
     return (
       <div className="space-y-6 pb-10">
@@ -160,41 +416,6 @@ export default function ManagerDashboardPage() {
                 onChange={(e) => { setCustomDate(e.target.value); setTimeFilter("custom"); }}
                 className={`px-3 py-1 text-sm font-bold rounded-lg bg-transparent outline-none cursor-pointer ${customDate ? "text-emerald-600 bg-white shadow-sm" : "text-gray-500"}`}
               />
-            </div>
-          </div>
-        </div>
-
-        {/* Báo cáo thống kê... (Giữ nguyên như cũ) */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
-            <p className="text-xs font-bold text-gray-500 mb-1">ĐANG SỬ DỤNG</p>
-            <h3 className="text-2xl font-black text-emerald-600">18/25 <span className="text-sm font-medium text-gray-400">Phòng</span></h3>
-          </div>
-          <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
-            <p className="text-xs font-bold text-gray-500 mb-1">CHỜ DUYỆT</p>
-            <h3 className="text-2xl font-black text-amber-500">12 <span className="text-sm font-medium text-gray-400">Đơn</span></h3>
-          </div>
-          <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
-            <p className="text-xs font-bold text-gray-500 mb-1">THIẾT BỊ RỜI KHO</p>
-            <h3 className="text-2xl font-black text-blue-600">45 <span className="text-sm font-medium text-gray-400">Món</span></h3>
-          </div>
-          <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
-            <p className="text-xs font-bold text-gray-500 mb-1">BẢO TRÌ ĐỘT XUẤT</p>
-            <h3 className="text-2xl font-black text-red-500">2 <span className="text-sm font-medium text-gray-400">Sự cố</span></h3>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm flex flex-col h-[350px]">
-            <div className="p-4 border-b border-gray-100"><h3 className="font-bold text-gray-900 flex items-center gap-2"><Clock className="w-5 h-5 text-emerald-500"/> Ca sắp diễn ra (Trong 2h)</h3></div>
-            <div className="p-4 overflow-y-auto space-y-3">
-               <div className="text-center text-sm text-gray-500 py-10">Hiển thị lịch sắp tới...</div>
-            </div>
-          </div>
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm flex flex-col h-[350px]">
-            <div className="p-4 border-b border-gray-100"><h3 className="font-bold text-gray-900 flex items-center gap-2"><AlertTriangle className="w-5 h-5 text-amber-500"/> Đơn chờ duyệt khẩn</h3></div>
-            <div className="p-4 overflow-y-auto space-y-3">
-                <div className="text-center text-sm text-gray-500 py-10">Không có đơn chờ duyệt.</div>
             </div>
           </div>
         </div>
@@ -434,6 +655,7 @@ export default function ManagerDashboardPage() {
         <div className="md:hidden flex overflow-x-auto gap-2 mb-6 pb-2 scrollbar-hide">
           {[
             { id: "dashboard", label: "Giám sát" }, { id: "timeline", label: "Điều phối" },
+            { id: "labs", label: "Phòng" }, { id: "equipments", label: "Thiết bị" },
             { id: "reports", label: "Báo cáo" }, { id: "lookup", label: "Tra cứu" }
           ].map(t => (
             <button key={t.id} onClick={() => setActiveMenu(t.id as MenuTab)}
@@ -450,6 +672,8 @@ export default function ManagerDashboardPage() {
           ) : (
             <motion.div key={activeMenu} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2 }}>
               {activeMenu === "dashboard" && renderDashboard()}
+              {activeMenu === "labs" && renderLabsTable()} 
+              {activeMenu === "equipments" && renderEquipmentsTable()} 
               {activeMenu === "timeline" && renderTimeline()}
               {activeMenu === "reports" && renderReports()}
               {activeMenu === "lookup" && renderLookup()}
