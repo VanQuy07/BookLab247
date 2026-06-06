@@ -71,7 +71,7 @@ const INITIAL_BOOKINGS: BookingItem[] = [
   { 
     id: "b1", roomId: "r1", customerName: "Nguyễn Văn Quý", phone: "0901234567", status: "checked-in", 
     startTime: "08:00", durationMins: 120, bufferMins: 15, note: "Khách ca sáng",
-    equipments: [{ id: "eq1", name: "máy chiếu", quantity: 2 }]
+    equipments: [{ id: "eq1", name: "máy chiếu", quantity: 2, price: 50000 }]
   },
   { 
     id: "b2", roomId: "r2", customerName: "Lê Thị B", phone: "0987654321", status: "confirmed", 
@@ -129,8 +129,17 @@ export default function ManagerDashboardPage() {
         fetch(`${API_URL}/equipments`)
       ]);
       
-      if(roomsData.length > 0) setRooms(roomsData); 
-      else setRooms([
+      if (roomsData.length > 0) {
+        setRooms(
+          roomsData.map((room) => ({
+            id: room.id,
+            title: room.title,
+            capacity: room.capacity,
+            imageUrl: room.imageUrl,
+            price: room.price ? Number(room.price) : undefined,
+          }))
+        );
+      } else setRooms([
         { id: "r1", title: "FANMEETING KIENTHUHAI", building: "Khác", floor: "", capacity: 10000 },
         { id: "r2", title: "Lab Hóa - Sinh 02", building: "Tòa B", floor: "Tầng 1", capacity: 20 },
         { id: "r3", title: "Phòng VIP Học Máy (Trống)", building: "Tòa A", floor: "Tầng 2", capacity: 30 }
