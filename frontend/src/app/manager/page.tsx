@@ -5,12 +5,13 @@ import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   LayoutDashboard, CalendarDays, LogOut,
-  X, Clock, MapPin, ShieldCheck, Search, FileText, Users, Plus, ChevronLeft, ChevronRight, Package
+  X, Clock, MapPin, ShieldCheck, Search, FileText, Users, Plus, ChevronLeft, ChevronRight, Package,
+  AlertTriangle, TrendingUp, QrCode, CheckCircle2, Wrench, DoorOpen, Banknote
 } from "lucide-react";
 
 import { labService } from "../../services/lab";
 
-// ================= INTERFACES (Strict Type - Không dùng any) =================
+// ================= INTERFACES (Merged Strict Types) =================
 interface ManagerRoom {
   id?: string;
   _id?: string;
@@ -19,20 +20,31 @@ interface ManagerRoom {
   building?: string;
   floor?: string;
   capacity?: number | string;
+  imageUrl?: string;
+  maintenanceMode?: boolean;
+  isBooked?: boolean;
+  price?: number;
 }
 
 interface EquipmentItem {
   id?: string;
   _id?: string;
   name: string;
+  category?: string;
+  managementType?: string;
   totalQuantity: number;
   inUseQuantity: number;
+  status?: string;
+  roomId?: string;
+  imageUrl?: string;
+  price?: number;
 }
 
 interface BorrowedEquipment {
   id: string;
   name: string;
   quantity: number;
+  price: number;
 }
 
 interface BookingItem {
@@ -46,9 +58,10 @@ interface BookingItem {
   bufferMins: number;
   note: string;
   equipments?: BorrowedEquipment[];
+  date?: string;
 }
 
-type MenuTab = "dashboard" | "timeline" | "reports" | "lookup";
+type MenuTab = "dashboard" | "labs" | "equipments" | "timeline" | "reports" | "lookup";
 type TimeFilter = "today" | "yesterday" | "7days" | "month" | "custom";
 
 const COLORS = ["#3b82f6", "#ef4444", "#f59e0b"];
@@ -74,20 +87,25 @@ export default function ManagerDashboardPage() {
   
   const [timeFilter, setTimeFilter] = useState<TimeFilter>("today");
   const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [customDate, setCustomDate] = useState<string>("");
   const [currentTime, setCurrentTime] = useState(new Date());
 
   const [rooms, setRooms] = useState<ManagerRoom[]>([]);
   const [bookings, setBookings] = useState<BookingItem[]>(INITIAL_BOOKINGS);
   const [equipments, setEquipments] = useState<EquipmentItem[]>([]);
   const [buildingFilter, setBuildingFilter] = useState<string>("all");
+  const [roomSearchQuery, setRoomSearchQuery] = useState("");
 
+  
   // ================= STATES QUICK BOOK & VIEW BOOKING =================
   const [showQuickBook, setShowQuickBook] = useState(false);
   const [quickBookData, setQuickBookData] = useState({
-    roomId: "", customerName: "", phone: "", capacity: 1, startTime: "08:00", endTime: "10:00", note: "",
-    equipments: {} as Record<string, { name: string, quantity: number, max: number }>
+    roomId: "", customerName: "", phone: "", capacity: 1, 
+    startDate: selectedDate, startTime: "08:00", 
+    endDate: selectedDate, endTime: "10:00", 
+    note: "",
+    equipments: {} as Record<string, { name: string, quantity: number, max: number, price: number }>
   });
-
   const [selectedBooking, setSelectedBooking] = useState<BookingItem | null>(null);
 
   const API_URL = "http://localhost:8000/api/v1";
@@ -120,8 +138,8 @@ export default function ManagerDashboardPage() {
 
       if(eqRes.ok) setEquipments(await eqRes.json());
       else setEquipments([
-        { id: "eq1", name: "máy chiếu", totalQuantity: 10, inUseQuantity: 2 },
-        { id: "eq2", name: "bảng viết", totalQuantity: 300, inUseQuantity: 67 }
+        { id: "eq1", name: "máy chiếu", totalQuantity: 10, inUseQuantity: 2, status: 'available', managementType: 'pool' },
+        { id: "eq2", name: "bảng viết", totalQuantity: 300, inUseQuantity: 67, status: 'available', managementType: 'pool' }
       ]);
     } catch (error) {
       console.error(error);
@@ -146,14 +164,25 @@ export default function ManagerDashboardPage() {
     return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
   };
 
-  const toggleEquipment = (eqId: string, eqName: string, available: number) => {
+  const toggleEquipment = (eqId: string, eqName: string, available: number, price: number) => {
     const currentEqs = { ...quickBookData.equipments };
-    if (currentEqs[eqId]) {
-      delete currentEqs[eqId];
-    } else {
-      currentEqs[eqId] = { name: eqName, quantity: 1, max: available };
-    }
+    if (currentEqs[eqId]) delete currentEqs[eqId];
+    else currentEqs[eqId] = { name: eqName, quantity: 1, max: available, price: price };
     setQuickBookData({ ...quickBookData, equipments: currentEqs });
+  };
+  // Tính Tổng Tiền (Real-time)
+  const calculateTotalCost = () => {
+    const startObj = new Date(`${quickBookData.startDate}T${quickBookData.startTime}`);
+    const endObj = new Date(`${quickBookData.endDate}T${quickBookData.endTime}`);
+    const diffMins = Math.max(0, (endObj.getTime() - startObj.getTime()) / 60000);
+    
+    const selectedRoom = rooms.find(r => (r.id || r._id) === quickBookData.roomId);
+    const roomPricePerHour = Number(selectedRoom?.price || 100000); // Lấy giá phòng (mặc định 100k)
+    
+    const roomTotal = (diffMins / 60) * roomPricePerHour;
+    const eqTotal = Object.values(quickBookData.equipments).reduce((sum, eq) => sum + (eq.price * eq.quantity), 0);
+
+    return roomTotal + eqTotal;
   };
 
   const updateEqQuantity = (eqId: string, delta: number) => {
@@ -167,102 +196,75 @@ export default function ManagerDashboardPage() {
     }
   };
 
-  // Chuyển hàm thành async để gọi API
+  // ================= XỬ LÝ SUBMIT ĐẶT LỊCH NHANH (GIỮ NGUYÊN TỪ HEAD) =================
   const handleQuickBookSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    // 1. KIỂM TRA THỜI LƯỢNG
-    const durationMins = timeToMins(quickBookData.endTime) - timeToMins(quickBookData.startTime);
-    if(durationMins <= 0) return alert("Giờ kết thúc phải lớn hơn giờ bắt đầu!");
+    // Ghép Ngày + Giờ để xử lý đặt xuyên ngày
+    const startDateTime = new Date(`${quickBookData.startDate}T${quickBookData.startTime}`);
+    const endDateTime = new Date(`${quickBookData.endDate}T${quickBookData.endTime}`);
+    
+    const durationMins = (endDateTime.getTime() - startDateTime.getTime()) / 60000;
+    if(durationMins <= 0) return alert("⛔ LỖI:\nGiờ kết thúc phải sau giờ bắt đầu!");
 
-    // 2. KIỂM TRA QUÁ KHỨ (Ghép selectedDate và startTime)
-    const bookingDateTime = new Date(`${selectedDate}T${quickBookData.startTime}`);
     const now = new Date();
-    if (bookingDateTime < now) {
-      return alert("⛔ LỖI THỜI GIAN!\nKhông thể đặt lịch cho một thời điểm trong quá khứ. Vui lòng chọn khung giờ khác.");
+    if (startDateTime < now) {
+      return alert("⛔ LỖI THỜI GIAN:\nKhông thể đặt lịch ở quá khứ.");
     }
 
-    const targetId = quickBookData.roomId || rooms[0]?.id || rooms[0]?._id || "";
-    
-    // 3. KIỂM TRA TRÙNG LỊCH (FRONTEND VALIDATION)
-    const newStart = timeToMins(quickBookData.startTime);
-    const newEndWithBuffer = newStart + durationMins + 15;
-    const roomBookings = bookings.filter(b => b.roomId === targetId);
+    const targetId = quickBookData.roomId;
+    if(!targetId) return alert("Vui lòng chọn phòng!");
 
-    for (const existBooking of roomBookings) {
-      const existStart = timeToMins(existBooking.startTime);
-      const existEndMins = existStart + existBooking.durationMins;
-      const existEndWithBuffer = existEndMins + (existBooking.bufferMins || 15);
+    // Check trùng lịch xuyên ngày (Dùng Timestamp)
+    const newStartMs = startDateTime.getTime();
+    const newEndMsWithBuffer = endDateTime.getTime() + (15 * 60000); // Đệm dọn dẹp 15p
+    
+    const roomBookings = bookings.filter(b => b.roomId === targetId);
+    for (const exist of roomBookings) {
+      const existDate = exist.date || quickBookData.startDate; 
+      const existStartMs = new Date(`${existDate}T${exist.startTime}`).getTime();
+      const existEndMsWithBuffer = existStartMs + ((exist.durationMins + exist.bufferMins) * 60000);
       
-      if (newStart < existEndWithBuffer && newEndWithBuffer > existStart) {
-        const existEndTimeStr = minsToTime(existEndMins);
-        const existEndBufferStr = minsToTime(existEndWithBuffer);
-        
-        return alert(
-          `⛔ LỖI TRÙNG LỊCH PHÒNG!\n\n` +
-          `Phòng này đã có lịch đặt từ ${existBooking.startTime} đến ${existEndTimeStr} ` +
-          `(Dọn dẹp tới ${existEndBufferStr}).\n` +
-          `Bởi khách hàng: [${existBooking.customerName}]`
-        );
+      if (newStartMs < existEndMsWithBuffer && newEndMsWithBuffer > existStartMs) {
+        return alert(`⛔ LỖI TRÙNG LỊCH!\nPhòng đã có khách [${exist.customerName}] đặt vào khoảng thời gian này.`);
       }
     }
 
-    // 4. CHUẨN BỊ DỮ LIỆU ĐỂ GỬI LÊN BACKEND
     const borrowedEquipments: BorrowedEquipment[] = Object.entries(quickBookData.equipments).map(
-      ([id, data]) => ({ id, name: data.name, quantity: data.quantity })
+      ([id, data]) => ({ id, name: data.name, quantity: data.quantity, price: data.price })
     );
 
     const payload = {
       room_id: targetId,
       customer_name: quickBookData.customerName,
       phone: quickBookData.phone,
-      date: selectedDate, // Phải gửi kèm ngày đang chọn
+      date: quickBookData.startDate, 
       start_time: quickBookData.startTime,
       duration_mins: durationMins,
       buffer_mins: 15,
-      note: quickBookData.note || "Khách vãng lai",
+      note: quickBookData.note,
       equipments: borrowedEquipments
     };
 
-    // 5. GỌI API LƯU VÀO MONGODB
     try {
-      // Hiển thị trạng thái đang xử lý (tùy chọn)
       const submitBtn = document.getElementById("btn-submit-quickbook") as HTMLButtonElement;
       if(submitBtn) { submitBtn.disabled = true; submitBtn.innerText = "Đang lưu..."; }
 
       const response = await fetch(`${API_URL}/bookings`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          // "Authorization": `Bearer ${localStorage.getItem("access_token")}` // Mở dòng này nếu API yêu cầu token
-        },
-        body: JSON.stringify(payload)
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload)
       });
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        // Bắt lỗi 409 Conflict từ Redis/MongoDB mà Backend trả về
-        throw new Error(errorData.detail || "Có lỗi xảy ra khi lưu vào Database");
-      }
+      if (!response.ok) throw new Error("Lỗi lưu Database");
 
       const responseData = await response.json();
 
-      // 6. CẬP NHẬT LẠI GIAO DIỆN SAU KHI LƯU THÀNH CÔNG
-      // Tạo object booking mới cho UI dựa trên dữ liệu trả về từ DB
       const newBooking: BookingItem = {
         id: responseData.data?.id || `b${Date.now()}`,
-        roomId: targetId,
-        customerName: quickBookData.customerName,
-        phone: quickBookData.phone,
-        status: "checked-in", 
-        startTime: quickBookData.startTime,
-        durationMins: durationMins,
-        bufferMins: 15, 
-        note: quickBookData.note || "Khách vãng lai",
-        equipments: borrowedEquipments
+        roomId: targetId, customerName: quickBookData.customerName, phone: quickBookData.phone,
+        status: "checked-in", date: quickBookData.startDate, startTime: quickBookData.startTime,
+        durationMins: durationMins, bufferMins: 15, note: quickBookData.note, equipments: borrowedEquipments
       };
 
-      // Tự động trừ số lượng thiết bị trên giao diện
       const updatedEquipments = equipments.map(eq => {
         const eqId = eq.id || eq._id || "";
         if (quickBookData.equipments[eqId]) {
@@ -274,17 +276,14 @@ export default function ManagerDashboardPage() {
       setEquipments(updatedEquipments);
       setBookings([...bookings, newBooking]);
       setShowQuickBook(false);
-      
-      // Xóa trắng form sau khi xong
       setQuickBookData({ ...quickBookData, customerName: "", phone: "", equipments: {} });
-      alert("✅ Đã lưu ca đặt phòng vào Database thành công!");
+      alert("✅ Đã lưu ca đặt phòng thành công!");
 
     } catch (err: any) {
       alert(`⛔ LỖI SERVER:\n${err.message}`);
     } finally {
-      // Nhả nút submit
       const submitBtn = document.getElementById("btn-submit-quickbook") as HTMLButtonElement;
-      if(submitBtn) { submitBtn.disabled = false; submitBtn.innerText = "Xác nhận Check-in"; }
+      if(submitBtn) { submitBtn.disabled = false; submitBtn.innerText = "Xác nhận Check-in & Thanh toán"; }
     }
   };
 
@@ -294,7 +293,182 @@ export default function ManagerDashboardPage() {
     setSelectedDate(date.toISOString().split('T')[0]);
   };
 
-  // ================= GIAO DIỆN TIMELINE EXCEL LỌC ẨN PHÒNG TRỐNG =================
+  // ================= CÁC GIAO DIỆN TỪ NHÁNH INCOMING ĐÃ ĐƯỢC GIỮ LẠI =================
+  const renderLabsTable = () => (
+    <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden animate-in fade-in duration-300">
+      <div className="overflow-x-auto">
+        <table className="w-full text-left border-collapse">
+          <thead>
+            <tr className="bg-gray-50 border-b border-gray-200 text-sm">
+              <th className="p-4 font-bold text-gray-600">Tên Phòng</th>
+              <th className="p-4 font-bold text-gray-600">Vị trí(Tòa Nhà - Tầng)</th>
+              <th className="p-4 font-bold text-gray-600">Sức chứa</th>
+              <th className="p-4 font-bold text-gray-600">Trạng thái</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-100">
+            {rooms.map((room) => (
+              <tr key={room.id || room._id} className="hover:bg-gray-50 transition-colors">
+                <td className="p-4 font-bold text-gray-900 flex items-center gap-3">
+                  {room.imageUrl ? (
+                    <img src={room.imageUrl} alt={room.name || room.title} className="w-10 h-10 rounded-lg object-cover border border-gray-200 shadow-sm" />
+                  ) : (
+                    <div className="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center text-blue-600"><DoorOpen className="w-5 h-5"/></div>
+                  )}
+                  {room.name || room.title}
+                </td>
+                <td className="p-4 text-gray-600">{room.building || "Chưa gán"} - {room.floor || "Chưa gán"}</td>
+                <td className="p-4 text-gray-600">{room.capacity || 0} người</td>
+                <td className="p-4">
+                  {room.maintenanceMode ? (
+                    <span className="inline-flex items-center gap-1.5 bg-red-50 text-red-700 px-3 py-1 rounded-full text-xs font-bold border border-red-100"><Wrench className="w-3.5 h-3.5"/> Bảo trì</span>
+                  ) : room.isBooked ? (
+                    <span className="inline-flex items-center gap-1.5 bg-amber-50 text-amber-700 px-3 py-1 rounded-full text-xs font-bold border border-amber-100"><Clock className="w-3.5 h-3.5"/> Đã đặt</span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1.5 bg-emerald-50 text-emerald-700 px-3 py-1 rounded-full text-xs font-bold border border-emerald-100"><CheckCircle2 className="w-3.5 h-3.5"/> Sẵn sàng</span>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+
+  const renderEquipmentsTable = () => (
+    <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden animate-in fade-in duration-300">
+      <div className="overflow-x-auto">
+        <table className="w-full text-left border-collapse">
+          <thead>
+            <tr className="bg-gray-50 border-b border-gray-200 text-sm">
+              <th className="p-4 font-bold text-gray-600">Tên Thiết bị</th>
+              <th className="p-4 font-bold text-gray-600">Danh mục</th>
+              <th className="p-4 font-bold text-gray-600">Số lượng (Kho)</th>
+              <th className="p-4 font-bold text-gray-600">Trạng thái</th>
+              <th className="p-4 font-bold text-gray-600">Vị trí phòng</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-100">
+            {equipments.map((eq) => {
+              const matchedRoom = rooms.find(r => (r.id || r._id) === eq.roomId);
+              const roomName = matchedRoom ? (matchedRoom.name || matchedRoom.title) : "Trong kho";
+              const availableQty = (eq.totalQuantity || 0) - (eq.inUseQuantity || 0);
+
+              return (
+                <tr key={eq.id || eq._id} className="hover:bg-gray-50 transition-colors">
+                  <td className="p-4 font-bold text-gray-900 flex items-center gap-3">
+                    {eq.imageUrl ? (
+                      <img src={eq.imageUrl} alt={eq.name} className="w-10 h-10 rounded-lg object-cover border border-gray-200 shadow-sm" />
+                    ) : (
+                      <div className="w-10 h-10 rounded-lg bg-indigo-100 flex items-center justify-center text-indigo-600"><Package className="w-5 h-5"/></div>
+                    )}
+                    {eq.name}
+                  </td>
+                  <td className="p-4"><span className="bg-gray-100 text-gray-600 px-2.5 py-1 rounded-md text-xs font-bold">{eq.category || "Vật tư"}</span></td>
+                  
+                  <td className="p-4">
+                    {eq.managementType === 'pool' ? (
+                      <span className="inline-flex items-center gap-1.5 bg-blue-50 text-blue-700 px-3 py-1 rounded-full text-xs font-bold border border-blue-100">Còn: {availableQty}/{eq.totalQuantity}</span>
+                    ) : (
+                       <span className="inline-flex items-center gap-1.5 bg-gray-100 text-gray-700 px-3 py-1 rounded-full text-xs font-bold border border-gray-200">Đơn chiếc (Serial)</span>
+                    )}
+                  </td>
+
+                  <td className="p-4">
+                    {eq.status === 'available' ? (
+                       <span className="inline-flex items-center gap-1.5 bg-emerald-50 text-emerald-700 px-3 py-1 rounded-full text-xs font-bold border border-emerald-100"><CheckCircle2 className="w-3.5 h-3.5"/> Sẵn sàng</span>
+                    ) : eq.status === 'maintenance' ? (
+                      <span className="inline-flex items-center gap-1.5 bg-red-50 text-red-700 px-3 py-1 rounded-full text-xs font-bold border border-red-100"><Wrench className="w-3.5 h-3.5"/> Bảo trì</span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1.5 bg-gray-100 text-gray-700 px-3 py-1 rounded-full text-xs font-bold border border-gray-200">Thanh lý</span>
+                    )}
+                  </td>
+                  <td className="p-4 text-gray-600 flex items-center gap-1.5"><MapPin className="w-4 h-4 text-gray-400"/> {roomName}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+
+  const renderDashboard = () => {
+    const usedRoomsCount = rooms.filter(l => l.isBooked).length;
+    const maintenanceRoomsCount = rooms.filter(l => l.maintenanceMode).length;
+    const maintenanceEqsCount = equipments.filter(e => e.status === 'maintenance').length;
+    const totalMaintenance = maintenanceRoomsCount + maintenanceEqsCount;
+    const itemsOut = equipments.reduce((sum, eq) => sum + (eq.inUseQuantity || 0), 0);
+
+    return (
+      <div className="space-y-6 pb-10">
+        <div className="flex flex-col xl:flex-row justify-between items-start xl:items-end gap-4 bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
+          <div>
+            <h2 className="text-2xl font-black text-gray-900">Giám sát Trực tiếp</h2>
+            <p className="text-gray-500 text-sm mt-1">Cập nhật trạng thái phòng và thiết bị realtime.</p>
+          </div>
+          <div className="flex flex-wrap items-center gap-3 w-full xl:w-auto">
+            <button className="flex-1 sm:flex-none flex items-center justify-center gap-2 bg-slate-900 text-white px-4 py-2.5 rounded-xl text-sm font-bold shadow-md hover:bg-black transition-colors">
+              <QrCode className="w-4 h-4" /> Quét mã QR
+            </button>
+            <div className="flex bg-gray-100 p-1 rounded-xl border border-gray-200 w-full sm:w-auto items-center overflow-x-auto scrollbar-hide">
+              {[{ id: "today", label: "Hôm nay" }, { id: "yesterday", label: "Hôm qua" }, { id: "7days", label: "7 Ngày" }].map(f => (
+                <button key={f.id} onClick={() => { setTimeFilter(f.id as TimeFilter); setCustomDate(""); }}
+                  className={`px-4 py-1.5 text-sm font-bold rounded-lg whitespace-nowrap transition-all ${timeFilter === f.id && !customDate ? "bg-white text-emerald-600 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}
+                >{f.label}</button>
+              ))}
+              <div className="h-4 w-px bg-gray-300 mx-2"></div>
+              <input 
+                type="date" 
+                value={customDate}
+                onChange={(e) => { setCustomDate(e.target.value); setTimeFilter("custom"); }}
+                className={`px-3 py-1 text-sm font-bold rounded-lg bg-transparent outline-none cursor-pointer ${customDate ? "text-emerald-600 bg-white shadow-sm" : "text-gray-500"}`}
+              />
+            </div>
+          </div>
+        </div>
+
+        <div className="space-y-6 animate-in fade-in duration-300">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
+              <p className="text-xs font-bold text-gray-500 mb-1">ĐANG SỬ DỤNG</p>
+              <h3 className="text-2xl font-black text-emerald-600">{usedRoomsCount}/{rooms.length} <span className="text-sm font-medium text-gray-400">Phòng</span></h3>
+            </div>
+            <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
+              <p className="text-xs font-bold text-gray-500 mb-1">CHỜ DUYỆT</p>
+              <h3 className="text-2xl font-black text-amber-500">12 <span className="text-sm font-medium text-gray-400">Đơn</span></h3>
+            </div>
+            <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
+              <p className="text-xs font-bold text-gray-500 mb-1">THIẾT BỊ RỜI KHO</p>
+              <h3 className="text-2xl font-black text-blue-600">{itemsOut} <span className="text-sm font-medium text-gray-400">Món</span></h3>
+            </div>
+            <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
+              <p className="text-xs font-bold text-gray-500 mb-1">BẢO TRÌ ĐỘT XUẤT</p>
+              <h3 className="text-2xl font-black text-red-500">{totalMaintenance} <span className="text-sm font-medium text-gray-400">Sự cố</span></h3>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm flex flex-col h-[350px]">
+              <div className="p-4 border-b border-gray-100"><h3 className="font-bold text-gray-900 flex items-center gap-2"><Clock className="w-5 h-5 text-emerald-500"/> Ca sắp diễn ra (Trong 2h)</h3></div>
+              <div className="p-4 overflow-y-auto space-y-3">
+                 <div className="text-center text-sm text-gray-500 py-10">Hiển thị lịch sắp tới...</div>
+              </div>
+            </div>
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm flex flex-col h-[350px]">
+              <div className="p-4 border-b border-gray-100"><h3 className="font-bold text-gray-900 flex items-center gap-2"><AlertTriangle className="w-5 h-5 text-amber-500"/> Đơn chờ duyệt khẩn</h3></div>
+              <div className="p-4 overflow-y-auto space-y-3">
+                  <div className="text-center text-sm text-gray-500 py-10">Không có đơn chờ duyệt.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // ================= GIAO DIỆN TIMELINE EXCEL CỦA HEAD =================
   const renderTimeline = () => {
     const startHour = 7;
     const endHour = 21;
@@ -305,11 +479,11 @@ export default function ManagerDashboardPage() {
 
     const uniqueBuildings = Array.from(new Set(rooms.map(r => r.building || "Khác"))).filter(Boolean);
 
-    // CRITICAL: CHỈ hiển thị những phòng đang có khách đặt lịch, phòng nào không được đặt thì ẩn đi
+    // CHỈ hiển thị những phòng đang có khách đặt lịch
     const filteredRooms = rooms.filter(room => {
        const roomIdStr = room.id || room._id || "";
        const hasBooking = bookings.some(b => b.roomId === roomIdStr);
-       if (!hasBooking) return false; // Ẩn hoàn toàn nếu không có lịch đặt
+       if (!hasBooking) return false; 
 
        if(buildingFilter !== "all" && (room.building || "Khác") !== buildingFilter) return false;
        return true;
@@ -448,27 +622,40 @@ export default function ManagerDashboardPage() {
         </div>
 
         {/* ================= MODAL QUICK BOOK ================= */}
+        {/* ================= MODAL QUICK BOOK CAO CẤP ================= */}
         <AnimatePresence>
           {showQuickBook && (
             <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
-              <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]">
+              <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[95vh]">
                 <div className="bg-emerald-600 p-5 flex justify-between items-center text-white shrink-0">
-                  <h3 className="font-black text-xl flex items-center gap-2"><Clock className="w-5 h-5"/> Đặt Phòng Vãng Lai (Walk-in)</h3>
+                  <h3 className="font-black text-xl flex items-center gap-2"><Clock className="w-5 h-5"/> Đặt Phòng Nhanh (POS)</h3>
                   <button onClick={() => setShowQuickBook(false)} className="hover:bg-emerald-700 p-1 rounded-full"><X className="w-6 h-6" /></button>
                 </div>
                 
-                <form onSubmit={handleQuickBookSubmit} className="p-6 overflow-y-auto space-y-5">
-                  <div>
-                    <label className="block text-sm font-bold text-gray-700 mb-2">Chọn Phòng Lab *</label>
-                    <select required value={quickBookData.roomId} onChange={e => setQuickBookData({...quickBookData, roomId: e.target.value})} className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl font-medium outline-none focus:border-emerald-500">
-                      <option value="" disabled>-- Hãy chọn một phòng --</option>
-                      {rooms.map(r => <option key={r.id||r._id} value={r.id||r._id}>{r.title || r.name} - {r.building || "Khác"} (Sức chứa: {r.capacity})</option>)}
+                <form onSubmit={handleQuickBookSubmit} className="p-6 overflow-y-auto space-y-6">
+                  
+                  {/* Tìm Kiếm và Chọn Phòng */}
+                  <div className="bg-gray-50 p-4 rounded-xl border border-gray-200">
+                    <label className="block text-sm font-bold text-gray-700 mb-2 flex items-center justify-between">
+                      Chọn Phòng Lab *
+                      <div className="relative w-48">
+                         <Search className="w-4 h-4 absolute left-2 top-1/2 -translate-y-1/2 text-gray-400" />
+                         <input type="text" placeholder="Tìm tên phòng..." value={roomSearchQuery} onChange={e => setRoomSearchQuery(e.target.value)} className="w-full pl-8 pr-2 py-1 text-xs border border-gray-300 rounded-md focus:outline-none focus:border-emerald-500" />
+                      </div>
+                    </label>
+                    <select required value={quickBookData.roomId} onChange={e => setQuickBookData({...quickBookData, roomId: e.target.value})} className="w-full px-4 py-3 bg-white border border-gray-300 rounded-xl font-bold text-emerald-800 outline-none focus:border-emerald-500 shadow-sm">
+                      <option value="" disabled>-- Vui lòng chọn một phòng --</option>
+                      {rooms.filter(r => (r.title || r.name || "").toLowerCase().includes(roomSearchQuery.toLowerCase())).map(r => (
+                        <option key={r.id||r._id} value={r.id||r._id}>
+                          {r.title || r.name} - Sức chứa: {r.capacity} ({Number(r.price || 100000).toLocaleString('vi-VN')}đ/h)
+                        </option>
+                      ))}
                     </select>
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
-                      <label className="block text-sm font-bold text-gray-700 mb-1">Họ Tên Khách/GV *</label>
+                      <label className="block text-sm font-bold text-gray-700 mb-1">Họ Tên Người Thuê *</label>
                       <input type="text" required value={quickBookData.customerName} onChange={e => setQuickBookData({...quickBookData, customerName: e.target.value})} className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-emerald-500" placeholder="VD: Nguyễn Văn A" />
                     </div>
                     <div>
@@ -477,52 +664,63 @@ export default function ManagerDashboardPage() {
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-3 gap-4">
-                    <div>
-                      <label className="block text-sm font-bold text-gray-700 mb-1">Số lượng người</label>
-                      <input type="number" min="1" value={quickBookData.capacity} onChange={e => setQuickBookData({...quickBookData, capacity: parseInt(e.target.value)})} className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-emerald-500" />
+                  {/* Cho phép chọn lịch xuyên ngày */}
+                  <div className="bg-blue-50/50 p-4 rounded-xl border border-blue-100 grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div className="md:col-span-2">
+                      <label className="block text-sm font-bold text-blue-900 mb-1">Bắt đầu từ *</label>
+                      <div className="flex gap-2">
+                         <input type="date" required value={quickBookData.startDate} onChange={e => setQuickBookData({...quickBookData, startDate: e.target.value})} className="w-full px-3 py-2 bg-white border border-blue-200 rounded-lg text-sm outline-none focus:border-blue-500" />
+                         <input type="time" required value={quickBookData.startTime} onChange={e => setQuickBookData({...quickBookData, startTime: e.target.value})} className="w-24 px-2 py-2 bg-white border border-blue-200 rounded-lg text-sm outline-none focus:border-blue-500" />
+                      </div>
                     </div>
-                    <div>
-                      <label className="block text-sm font-bold text-gray-700 mb-1">Giờ bắt đầu *</label>
-                      <input type="time" required value={quickBookData.startTime} onChange={e => setQuickBookData({...quickBookData, startTime: e.target.value})} className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-emerald-500" />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-bold text-gray-700 mb-1">Giờ kết thúc *</label>
-                      <input type="time" required value={quickBookData.endTime} onChange={e => setQuickBookData({...quickBookData, endTime: e.target.value})} className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-emerald-500" />
+                    <div className="md:col-span-2">
+                      <label className="block text-sm font-bold text-blue-900 mb-1">Đến khi *</label>
+                      <div className="flex gap-2">
+                         <input type="date" required value={quickBookData.endDate} onChange={e => setQuickBookData({...quickBookData, endDate: e.target.value})} className="w-full px-3 py-2 bg-white border border-blue-200 rounded-lg text-sm outline-none focus:border-blue-500" />
+                         <input type="time" required value={quickBookData.endTime} onChange={e => setQuickBookData({...quickBookData, endTime: e.target.value})} className="w-24 px-2 py-2 bg-white border border-blue-200 rounded-lg text-sm outline-none focus:border-blue-500" />
+                      </div>
                     </div>
                   </div>
 
+                  {/* THIẾT BỊ & GIÁ TIỀN */}
                   <div>
-                     <label className="block text-sm font-bold text-gray-700 mb-2">Mượn kèm thiết bị (Tự động lọc kho)</label>
+                     <label className="block text-sm font-bold text-gray-700 mb-2">Thêm thiết bị (Trừ kho tự động)</label>
                      <div className="border border-gray-200 rounded-xl p-4 max-h-48 overflow-y-auto bg-gray-50 space-y-2">
-                        {equipments.length === 0 ? <p className="text-sm text-gray-400">Không có thiết bị khả dụng.</p> : equipments.map(eq => {
+                        {equipments.map(eq => {
                            const eqId = eq.id || eq._id || "";
                            const available = (eq.totalQuantity || 0) - (eq.inUseQuantity || 0);
                            const isOutOfStock = available <= 0;
                            const isSelected = !!quickBookData.equipments[eqId];
                            const selectedQty = isSelected ? quickBookData.equipments[eqId].quantity : 0;
+                           const eqPrice = Number(eq.price || 50000); 
 
                            return (
-                             <div key={eqId} className={`flex items-center justify-between p-2 rounded-lg ${isSelected ? 'bg-emerald-100/50 border border-emerald-200' : 'hover:bg-gray-100'} ${isOutOfStock && !isSelected ? 'opacity-50' : ''}`}>
+                             <div key={eqId} className={`flex items-center justify-between p-3 rounded-lg border ${isSelected ? 'bg-emerald-50 border-emerald-300' : 'bg-white border-transparent hover:border-gray-300'} ${isOutOfStock && !isSelected ? 'opacity-40' : 'shadow-sm'}`}>
                                <label className="flex items-center gap-3 cursor-pointer flex-1">
                                  <input 
-                                    type="checkbox" 
-                                    checked={isSelected} 
-                                    onChange={() => toggleEquipment(eqId, eq.name, available)} 
+                                    type="checkbox" checked={isSelected} 
+                                    onChange={() => toggleEquipment(eqId, eq.name, available, eqPrice)} 
                                     disabled={isOutOfStock && !isSelected} 
-                                    className="w-4 h-4 text-emerald-600 rounded border-gray-300 focus:ring-emerald-500 cursor-pointer" 
+                                    className="w-5 h-5 text-emerald-600 rounded border-gray-300 focus:ring-emerald-500 cursor-pointer" 
                                  />
                                  <div>
-                                    <span className="text-sm font-bold text-gray-800">{eq.name}</span>
-                                    <p className="text-xs text-gray-500 mt-0.5">Sẵn kho: <span className={isOutOfStock ? "text-red-500 font-bold" : "text-emerald-600 font-bold"}>{available} chiếc</span></p>
+                                    <span className="text-sm font-black text-gray-900">{eq.name}</span>
+                                    <div className="flex items-center gap-2 mt-0.5">
+                                      <span className={`text-xs px-2 py-0.5 rounded-md font-bold ${isOutOfStock ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-700'}`}>
+                                        {isOutOfStock ? 'Hết hàng' : `Còn: ${available}`}
+                                      </span>
+                                      <span className="text-xs text-blue-700 font-bold bg-blue-50 px-2 py-0.5 rounded-md flex items-center gap-1">
+                                        <Banknote className="w-3 h-3"/> {eqPrice.toLocaleString('vi-VN')}đ / lượt
+                                      </span>
+                                    </div>
                                  </div>
                                </label>
                                
                                {isSelected && (
-                                 <div className="flex items-center gap-3 bg-white border border-emerald-200 rounded-lg p-1 shadow-sm">
-                                   <button type="button" onClick={() => updateEqQuantity(eqId, -1)} className="w-6 h-6 flex items-center justify-center bg-gray-100 hover:bg-gray-200 rounded text-gray-600 font-bold">-</button>
-                                   <span className="text-sm font-bold w-4 text-center text-emerald-700">{selectedQty}</span>
-                                   <button type="button" onClick={() => updateEqQuantity(eqId, 1)} disabled={selectedQty >= available} className="w-6 h-6 flex items-center justify-center bg-emerald-100 hover:bg-emerald-200 disabled:opacity-50 rounded text-emerald-700 font-bold">+</button>
+                                 <div className="flex items-center gap-2 bg-white border border-emerald-300 rounded-lg p-1 shadow-inner">
+                                   <button type="button" onClick={() => updateEqQuantity(eqId, -1)} className="w-7 h-7 bg-gray-100 hover:bg-gray-200 rounded text-gray-700 font-black">-</button>
+                                   <span className="text-base font-black w-6 text-center text-emerald-700">{selectedQty}</span>
+                                   <button type="button" onClick={() => updateEqQuantity(eqId, 1)} disabled={selectedQty >= available} className="w-7 h-7 bg-emerald-100 hover:bg-emerald-200 disabled:opacity-50 rounded text-emerald-700 font-black">+</button>
                                  </div>
                                )}
                              </div>
@@ -531,9 +729,20 @@ export default function ManagerDashboardPage() {
                      </div>
                   </div>
 
-                  <div className="pt-4 border-t border-gray-100 flex justify-end gap-3 shrink-0">
-                     <button type="button" onClick={() => setShowQuickBook(false)} className="px-6 py-2.5 font-bold text-gray-500 hover:bg-gray-100 rounded-xl transition-colors">Hủy bỏ</button>
-                     <button type="submit" className="px-8 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-md transition-all">Xác nhận Check-in</button>
+                  {/* TỔNG HÓA ĐƠN */}
+                  <div className="bg-slate-900 rounded-xl p-5 flex items-center justify-between shadow-lg">
+                    <div>
+                      <p className="text-gray-400 text-xs font-bold uppercase tracking-wider mb-1">Tổng tiền tạm tính</p>
+                      <p className="text-gray-300 text-xs">(Bao gồm Phòng + Thiết bị)</p>
+                    </div>
+                    <div className="text-3xl font-black text-emerald-400">
+                      {calculateTotalCost().toLocaleString('vi-VN')}đ
+                    </div>
+                  </div>
+
+                  <div className="pt-2 flex justify-end gap-3 shrink-0">
+                     <button type="button" onClick={() => setShowQuickBook(false)} className="px-6 py-3 font-bold text-gray-500 hover:bg-gray-100 rounded-xl transition-colors">Hủy bỏ</button>
+                     <button type="submit" id="btn-submit-quickbook" className="px-8 py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-black rounded-xl shadow-xl transition-all active:scale-95 text-lg">Xác nhận Check-in</button>
                   </div>
                 </form>
               </motion.div>
@@ -570,7 +779,7 @@ export default function ManagerDashboardPage() {
                     </div>
                     <div className="bg-gray-50 p-4 rounded-xl border border-gray-100">
                       <p className="text-xs font-bold text-gray-400 uppercase mb-1">Phòng Lab</p>
-                      <p className="text-lg font-black text-gray-900 line-clamp-1">{rooms.find(r => r.id === selectedBooking.roomId || r._id === selectedBooking.roomId)?.title || "Phòng học"}</p>
+                      <p className="text-lg font-black text-gray-900 line-clamp-1">{rooms.find(r => r.id === selectedBooking.roomId || r._id === selectedBooking.roomId)?.title || rooms.find(r => r.id === selectedBooking.roomId || r._id === selectedBooking.roomId)?.name || "Phòng học"}</p>
                     </div>
                   </div>
 
@@ -610,64 +819,66 @@ export default function ManagerDashboardPage() {
     );
   };
 
-  // ================= GIAO DIỆN APP SHELL =================
-
+  // ================= SIDEBAR =================
   const renderSidebar = () => (
-
     <aside className="w-64 bg-slate-900 text-slate-300 flex flex-col h-screen sticky top-0 shrink-0 shadow-2xl z-30 hidden md:flex">
-
       <div className="p-6 border-b border-slate-800">
-
         <h1 className="text-2xl font-black text-white tracking-tight flex items-center gap-2">
-
           <ShieldCheck className="w-7 h-7 text-emerald-500" />
-
           Manager<span className="text-emerald-500">Ops</span>
-
         </h1>
-
       </div>
-
       <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
-
         {[
-
           { id: "dashboard", icon: LayoutDashboard, label: "Giám sát Vận hành" },
-
+          { id: "labs", icon: DoorOpen, label: "Phòng Thực hành" },
+          { id: "equipments", icon: Package, label: "Thiết Bị" },
           { id: "timeline", icon: CalendarDays, label: "Lịch Điều phối" },
-
           { id: "reports", icon: FileText, label: "Báo cáo Sự cố" },
-
           { id: "lookup", icon: Search, label: "Tra cứu Thông tin" },
-
         ].map(item => (
-
           <button key={item.id} onClick={() => setActiveMenu(item.id as MenuTab)}
-
             className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium transition-all ${activeMenu === item.id ? "bg-emerald-600 text-white shadow-lg shadow-emerald-900/20" : "hover:bg-slate-800"}`}
-
           >
-
             <item.icon className="w-5 h-5" /> {item.label}
-
           </button>
-
         ))}
-
       </nav>
-
+      <div className="p-4 border-t border-slate-800">
+        <button onClick={handleLogout} className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-bold bg-slate-800 text-red-400 hover:bg-red-500 hover:text-white transition-colors">
+          <LogOut className="w-4 h-4" /> Đăng xuất
+        </button>
+      </div>
     </aside>
-
   );
 
-  const renderDashboard = () => <div className="p-6 bg-white rounded-2xl border border-gray-100 text-center py-20 text-gray-400">Giao diện Giám sát vận hành</div>;
   const renderReports = () => <div className="p-6 bg-white rounded-2xl border border-gray-100 text-center py-20 text-gray-400">Giao diện Báo cáo sự cố</div>;
   const renderLookup = () => <div className="p-6 bg-white rounded-2xl border border-gray-100 text-center py-20 text-gray-400">Giao diện Tra cứu thông tin</div>;
 
   return (
     <div className="flex h-screen bg-slate-50 font-sans overflow-hidden">
       {renderSidebar()}
-      <main className="flex-1 overflow-y-auto p-4 md:p-8 lg:p-10 relative">
+      
+      <main className="flex-1 overflow-y-auto p-4 md:p-8 lg:p-10">
+        {/* Mobile Header */}
+        <div className="md:hidden flex justify-between items-center mb-6 bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
+           <h1 className="text-xl font-black flex items-center gap-2"><ShieldCheck className="w-6 h-6 text-emerald-500" /> Manager<span className="text-emerald-500">Ops</span></h1>
+           <button onClick={handleLogout} className="p-2 text-red-500 bg-red-50 rounded-lg"><LogOut className="w-5 h-5"/></button>
+        </div>
+        
+        {/* Mobile Nav Tabs */}
+        <div className="md:hidden flex overflow-x-auto gap-2 mb-6 pb-2 scrollbar-hide">
+          {[
+            { id: "dashboard", label: "Giám sát" }, { id: "timeline", label: "Điều phối" },
+            { id: "labs", label: "Phòng" }, { id: "equipments", label: "Thiết bị" },
+            { id: "reports", label: "Báo cáo" }, { id: "lookup", label: "Tra cứu" }
+          ].map(t => (
+            <button key={t.id} onClick={() => setActiveMenu(t.id as MenuTab)}
+              className={`px-4 py-2 rounded-xl text-sm font-bold whitespace-nowrap ${activeMenu === t.id ? "bg-emerald-600 text-white" : "bg-white text-gray-500 border border-gray-200"}`}
+            >{t.label}</button>
+          ))}
+        </div>
+
         <AnimatePresence mode="wait">
           {loading ? (
             <div className="flex justify-center items-center h-full">
@@ -676,6 +887,8 @@ export default function ManagerDashboardPage() {
           ) : (
             <motion.div key={activeMenu} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2 }}>
               {activeMenu === "dashboard" && renderDashboard()}
+              {activeMenu === "labs" && renderLabsTable()} 
+              {activeMenu === "equipments" && renderEquipmentsTable()} 
               {activeMenu === "timeline" && renderTimeline()}
               {activeMenu === "reports" && renderReports()}
               {activeMenu === "lookup" && renderLookup()}
