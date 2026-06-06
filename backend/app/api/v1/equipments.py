@@ -2,6 +2,8 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 from typing import Optional
 from app.core.database import db
+from bson import ObjectId
+from fastapi import HTTPException
 
 router = APIRouter()
 
@@ -16,6 +18,9 @@ class EquipmentCreate(BaseModel):
     status: str  # "available", "maintenance", "liquidated"
     maintenanceAlertHours: int
     imageUrl: str
+    roomId: Optional[str] = ""
+    pricePerHour: int = 0
+    category: Optional[str] = None
 
 
 @router.get("")
@@ -36,3 +41,38 @@ async def create_equipment(eq_data: EquipmentCreate):
     new_eq["id"] = str(result.inserted_id)
     del new_eq["_id"]
     return new_eq
+
+
+# ==========================================
+# API SỬA THÔNG TIN THIẾT BỊ
+# ==========================================
+@router.put("/{eq_id}")
+async def update_equipment(eq_id: str, eq_data: EquipmentCreate):
+    try:
+        updated_data = eq_data.model_dump()
+        result = await db["equipments"].update_one(
+            {"_id": ObjectId(eq_id)},
+            {"$set": updated_data}
+        )
+        
+        if result.matched_count == 0:
+            raise HTTPException(status_code=404, detail="Không tìm thấy thiết bị để sửa!")
+            
+        return {"message": "Cập nhật thiết bị thành công", "id": eq_id}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail="ID thiết bị không hợp lệ hoặc lỗi DB")
+
+# ==========================================
+# API XÓA THIẾT BỊ
+# ==========================================
+@router.delete("/{eq_id}")
+async def delete_equipment(eq_id: str):
+    try:
+        result = await db["equipments"].delete_one({"_id": ObjectId(eq_id)})
+        
+        if result.deleted_count == 0:
+            raise HTTPException(status_code=404, detail="Không tìm thấy thiết bị để xóa!")
+            
+        return {"message": "Xóa thiết bị thành công"}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail="ID thiết bị không hợp lệ hoặc lỗi DB")

@@ -6,6 +6,7 @@ from pydantic import BaseModel
 from typing import List, Optional
 from dotenv import load_dotenv
 from app.core.database import db
+from bson import ObjectId
 
 # 1. Tải các biến môi trường (Khóa bảo mật Cloudinary) từ file .env
 load_dotenv()
@@ -81,3 +82,37 @@ async def upload_image(file: UploadFile = File(...)):
     except Exception as e:
         print("Lỗi upload ảnh:", str(e))
         raise HTTPException(status_code=500, detail="Không thể tải ảnh lên Cloudinary!")
+
+# ==========================================
+# API SỬA THÔNG TIN PHÒNG
+# ==========================================
+@router.put("/{lab_id}")
+async def update_lab(lab_id: str, lab_data: LabCreate):
+    try:
+        updated_data = lab_data.model_dump()
+        result = await db["labs"].update_one(
+            {"_id": ObjectId(lab_id)},
+            {"$set": updated_data}
+        )
+        
+        if result.matched_count == 0:
+            raise HTTPException(status_code=404, detail="Không tìm thấy phòng để sửa!")
+            
+        return {"message": "Cập nhật phòng thành công", "id": lab_id}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail="ID phòng không hợp lệ hoặc lỗi DB")
+
+# ==========================================
+# API XÓA PHÒNG
+# ==========================================
+@router.delete("/{lab_id}")
+async def delete_lab(lab_id: str):
+    try:
+        result = await db["labs"].delete_one({"_id": ObjectId(lab_id)})
+        
+        if result.deleted_count == 0:
+            raise HTTPException(status_code=404, detail="Không tìm thấy phòng để xóa!")
+            
+        return {"message": "Xóa phòng thành công"}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail="ID phòng không hợp lệ hoặc lỗi DB")

@@ -17,9 +17,9 @@ import {
   CheckCircle2,
   AlertCircle,
   Wrench,
-  Hexagon, // Đã thêm icon cho Logo
-  User,    // 👈 Bổ sung dòng này
-  LogOut
+  Hexagon,
+  User,
+  LogOut,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -34,6 +34,25 @@ interface DeviceItem {
   image: string;
   specs: string[];
   rating: number;
+  // Bổ sung các biến quan trọng từ nhánh của bạn
+  totalQuantity: number;
+  managementType: string;
+}
+
+// Định nghĩa kiểu dữ liệu trả về từ API Backend
+interface ApiEquipment {
+  id: string;
+  _id?: string;
+  name: string;
+  category: string;
+  managementType: string;
+  serialNumber?: string;
+  totalQuantity: number;
+  inUseQuantity: number;
+  status: string;
+  imageUrl: string;
+  price?: number;
+  pricePerHour?: number; // Cấu trúc giá chuẩn
 }
 
 type ViewMode = "grid" | "list";
@@ -71,35 +90,38 @@ export default function UserDevicesPage() {
     const fetchDevicesFromAdmin = async () => {
       try {
         setLoading(true);
-        // Địa chỉ API lấy thiết bị (Thay đổi port nếu cần)
+        // SỬA LỖI: Trả lại đúng đường dẫn API equipments thay vì labs của nhánh master
         const response = await fetch("http://localhost:8000/api/v1/equipments");
         
         if (!response.ok) {
           throw new Error("Không thể kết nối với máy chủ");
         }
         
-        const data = await response.json();
+        const data: ApiEquipment[] = await response.json();
 
         // Ánh xạ (Map) dữ liệu từ Backend sang Frontend UI
-        const formattedDevices: DeviceItem[] = data.map((item: any) => {
+        const formattedDevices: DeviceItem[] = data.map((item) => {
           // Tính toán số lượng tồn kho thực tế
-          const availableQuantity = item.totalQuantity - (item.inUseQuantity || 0);
+          const availableQuantity = (item.totalQuantity || 0) - (item.inUseQuantity || 0);
           
-          // Xác định trạng thái
+          // Xác định trạng thái thiết bị
           let deviceStatus: "available" | "maintenance" | "out_of_stock" = "available";
           if (item.status === "maintenance") deviceStatus = "maintenance";
-          else if (availableQuantity <= 0) deviceStatus = "out_of_stock";
+          else if (item.status === "liquidated" || (item.managementType === 'pool' && availableQuantity <= 0)) deviceStatus = "out_of_stock";
 
           return {
-            id: item.id,
+            id: item.id || item._id || "",
             name: item.name,
-            category: item.category,
+            category: item.category || "Chưa phân loại",
             quantity: availableQuantity,
-            price: item.price || 50000, // Giá thuê (nếu backend có thì dùng item.price)
+            totalQuantity: item.totalQuantity || 0,
+            managementType: item.managementType || "pool",
+            // SỬA LỖI: Ưu tiên lấy giá pricePerHour theo đúng thiết kế
+            price: item.pricePerHour || item.price || 0,
             status: deviceStatus,
             image: item.imageUrl || "https://images.unsplash.com/photo-1581092335397-9583eb92d232?auto=format&fit=crop&q=80&w=800",
-            specs: item.managementType === "serial" ? [`Serial: ${item.serialNumber}`] : ["Quản lý theo số lượng"],
-            rating: 5.0, // Đánh giá mặc định
+            specs: item.managementType === "serial" ? [`Serial: ${item.serialNumber || 'N/A'}`] : ["Quản lý theo số lượng"],
+            rating: 5.0, // Mặc định 5 sao
           };
         });
 
@@ -136,7 +158,7 @@ export default function UserDevicesPage() {
           <div className="flex items-center gap-4 relative z-50">
             {userName ? (
               <div className="relative">
-                <button 
+                <button
                   onClick={() => setIsDropdownOpen(!isDropdownOpen)}
                   className="flex items-center gap-2 px-4 py-2 bg-blue-50 text-blue-700 font-semibold rounded-full hover:bg-blue-100 transition-colors outline-none"
                 >
@@ -147,21 +169,20 @@ export default function UserDevicesPage() {
                   <ChevronDown className={`w-4 h-4 transition-transform ${isDropdownOpen ? "rotate-180" : ""}`} />
                 </button>
 
-                {/* MENU XỔ XUỐNG KHI CLICK VÀO TÊN */}
                 {isDropdownOpen && (
                   <div className="absolute right-0 mt-2 w-56 bg-white border border-gray-100 rounded-2xl shadow-xl overflow-hidden z-50">
                     <div className="p-2">
-                      <Link 
+                      <Link
                         href="/dashboard/user/profile"
                         className="flex items-center gap-3 px-4 py-3 text-sm font-medium text-gray-700 hover:bg-gray-50 hover:text-blue-600 rounded-xl transition-colors"
                       >
                         <User className="w-4 h-4" />
                         Hồ sơ cá nhân
                       </Link>
-                      
+
                       <div className="h-px bg-gray-100 my-1"></div>
-                      
-                      <button 
+
+                      <button
                         onClick={handleLogout}
                         className="flex items-center gap-3 w-full text-left px-4 py-3 text-sm font-medium text-red-600 hover:bg-red-50 rounded-xl transition-colors"
                       >
@@ -173,7 +194,6 @@ export default function UserDevicesPage() {
                 )}
               </div>
             ) : (
-              // Nút dự phòng trường hợp lỡ mất đăng nhập
               <Link href="/login" className="px-5 py-2 text-sm font-bold bg-blue-600 text-white rounded-full hover:bg-blue-700 transition-all shadow-md">
                 Đăng nhập
               </Link>
@@ -184,7 +204,7 @@ export default function UserDevicesPage() {
 
       {/* ================= MAIN CONTENT ================= */}
       <div className="p-4 md:p-6 lg:p-8">
-        {/* QUICK BADGES */}
+        {/* QUICK BADGES TỪ MASTER */}
         <div className="max-w-7xl mx-auto mb-6 flex items-center gap-3 overflow-x-auto pb-2 scrollbar-hide">
           <span className="text-sm font-bold text-gray-500 whitespace-nowrap">Danh mục nhanh:</span>
           {["Điện - Điện tử", "Công nghệ thông tin", "Hóa - Sinh", "Vật tư tiêu hao"].map((badge) => (
@@ -195,7 +215,7 @@ export default function UserDevicesPage() {
         </div>
 
         <div className="max-w-7xl mx-auto flex flex-col lg:flex-row gap-8">
-          {/* ================= SIDEBAR FILTER ================= */}
+          {/* ================= SIDEBAR FILTER TỪ MASTER ================= */}
           {isMobileFilterOpen && (
             <div className="fixed inset-0 bg-black/50 z-40 lg:hidden" onClick={() => setIsMobileFilterOpen(false)} />
           )}
@@ -211,7 +231,6 @@ export default function UserDevicesPage() {
               </div>
 
               <div className="p-5 overflow-y-auto space-y-6">
-                {/* 1. Lọc Thời gian */}
                 <div>
                   <button onClick={() => toggleSection('time')} className="flex items-center justify-between w-full font-bold text-gray-900 mb-4">
                     Thời gian cần mượn {openSections['time'] ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
@@ -232,7 +251,6 @@ export default function UserDevicesPage() {
 
                 <hr className="border-gray-100" />
 
-                {/* 2. Loại thiết bị */}
                 <div>
                   <button onClick={() => toggleSection('category')} className="flex items-center justify-between w-full font-bold text-gray-900 mb-3">
                     Nhóm thiết bị {openSections['category'] ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
@@ -277,14 +295,13 @@ export default function UserDevicesPage() {
               </div>
             </div>
 
-            {/* DANH SÁCH THIẾT BỊ */}
             {loading ? (
               <div className="flex flex-col items-center justify-center py-20">
                 <div className="w-10 h-10 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin mb-4"></div>
                 <p className="text-gray-500 font-medium">Đang tải thiết bị từ máy chủ...</p>
               </div>
             ) : devices.length === 0 ? (
-              <div className="text-center py-20 bg-white rounded-2xl border border-gray-200">
+              <div className="text-center py-20 bg-white rounded-2xl border border-gray-200 shadow-sm">
                 <Package className="w-12 h-12 text-gray-300 mx-auto mb-3" />
                 <p className="text-gray-500 font-medium">Chưa có thiết bị nào được lưu trên hệ thống.</p>
               </div>
@@ -313,19 +330,29 @@ export default function UserDevicesPage() {
                           <Star className="w-3.5 h-3.5 fill-yellow-400 text-yellow-400" /> {device.rating}
                         </div>
                       </div>
+                      
+                      {/* KHÔI PHỤC LOGIC HIỂN THỊ CÒN LẠI / ĐƠN CHIẾC TỪ HEAD */}
                       <div className="flex items-center gap-3 text-sm text-gray-600 mb-4 mt-3">
-                        <span className={`flex items-center gap-1.5 font-bold px-2.5 py-1 rounded-md border ${device.quantity > 0 ? 'bg-blue-50 border-blue-100 text-blue-700' : 'bg-red-50 border-red-100 text-red-600'}`}>
-                          <Package className="w-4 h-4" /> Kho: {device.quantity}
-                        </span>
+                        {device.managementType === 'pool' ? (
+                          <span className={`flex items-center gap-1.5 font-bold px-2.5 py-1 rounded-md border ${device.quantity > 0 ? 'bg-blue-50 border-blue-100 text-blue-700' : 'bg-red-50 border-red-100 text-red-600'}`}>
+                            <Package className="w-4 h-4" /> Còn lại: {device.quantity} / {device.totalQuantity} cái
+                          </span>
+                        ) : (
+                          <span className="flex items-center gap-1.5 font-bold px-2.5 py-1 rounded-md border bg-gray-50 border-gray-200 text-gray-700">
+                            <Package className="w-4 h-4" /> Phân loại: Đơn chiếc (Serial)
+                          </span>
+                        )}
                       </div>
+
                       <div className="text-xs text-gray-500 line-clamp-1 mb-4">{device.specs.join(" • ")}</div>
                       <div className="mt-auto pt-4 border-t border-gray-100 flex items-center justify-between">
                         <div>
+                          {/* SỬA CHỮ / NGÀY THÀNH / GIỜ CHO KHỚP VỚI HỆ THỐNG */}
                           <span className="text-xl font-black text-blue-600">{device.price.toLocaleString('vi-VN')}đ</span>
-                          <span className="text-xs text-gray-500 font-medium ml-1">/ ngày</span>
+                          <span className="text-xs text-gray-500 font-medium ml-1">/ giờ</span>
                         </div>
                         <div className="flex gap-2">
-                          <button disabled={device.status !== 'available'} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white text-sm font-bold rounded-lg shadow-md transition-all active:scale-95">Mượn ngay</button>
+                          <button disabled={device.status !== 'available' || (device.managementType === 'pool' && device.quantity <= 0)} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white text-sm font-bold rounded-lg shadow-md transition-all active:scale-95">Mượn ngay</button>
                         </div>
                       </div>
                     </div>
