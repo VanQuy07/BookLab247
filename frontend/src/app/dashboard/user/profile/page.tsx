@@ -45,6 +45,7 @@ export default function UserProfilePage() {
   const [activeTab, setActiveTab] = useState<TabType>("info");
   const [isEditing, setIsEditing] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [passwords, setPasswords] = useState({ current: "", newPass: "", confirm: "" });
 
   // Dữ liệu hồ sơ gốc (Mô phỏng lấy từ DB)
   const [profile, setProfile] = useState<UserProfile>({
@@ -81,6 +82,25 @@ export default function UserProfilePage() {
     const { name, value } = e.target;
     setEditForm((prev) => ({ ...prev, [name]: value }));
   };
+
+  // Hàm xử lý khi nhập liệu mật khẩu
+const handlePasswordChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const { name, value } = e.target;
+  setPasswords((prev) => ({ ...prev, [name]: value }));
+};
+
+// Hàm xử lý khi nhấn nút Đổi mật khẩu
+const handleUpdatePassword = async () => {
+  if (passwords.newPass !== passwords.confirm) return alert("Mật khẩu mới không khớp!");
+  setIsLoading(true);
+  // Ở đây ní viết logic gọi API của ní, ví dụ:
+  // await fetch(`${API_URL}/auth/change-password`, { method: 'POST', body: ... })
+  setTimeout(() => {
+    alert("Đổi mật khẩu thành công!");
+    setPasswords({ current: "", newPass: "", confirm: "" });
+    setIsLoading(false);
+  }, 1000);
+};
 
   // Nút SỬA / HỦY BỎ
   const toggleEdit = () => {
@@ -404,26 +424,51 @@ export default function UserProfilePage() {
                       <label className="text-sm font-bold text-gray-700">Mật khẩu hiện tại</label>
                       <div className="relative">
                         <Key className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                        <input type="password" placeholder="••••••••" className="w-full pl-10 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-blue-500 transition-all" />
+                        <input 
+                          name="current" 
+                          type="password" 
+                          value={passwords.current} 
+                          onChange={handlePasswordChange} 
+                          placeholder="Mật khẩu hiện tại" 
+                          className="..." 
+                        />
                       </div>
                     </div>
                     <div className="space-y-2">
                       <label className="text-sm font-bold text-gray-700">Mật khẩu mới</label>
                       <div className="relative">
                         <ShieldCheck className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                        <input type="password" placeholder="Mật khẩu mới" className="w-full pl-10 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-blue-500 transition-all" />
+                        <input 
+                          name="newPass" 
+                          type="password" 
+                          value={passwords.newPass} 
+                          onChange={handlePasswordChange} 
+                          placeholder="Mật khẩu mới" 
+                          className="..." 
+                        />
                       </div>
                     </div>
                     <div className="space-y-2">
                       <label className="text-sm font-bold text-gray-700">Nhập lại mật khẩu mới</label>
                       <div className="relative">
                         <ShieldCheck className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                        <input type="password" placeholder="Xác nhận mật khẩu" className="w-full pl-10 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-blue-500 transition-all" />
+                        <input 
+                          name="confirm" 
+                          type="password" 
+                          value={passwords.confirm} 
+                          onChange={handlePasswordChange} 
+                          placeholder="Nhập lại mật khẩu mới" 
+                          className="..." 
+                        />
                       </div>
                     </div>
 
-                    <button className="w-full py-3 bg-gray-900 text-white font-bold rounded-xl hover:bg-black transition-all shadow-md">
-                      Cập nhật Mật khẩu
+                    <button 
+                      onClick={handleUpdatePassword} 
+                      disabled={isLoading} 
+                      className="w-full py-3 bg-gray-900 text-white font-bold rounded-xl hover:bg-black transition-all shadow-md disabled:opacity-50"
+                    >
+                      {isLoading ? "Đang xử lý..." : "Cập nhật Mật khẩu"}
                     </button>
                   </div>
                 </motion.div>
