@@ -114,7 +114,7 @@ export default function LandingPage() {
                   <div className="absolute right-0 mt-2 w-56 bg-white border border-gray-100 rounded-2xl shadow-xl overflow-hidden z-50">
                     <div className="p-2">
                       <Link 
-                        href="/profile" 
+                        href="/dashboard/user/profile" 
                         className="flex items-center gap-3 px-4 py-3 text-sm font-medium text-gray-700 hover:bg-gray-50 hover:text-blue-600 rounded-xl transition-colors"
                       >
                         <User className="w-4 h-4" />
