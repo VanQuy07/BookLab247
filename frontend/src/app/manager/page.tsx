@@ -5,70 +5,115 @@ import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   LayoutDashboard, CalendarDays, LogOut,
-  X, AlertTriangle, Clock, MapPin, 
-  ShieldCheck, TrendingUp, QrCode, Search, FileText, CheckCircle2, Users, Wrench, DoorOpen, Package
+  X, Clock, MapPin, ShieldCheck, Search, FileText, Users, Plus, ChevronLeft, ChevronRight, Package,
+  AlertTriangle, TrendingUp, QrCode, CheckCircle2, Wrench, DoorOpen, Banknote
 } from "lucide-react";
-import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer,
-  PieChart, Pie, Cell, Legend
-} from "recharts";
 
 import { labService } from "../../services/lab";
 
-type MenuTab = "dashboard" |"labs" | "equipments" |"timeline" | "reports" | "lookup";
+// ================= INTERFACES (Merged Strict Types) =================
+interface ManagerRoom {
+  id?: string;
+  _id?: string;
+  title?: string;
+  name?: string;
+  building?: string;
+  floor?: string;
+  capacity?: number | string;
+  imageUrl?: string;
+  maintenanceMode?: boolean;
+  isBooked?: boolean;
+  price?: number;
+}
+
+interface EquipmentItem {
+  id?: string;
+  _id?: string;
+  name: string;
+  category?: string;
+  managementType?: string;
+  totalQuantity: number;
+  inUseQuantity: number;
+  status?: string;
+  roomId?: string;
+  imageUrl?: string;
+  price?: number;
+}
+
+interface BorrowedEquipment {
+  id: string;
+  name: string;
+  quantity: number;
+  price: number;
+}
+
+interface BookingItem {
+  id: string;
+  roomId: string;
+  customerName: string;
+  phone: string;
+  status: string;
+  startTime: string;
+  durationMins: number;
+  bufferMins: number;
+  note: string;
+  equipments?: BorrowedEquipment[];
+  date?: string;
+}
+
+type MenuTab = "dashboard" | "labs" | "equipments" | "timeline" | "reports" | "lookup";
 type TimeFilter = "today" | "yesterday" | "7days" | "month" | "custom";
 
 const COLORS = ["#3b82f6", "#ef4444", "#f59e0b"];
 
-interface EquipmentItem {
-  id: string;
-  _id?: string;
-  name: string;
-  category: string;
-  managementType: string;
-  totalQuantity: number;
-  inUseQuantity: number;
-  status: string;
-  roomId: string;
-  imageUrl?: string;
-}
-
 // ================= DỮ LIỆU MẪU ĐẶT PHÒNG =================
-const INITIAL_BOOKINGS = [
-  { id: "b1", roomId: "r1", customerName: "Nguyễn Văn A", phone: "0901234567", status: "checked-in", startTime: "07:30", durationMins: 120, bufferMins: 15, note: "Khách VIP" },
-  { id: "b2", roomId: "r2", customerName: "Lê Thị B", phone: "0987654321", status: "confirmed", startTime: "10:00", durationMins: 90, bufferMins: 15, note: "Học nhóm" },
+const INITIAL_BOOKINGS: BookingItem[] = [
+  { 
+    id: "b1", roomId: "r1", customerName: "Nguyễn Văn Quý", phone: "0901234567", status: "checked-in", 
+    startTime: "08:00", durationMins: 120, bufferMins: 15, note: "Khách ca sáng",
+    equipments: [{ id: "eq1", name: "máy chiếu", quantity: 2 }]
+  },
+  { 
+    id: "b2", roomId: "r2", customerName: "Lê Thị B", phone: "0987654321", status: "confirmed", 
+    startTime: "13:00", durationMins: 180, bufferMins: 15, note: "Học nhóm hội thảo",
+    equipments: []
+  },
 ];
 
 export default function ManagerDashboardPage() {
   const router = useRouter();
-  const [activeMenu, setActiveMenu] = useState<MenuTab>("dashboard");
+  const [activeMenu, setActiveMenu] = useState<MenuTab>("timeline"); 
   const [loading, setLoading] = useState<boolean>(true);
   
-  // States cho Bộ lọc
   const [timeFilter, setTimeFilter] = useState<TimeFilter>("today");
+  const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [customDate, setCustomDate] = useState<string>("");
+  const [currentTime, setCurrentTime] = useState(new Date());
 
-  // States Dữ liệu
-  //const [rooms, setRooms] = useState<any[]>([
-    // // Mock phòng hiển thị trên lưới (Bao gồm phòng trống)
-    // { id: "r1", name: "Lab Máy tính 01", building: "Tòa A", floor: "Tầng 3", capacity: 40 },
-    // { id: "r2", name: "Lab Hóa - Sinh 02", building: "Tòa B", floor: "Tầng 1", capacity: 20 },
-    // { id: "r3", name: "Phòng Hội thảo VIP", building: "Tòa C", floor: "Tầng 5", capacity: 100 },
-    // { id: "r4", name: "Không gian học nhóm", building: "Tòa A", floor: "Tầng 1", capacity: 15 },
-    // Tab nội bộ cho phần Giám sát
-  const [activeInnerTab, setActiveInnerTab] = useState<"overview" | "labs" | "equipments">("overview");
-  const [rooms, setRooms] = useState<any[]>([]);
+  const [rooms, setRooms] = useState<ManagerRoom[]>([]);
+  const [bookings, setBookings] = useState<BookingItem[]>(INITIAL_BOOKINGS);
   const [equipments, setEquipments] = useState<EquipmentItem[]>([]);
-  
-  const [bookings, setBookings] = useState(INITIAL_BOOKINGS);
+  const [buildingFilter, setBuildingFilter] = useState<string>("all");
+  const [roomSearchQuery, setRoomSearchQuery] = useState("");
 
-  // States cho Quick Book
+  
+  // ================= STATES QUICK BOOK & VIEW BOOKING =================
   const [showQuickBook, setShowQuickBook] = useState(false);
   const [quickBookData, setQuickBookData] = useState({
-    roomId: "", roomName: "", customerName: "", phone: "", startTime: "08:00", durationMins: 60, note: ""
+    roomId: "", customerName: "", phone: "", capacity: 1, 
+    startDate: selectedDate, startTime: "08:00", 
+    endDate: selectedDate, endTime: "10:00", 
+    note: "",
+    equipments: {} as Record<string, { name: string, quantity: number, max: number, price: number }>
   });
+  const [selectedBooking, setSelectedBooking] = useState<BookingItem | null>(null);
 
   const API_URL = "http://localhost:8000/api/v1";
+
+  useEffect(() => {
+    const timer = setInterval(() => setCurrentTime(new Date()), 60000);
+    return () => clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     const token = localStorage.getItem("access_token");
@@ -76,28 +121,26 @@ export default function ManagerDashboardPage() {
     else loadData();
   }, [router]);
 
-  // const loadData = async () => {
-  //   try {
-  //     setLoading(true);
-  //     const data = await labService.getAllLabs();
-  //     if(data.length > 0) setRooms(data); 
-  //   } catch (error) {
-  //     console.error(error);
-  //   } finally {
-  //     setLoading(false);
-  //   }
-  // };
-
   const loadData = async () => {
     try {
       setLoading(true);
-      const [labRes, eqRes] = await Promise.all([
-        fetch(`${API_URL}/labs`),
+      const [roomsData, eqRes] = await Promise.all([
+        labService.getAllLabs(),
         fetch(`${API_URL}/equipments`)
       ]);
       
-      if (labRes.ok) setRooms(await labRes.json());
-      if (eqRes.ok) setEquipments(await eqRes.json());
+      if(roomsData.length > 0) setRooms(roomsData); 
+      else setRooms([
+        { id: "r1", title: "FANMEETING KIENTHUHAI", building: "Khác", floor: "", capacity: 10000 },
+        { id: "r2", title: "Lab Hóa - Sinh 02", building: "Tòa B", floor: "Tầng 1", capacity: 20 },
+        { id: "r3", title: "Phòng VIP Học Máy (Trống)", building: "Tòa A", floor: "Tầng 2", capacity: 30 }
+      ]);
+
+      if(eqRes.ok) setEquipments(await eqRes.json());
+      else setEquipments([
+        { id: "eq1", name: "máy chiếu", totalQuantity: 10, inUseQuantity: 2, status: 'available', managementType: 'pool' },
+        { id: "eq2", name: "bảng viết", totalQuantity: 300, inUseQuantity: 67, status: 'available', managementType: 'pool' }
+      ]);
     } catch (error) {
       console.error(error);
     } finally {
@@ -110,25 +153,673 @@ export default function ManagerDashboardPage() {
     router.push("/login");
   };
 
-  const handleQuickBookSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    const newBooking = {
-      id: `b${Date.now()}`,
-      roomId: quickBookData.roomId,
-      customerName: quickBookData.customerName,
-      phone: quickBookData.phone,
-      status: "checked-in", // Đơn tạo nhanh được tính là đang sử dụng luôn
-      startTime: quickBookData.startTime,
-      durationMins: quickBookData.durationMins,
-      bufferMins: 15,
-      note: quickBookData.note || "Khách Walk-in (Đặt nhanh)"
-    };
-    setBookings([...bookings, newBooking]);
-    setShowQuickBook(false);
-    alert("Đã tạo lịch nhanh và check-in thành công!");
+  const timeToMins = (timeStr: string) => {
+    const [h, m] = timeStr.split(':').map(Number);
+    return h * 60 + m;
   };
 
-  // ================= GIAO DIỆN APP SHELL =================
+  const minsToTime = (mins: number) => {
+    const h = Math.floor(mins / 60);
+    const m = mins % 60;
+    return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
+  };
+
+  const toggleEquipment = (eqId: string, eqName: string, available: number, price: number) => {
+    const currentEqs = { ...quickBookData.equipments };
+    if (currentEqs[eqId]) delete currentEqs[eqId];
+    else currentEqs[eqId] = { name: eqName, quantity: 1, max: available, price: price };
+    setQuickBookData({ ...quickBookData, equipments: currentEqs });
+  };
+  // Tính Tổng Tiền (Real-time)
+  const calculateTotalCost = () => {
+    const startObj = new Date(`${quickBookData.startDate}T${quickBookData.startTime}`);
+    const endObj = new Date(`${quickBookData.endDate}T${quickBookData.endTime}`);
+    const diffMins = Math.max(0, (endObj.getTime() - startObj.getTime()) / 60000);
+    
+    const selectedRoom = rooms.find(r => (r.id || r._id) === quickBookData.roomId);
+    const roomPricePerHour = Number(selectedRoom?.price || 100000); // Lấy giá phòng (mặc định 100k)
+    
+    const roomTotal = (diffMins / 60) * roomPricePerHour;
+    const eqTotal = Object.values(quickBookData.equipments).reduce((sum, eq) => sum + (eq.price * eq.quantity), 0);
+
+    return roomTotal + eqTotal;
+  };
+
+  const updateEqQuantity = (eqId: string, delta: number) => {
+    const currentEqs = { ...quickBookData.equipments };
+    if (currentEqs[eqId]) {
+      const nextQty = currentEqs[eqId].quantity + delta;
+      if (nextQty >= 1 && nextQty <= currentEqs[eqId].max) {
+        currentEqs[eqId].quantity = nextQty;
+        setQuickBookData({ ...quickBookData, equipments: currentEqs });
+      }
+    }
+  };
+
+  // ================= XỬ LÝ SUBMIT ĐẶT LỊCH NHANH (GIỮ NGUYÊN TỪ HEAD) =================
+  const handleQuickBookSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    // Ghép Ngày + Giờ để xử lý đặt xuyên ngày
+    const startDateTime = new Date(`${quickBookData.startDate}T${quickBookData.startTime}`);
+    const endDateTime = new Date(`${quickBookData.endDate}T${quickBookData.endTime}`);
+    
+    const durationMins = (endDateTime.getTime() - startDateTime.getTime()) / 60000;
+    if(durationMins <= 0) return alert("⛔ LỖI:\nGiờ kết thúc phải sau giờ bắt đầu!");
+
+    const now = new Date();
+    if (startDateTime < now) {
+      return alert("⛔ LỖI THỜI GIAN:\nKhông thể đặt lịch ở quá khứ.");
+    }
+
+    const targetId = quickBookData.roomId;
+    if(!targetId) return alert("Vui lòng chọn phòng!");
+
+    // Check trùng lịch xuyên ngày (Dùng Timestamp)
+    const newStartMs = startDateTime.getTime();
+    const newEndMsWithBuffer = endDateTime.getTime() + (15 * 60000); // Đệm dọn dẹp 15p
+    
+    const roomBookings = bookings.filter(b => b.roomId === targetId);
+    for (const exist of roomBookings) {
+      const existDate = exist.date || quickBookData.startDate; 
+      const existStartMs = new Date(`${existDate}T${exist.startTime}`).getTime();
+      const existEndMsWithBuffer = existStartMs + ((exist.durationMins + exist.bufferMins) * 60000);
+      
+      if (newStartMs < existEndMsWithBuffer && newEndMsWithBuffer > existStartMs) {
+        return alert(`⛔ LỖI TRÙNG LỊCH!\nPhòng đã có khách [${exist.customerName}] đặt vào khoảng thời gian này.`);
+      }
+    }
+
+    const borrowedEquipments: BorrowedEquipment[] = Object.entries(quickBookData.equipments).map(
+      ([id, data]) => ({ id, name: data.name, quantity: data.quantity, price: data.price })
+    );
+
+    const payload = {
+      room_id: targetId,
+      customer_name: quickBookData.customerName,
+      phone: quickBookData.phone,
+      date: quickBookData.startDate, 
+      start_time: quickBookData.startTime,
+      duration_mins: durationMins,
+      buffer_mins: 15,
+      note: quickBookData.note,
+      equipments: borrowedEquipments
+    };
+
+    try {
+      const submitBtn = document.getElementById("btn-submit-quickbook") as HTMLButtonElement;
+      if(submitBtn) { submitBtn.disabled = true; submitBtn.innerText = "Đang lưu..."; }
+
+      const response = await fetch(`${API_URL}/bookings`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload)
+      });
+
+      if (!response.ok) throw new Error("Lỗi lưu Database");
+
+      const responseData = await response.json();
+
+      const newBooking: BookingItem = {
+        id: responseData.data?.id || `b${Date.now()}`,
+        roomId: targetId, customerName: quickBookData.customerName, phone: quickBookData.phone,
+        status: "checked-in", date: quickBookData.startDate, startTime: quickBookData.startTime,
+        durationMins: durationMins, bufferMins: 15, note: quickBookData.note, equipments: borrowedEquipments
+      };
+
+      const updatedEquipments = equipments.map(eq => {
+        const eqId = eq.id || eq._id || "";
+        if (quickBookData.equipments[eqId]) {
+          return { ...eq, inUseQuantity: (eq.inUseQuantity || 0) + quickBookData.equipments[eqId].quantity };
+        }
+        return eq;
+      });
+
+      setEquipments(updatedEquipments);
+      setBookings([...bookings, newBooking]);
+      setShowQuickBook(false);
+      setQuickBookData({ ...quickBookData, customerName: "", phone: "", equipments: {} });
+      alert("✅ Đã lưu ca đặt phòng thành công!");
+
+    } catch (err: any) {
+      alert(`⛔ LỖI SERVER:\n${err.message}`);
+    } finally {
+      const submitBtn = document.getElementById("btn-submit-quickbook") as HTMLButtonElement;
+      if(submitBtn) { submitBtn.disabled = false; submitBtn.innerText = "Xác nhận Check-in & Thanh toán"; }
+    }
+  };
+
+  const changeDate = (days: number) => {
+    const date = new Date(selectedDate);
+    date.setDate(date.getDate() + days);
+    setSelectedDate(date.toISOString().split('T')[0]);
+  };
+
+  // ================= CÁC GIAO DIỆN TỪ NHÁNH INCOMING ĐÃ ĐƯỢC GIỮ LẠI =================
+  const renderLabsTable = () => (
+    <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden animate-in fade-in duration-300">
+      <div className="overflow-x-auto">
+        <table className="w-full text-left border-collapse">
+          <thead>
+            <tr className="bg-gray-50 border-b border-gray-200 text-sm">
+              <th className="p-4 font-bold text-gray-600">Tên Phòng</th>
+              <th className="p-4 font-bold text-gray-600">Vị trí(Tòa Nhà - Tầng)</th>
+              <th className="p-4 font-bold text-gray-600">Sức chứa</th>
+              <th className="p-4 font-bold text-gray-600">Trạng thái</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-100">
+            {rooms.map((room) => (
+              <tr key={room.id || room._id} className="hover:bg-gray-50 transition-colors">
+                <td className="p-4 font-bold text-gray-900 flex items-center gap-3">
+                  {room.imageUrl ? (
+                    <img src={room.imageUrl} alt={room.name || room.title} className="w-10 h-10 rounded-lg object-cover border border-gray-200 shadow-sm" />
+                  ) : (
+                    <div className="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center text-blue-600"><DoorOpen className="w-5 h-5"/></div>
+                  )}
+                  {room.name || room.title}
+                </td>
+                <td className="p-4 text-gray-600">{room.building || "Chưa gán"} - {room.floor || "Chưa gán"}</td>
+                <td className="p-4 text-gray-600">{room.capacity || 0} người</td>
+                <td className="p-4">
+                  {room.maintenanceMode ? (
+                    <span className="inline-flex items-center gap-1.5 bg-red-50 text-red-700 px-3 py-1 rounded-full text-xs font-bold border border-red-100"><Wrench className="w-3.5 h-3.5"/> Bảo trì</span>
+                  ) : room.isBooked ? (
+                    <span className="inline-flex items-center gap-1.5 bg-amber-50 text-amber-700 px-3 py-1 rounded-full text-xs font-bold border border-amber-100"><Clock className="w-3.5 h-3.5"/> Đã đặt</span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1.5 bg-emerald-50 text-emerald-700 px-3 py-1 rounded-full text-xs font-bold border border-emerald-100"><CheckCircle2 className="w-3.5 h-3.5"/> Sẵn sàng</span>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+
+  const renderEquipmentsTable = () => (
+    <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden animate-in fade-in duration-300">
+      <div className="overflow-x-auto">
+        <table className="w-full text-left border-collapse">
+          <thead>
+            <tr className="bg-gray-50 border-b border-gray-200 text-sm">
+              <th className="p-4 font-bold text-gray-600">Tên Thiết bị</th>
+              <th className="p-4 font-bold text-gray-600">Danh mục</th>
+              <th className="p-4 font-bold text-gray-600">Số lượng (Kho)</th>
+              <th className="p-4 font-bold text-gray-600">Trạng thái</th>
+              <th className="p-4 font-bold text-gray-600">Vị trí phòng</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-100">
+            {equipments.map((eq) => {
+              const matchedRoom = rooms.find(r => (r.id || r._id) === eq.roomId);
+              const roomName = matchedRoom ? (matchedRoom.name || matchedRoom.title) : "Trong kho";
+              const availableQty = (eq.totalQuantity || 0) - (eq.inUseQuantity || 0);
+
+              return (
+                <tr key={eq.id || eq._id} className="hover:bg-gray-50 transition-colors">
+                  <td className="p-4 font-bold text-gray-900 flex items-center gap-3">
+                    {eq.imageUrl ? (
+                      <img src={eq.imageUrl} alt={eq.name} className="w-10 h-10 rounded-lg object-cover border border-gray-200 shadow-sm" />
+                    ) : (
+                      <div className="w-10 h-10 rounded-lg bg-indigo-100 flex items-center justify-center text-indigo-600"><Package className="w-5 h-5"/></div>
+                    )}
+                    {eq.name}
+                  </td>
+                  <td className="p-4"><span className="bg-gray-100 text-gray-600 px-2.5 py-1 rounded-md text-xs font-bold">{eq.category || "Vật tư"}</span></td>
+                  
+                  <td className="p-4">
+                    {eq.managementType === 'pool' ? (
+                      <span className="inline-flex items-center gap-1.5 bg-blue-50 text-blue-700 px-3 py-1 rounded-full text-xs font-bold border border-blue-100">Còn: {availableQty}/{eq.totalQuantity}</span>
+                    ) : (
+                       <span className="inline-flex items-center gap-1.5 bg-gray-100 text-gray-700 px-3 py-1 rounded-full text-xs font-bold border border-gray-200">Đơn chiếc (Serial)</span>
+                    )}
+                  </td>
+
+                  <td className="p-4">
+                    {eq.status === 'available' ? (
+                       <span className="inline-flex items-center gap-1.5 bg-emerald-50 text-emerald-700 px-3 py-1 rounded-full text-xs font-bold border border-emerald-100"><CheckCircle2 className="w-3.5 h-3.5"/> Sẵn sàng</span>
+                    ) : eq.status === 'maintenance' ? (
+                      <span className="inline-flex items-center gap-1.5 bg-red-50 text-red-700 px-3 py-1 rounded-full text-xs font-bold border border-red-100"><Wrench className="w-3.5 h-3.5"/> Bảo trì</span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1.5 bg-gray-100 text-gray-700 px-3 py-1 rounded-full text-xs font-bold border border-gray-200">Thanh lý</span>
+                    )}
+                  </td>
+                  <td className="p-4 text-gray-600 flex items-center gap-1.5"><MapPin className="w-4 h-4 text-gray-400"/> {roomName}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+
+  const renderDashboard = () => {
+    const usedRoomsCount = rooms.filter(l => l.isBooked).length;
+    const maintenanceRoomsCount = rooms.filter(l => l.maintenanceMode).length;
+    const maintenanceEqsCount = equipments.filter(e => e.status === 'maintenance').length;
+    const totalMaintenance = maintenanceRoomsCount + maintenanceEqsCount;
+    const itemsOut = equipments.reduce((sum, eq) => sum + (eq.inUseQuantity || 0), 0);
+
+    return (
+      <div className="space-y-6 pb-10">
+        <div className="flex flex-col xl:flex-row justify-between items-start xl:items-end gap-4 bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
+          <div>
+            <h2 className="text-2xl font-black text-gray-900">Giám sát Trực tiếp</h2>
+            <p className="text-gray-500 text-sm mt-1">Cập nhật trạng thái phòng và thiết bị realtime.</p>
+          </div>
+          <div className="flex flex-wrap items-center gap-3 w-full xl:w-auto">
+            <button className="flex-1 sm:flex-none flex items-center justify-center gap-2 bg-slate-900 text-white px-4 py-2.5 rounded-xl text-sm font-bold shadow-md hover:bg-black transition-colors">
+              <QrCode className="w-4 h-4" /> Quét mã QR
+            </button>
+            <div className="flex bg-gray-100 p-1 rounded-xl border border-gray-200 w-full sm:w-auto items-center overflow-x-auto scrollbar-hide">
+              {[{ id: "today", label: "Hôm nay" }, { id: "yesterday", label: "Hôm qua" }, { id: "7days", label: "7 Ngày" }].map(f => (
+                <button key={f.id} onClick={() => { setTimeFilter(f.id as TimeFilter); setCustomDate(""); }}
+                  className={`px-4 py-1.5 text-sm font-bold rounded-lg whitespace-nowrap transition-all ${timeFilter === f.id && !customDate ? "bg-white text-emerald-600 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}
+                >{f.label}</button>
+              ))}
+              <div className="h-4 w-px bg-gray-300 mx-2"></div>
+              <input 
+                type="date" 
+                value={customDate}
+                onChange={(e) => { setCustomDate(e.target.value); setTimeFilter("custom"); }}
+                className={`px-3 py-1 text-sm font-bold rounded-lg bg-transparent outline-none cursor-pointer ${customDate ? "text-emerald-600 bg-white shadow-sm" : "text-gray-500"}`}
+              />
+            </div>
+          </div>
+        </div>
+
+        <div className="space-y-6 animate-in fade-in duration-300">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
+              <p className="text-xs font-bold text-gray-500 mb-1">ĐANG SỬ DỤNG</p>
+              <h3 className="text-2xl font-black text-emerald-600">{usedRoomsCount}/{rooms.length} <span className="text-sm font-medium text-gray-400">Phòng</span></h3>
+            </div>
+            <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
+              <p className="text-xs font-bold text-gray-500 mb-1">CHỜ DUYỆT</p>
+              <h3 className="text-2xl font-black text-amber-500">12 <span className="text-sm font-medium text-gray-400">Đơn</span></h3>
+            </div>
+            <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
+              <p className="text-xs font-bold text-gray-500 mb-1">THIẾT BỊ RỜI KHO</p>
+              <h3 className="text-2xl font-black text-blue-600">{itemsOut} <span className="text-sm font-medium text-gray-400">Món</span></h3>
+            </div>
+            <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
+              <p className="text-xs font-bold text-gray-500 mb-1">BẢO TRÌ ĐỘT XUẤT</p>
+              <h3 className="text-2xl font-black text-red-500">{totalMaintenance} <span className="text-sm font-medium text-gray-400">Sự cố</span></h3>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm flex flex-col h-[350px]">
+              <div className="p-4 border-b border-gray-100"><h3 className="font-bold text-gray-900 flex items-center gap-2"><Clock className="w-5 h-5 text-emerald-500"/> Ca sắp diễn ra (Trong 2h)</h3></div>
+              <div className="p-4 overflow-y-auto space-y-3">
+                 <div className="text-center text-sm text-gray-500 py-10">Hiển thị lịch sắp tới...</div>
+              </div>
+            </div>
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm flex flex-col h-[350px]">
+              <div className="p-4 border-b border-gray-100"><h3 className="font-bold text-gray-900 flex items-center gap-2"><AlertTriangle className="w-5 h-5 text-amber-500"/> Đơn chờ duyệt khẩn</h3></div>
+              <div className="p-4 overflow-y-auto space-y-3">
+                  <div className="text-center text-sm text-gray-500 py-10">Không có đơn chờ duyệt.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // ================= GIAO DIỆN TIMELINE EXCEL CỦA HEAD =================
+  const renderTimeline = () => {
+    const startHour = 7;
+    const endHour = 21;
+    const totalMins = (endHour - startHour) * 60;
+    
+    const timeHeaders:string[] = [];
+    for (let i = startHour; i <= endHour; i++) timeHeaders.push(`${i.toString().padStart(2, '0')}:00`);
+
+    const uniqueBuildings = Array.from(new Set(rooms.map(r => r.building || "Khác"))).filter(Boolean);
+
+    // CHỈ hiển thị những phòng đang có khách đặt lịch
+    const filteredRooms = rooms.filter(room => {
+       const roomIdStr = room.id || room._id || "";
+       const hasBooking = bookings.some(b => b.roomId === roomIdStr);
+       if (!hasBooking) return false; 
+
+       if(buildingFilter !== "all" && (room.building || "Khác") !== buildingFilter) return false;
+       return true;
+    });
+
+    const getStatusColor = (status: string) => {
+      if (status === 'checked-in') return 'bg-emerald-500 border-emerald-600 text-white shadow-sm';
+      if (status === 'confirmed') return 'bg-blue-500 border-blue-600 text-white shadow-sm';
+      if (status === 'pending') return 'bg-amber-400 border-amber-500 text-amber-950 shadow-sm';
+      return 'bg-gray-400 text-white';
+    };
+
+    const currentHour = currentTime.getHours();
+    const currentMin = currentTime.getMinutes();
+    let currentLinePct: number | null = null;
+    if (currentHour >= startHour && currentHour <= endHour) {
+       currentLinePct = ((currentHour - startHour) * 60 + currentMin) / totalMins * 100;
+    }
+
+    return (
+      <div className="space-y-6 flex flex-col h-[calc(100vh-6rem)] relative">
+        <div className="flex flex-col xl:flex-row justify-between items-start xl:items-end gap-4 shrink-0">
+          <div>
+            <h2 className="text-2xl font-black text-gray-900">Lịch Điều Phối Vận Hành</h2>
+            <p className="text-gray-500 mt-1 flex gap-4 text-sm font-medium">
+              <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-emerald-500"></span> Đang dùng</span>
+              <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-blue-500"></span> Đã duyệt</span>
+              <span className="text-xs text-gray-400 font-semibold self-center bg-gray-100 px-2.5 py-0.5 rounded-md">Đang tự động ẩn phòng trống</span>
+            </p>
+          </div>
+          
+          <div className="flex flex-wrap items-center gap-3 w-full xl:w-auto">
+            <select 
+              value={buildingFilter} onChange={e => setBuildingFilter(e.target.value)}
+              className="px-4 py-2 border border-gray-200 rounded-xl text-sm font-bold bg-white outline-none focus:border-emerald-500"
+            >
+              <option value="all">Tất cả khu vực tòa nhà</option>
+              {uniqueBuildings.map((b, i) => <option key={i} value={b}>{b}</option>)}
+            </select>
+
+            <button onClick={() => setSelectedDate(new Date().toISOString().split('T')[0])} className="px-4 py-2 bg-slate-100 text-slate-700 font-bold rounded-xl text-sm hover:bg-slate-200">Hôm nay</button>
+            <div className="flex items-center bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm">
+               <button onClick={() => changeDate(-1)} className="p-2 hover:bg-gray-100 text-gray-500"><ChevronLeft className="w-5 h-5"/></button>
+               <input type="date" value={selectedDate} onChange={e => setSelectedDate(e.target.value)} className="px-2 py-1 text-sm font-bold outline-none cursor-pointer" />
+               <button onClick={() => changeDate(1)} className="p-2 hover:bg-gray-100 text-gray-500"><ChevronRight className="w-5 h-5"/></button>
+            </div>
+
+            <button onClick={() => setShowQuickBook(true)} className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-sm flex items-center gap-2 shadow-md">
+              <Plus className="w-4 h-4"/> Đặt lịch nhanh
+            </button>
+          </div>
+        </div>
+
+        {/* LƯỚI TIMELINE */}
+        <div className="flex-1 bg-white border border-gray-200 rounded-2xl overflow-auto relative shadow-sm">
+          <div className="min-w-[1200px] h-full flex flex-col relative">
+            
+            {currentLinePct !== null && (
+              <div className="absolute top-0 bottom-0 w-[2px] bg-red-500 z-40 pointer-events-none" style={{ left: `calc(16rem + ${currentLinePct} * (100% - 16rem) / 100)` }}>
+                 <div className="absolute -top-1 -left-[5px] w-3 h-3 bg-red-500 rotate-45 rounded-sm shadow-sm"></div>
+              </div>
+            )}
+
+            <div className="flex sticky top-0 z-30 bg-slate-50 border-b border-gray-200 shadow-sm">
+              <div className="w-64 shrink-0 sticky left-0 z-40 bg-slate-50 border-r border-gray-200 p-4 font-black text-gray-700">Không gian phòng Lab</div>
+              <div className="flex-1 relative flex">
+                {timeHeaders.map((time, idx) => (
+                  <div key={idx} className="flex-1 border-r border-gray-100 p-3 text-xs font-bold text-gray-400 text-center relative">
+                    <span className="absolute -left-3 top-3 bg-slate-50 px-1">{time}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {filteredRooms.length === 0 ? (
+              <div className="flex flex-col items-center justify-center flex-1 py-20 text-gray-400">
+                 <CalendarDays className="w-12 h-12 mb-3 text-gray-200" />
+                 <p className="font-medium text-sm">Hiện tại không có phòng nào có lịch đặt trùng khớp.</p>
+              </div>
+            ) : (
+              filteredRooms.map((room) => {
+                const roomIdStr = room.id || room._id || "";
+                const roomBookings = bookings.filter(b => b.roomId === roomIdStr);
+
+                return (
+                  <div key={roomIdStr} className="flex border-b border-gray-100 group hover:bg-slate-50/50 transition-colors h-24 relative">
+                    <div className="w-64 shrink-0 sticky left-0 z-20 bg-white group-hover:bg-slate-50 border-r border-gray-200 p-4 flex flex-col justify-center">
+                      <h3 className="font-bold text-gray-900 leading-tight truncate">{room.title || room.name || "Chưa đặt tên"}</h3>
+                      <p className="text-xs text-gray-500 font-medium mt-1">
+                        <MapPin className="w-3 h-3 inline mr-1" /> {room.building || "Tòa khác"} - {room.floor || ""}
+                      </p>
+                      <p className="text-xs text-gray-400 mt-0.5"><Users className="w-3 h-3 inline mr-1" /> Sức chứa: {room.capacity} chỗ</p>
+                    </div>
+
+                    <div className="flex-1 relative bg-white">
+                      <div className="absolute inset-0 flex pointer-events-none">
+                         {timeHeaders.map((_, idx) => <div key={idx} className="flex-1 border-r border-gray-100/60 border-dashed"></div>)}
+                      </div>
+
+                      {roomBookings.map((booking) => {
+                        const startMins = timeToMins(booking.startTime) - timeToMins("07:00");
+                        const leftPct = (startMins / totalMins) * 100;
+                        const widthPct = (booking.durationMins / totalMins) * 100;
+                        const bufferWidthPct = (booking.bufferMins / totalMins) * 100;
+                        const endTimeStr = minsToTime(timeToMins(booking.startTime) + booking.durationMins);
+
+                        return (
+                          <React.Fragment key={booking.id}>
+                            <div 
+                              className={`absolute top-2 bottom-2 ${getStatusColor(booking.status)} border rounded-xl px-3 py-1 overflow-hidden z-10 flex flex-col justify-center cursor-pointer hover:brightness-110 transition-all`}
+                              style={{ left: `${leftPct}%`, width: `${widthPct}%` }}
+                              onClick={() => setSelectedBooking(booking)}
+                            >
+                              <p className="text-xs font-black truncate leading-tight">{booking.customerName}</p>
+                              <p className="text-[10px] opacity-90 truncate font-semibold mt-0.5">{booking.startTime} - {endTimeStr}</p>
+                            </div>
+
+                            {booking.bufferMins > 0 && (
+                              <div 
+                                className="absolute top-2 bottom-2 z-0 bg-slate-50 border-y border-r border-slate-200 rounded-r-lg opacity-60 flex items-center justify-center overflow-hidden"
+                                style={{ 
+                                  left: `${leftPct + widthPct}%`, width: `${bufferWidthPct}%`,
+                                  backgroundImage: "repeating-linear-gradient(45deg, transparent, transparent 5px, rgba(0,0,0,0.03) 5px, rgba(0,0,0,0.03) 10px)"
+                                }}
+                              />
+                            )}
+                          </React.Fragment>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+
+        {/* ================= MODAL QUICK BOOK ================= */}
+        {/* ================= MODAL QUICK BOOK CAO CẤP ================= */}
+        <AnimatePresence>
+          {showQuickBook && (
+            <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+              <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[95vh]">
+                <div className="bg-emerald-600 p-5 flex justify-between items-center text-white shrink-0">
+                  <h3 className="font-black text-xl flex items-center gap-2"><Clock className="w-5 h-5"/> Đặt Phòng Nhanh (POS)</h3>
+                  <button onClick={() => setShowQuickBook(false)} className="hover:bg-emerald-700 p-1 rounded-full"><X className="w-6 h-6" /></button>
+                </div>
+                
+                <form onSubmit={handleQuickBookSubmit} className="p-6 overflow-y-auto space-y-6">
+                  
+                  {/* Tìm Kiếm và Chọn Phòng */}
+                  <div className="bg-gray-50 p-4 rounded-xl border border-gray-200">
+                    <label className="block text-sm font-bold text-gray-700 mb-2 flex items-center justify-between">
+                      Chọn Phòng Lab *
+                      <div className="relative w-48">
+                         <Search className="w-4 h-4 absolute left-2 top-1/2 -translate-y-1/2 text-gray-400" />
+                         <input type="text" placeholder="Tìm tên phòng..." value={roomSearchQuery} onChange={e => setRoomSearchQuery(e.target.value)} className="w-full pl-8 pr-2 py-1 text-xs border border-gray-300 rounded-md focus:outline-none focus:border-emerald-500" />
+                      </div>
+                    </label>
+                    <select required value={quickBookData.roomId} onChange={e => setQuickBookData({...quickBookData, roomId: e.target.value})} className="w-full px-4 py-3 bg-white border border-gray-300 rounded-xl font-bold text-emerald-800 outline-none focus:border-emerald-500 shadow-sm">
+                      <option value="" disabled>-- Vui lòng chọn một phòng --</option>
+                      {rooms.filter(r => (r.title || r.name || "").toLowerCase().includes(roomSearchQuery.toLowerCase())).map(r => (
+                        <option key={r.id||r._id} value={r.id||r._id}>
+                          {r.title || r.name} - Sức chứa: {r.capacity} ({Number(r.price || 100000).toLocaleString('vi-VN')}đ/h)
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-bold text-gray-700 mb-1">Họ Tên Người Thuê *</label>
+                      <input type="text" required value={quickBookData.customerName} onChange={e => setQuickBookData({...quickBookData, customerName: e.target.value})} className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-emerald-500" placeholder="VD: Nguyễn Văn A" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-bold text-gray-700 mb-1">Số điện thoại liên hệ *</label>
+                      <input type="text" required value={quickBookData.phone} onChange={e => setQuickBookData({...quickBookData, phone: e.target.value})} className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-emerald-500" placeholder="VD: 0901234567" />
+                    </div>
+                  </div>
+
+                  {/* Cho phép chọn lịch xuyên ngày */}
+                  <div className="bg-blue-50/50 p-4 rounded-xl border border-blue-100 grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div className="md:col-span-2">
+                      <label className="block text-sm font-bold text-blue-900 mb-1">Bắt đầu từ *</label>
+                      <div className="flex gap-2">
+                         <input type="date" required value={quickBookData.startDate} onChange={e => setQuickBookData({...quickBookData, startDate: e.target.value})} className="w-full px-3 py-2 bg-white border border-blue-200 rounded-lg text-sm outline-none focus:border-blue-500" />
+                         <input type="time" required value={quickBookData.startTime} onChange={e => setQuickBookData({...quickBookData, startTime: e.target.value})} className="w-24 px-2 py-2 bg-white border border-blue-200 rounded-lg text-sm outline-none focus:border-blue-500" />
+                      </div>
+                    </div>
+                    <div className="md:col-span-2">
+                      <label className="block text-sm font-bold text-blue-900 mb-1">Đến khi *</label>
+                      <div className="flex gap-2">
+                         <input type="date" required value={quickBookData.endDate} onChange={e => setQuickBookData({...quickBookData, endDate: e.target.value})} className="w-full px-3 py-2 bg-white border border-blue-200 rounded-lg text-sm outline-none focus:border-blue-500" />
+                         <input type="time" required value={quickBookData.endTime} onChange={e => setQuickBookData({...quickBookData, endTime: e.target.value})} className="w-24 px-2 py-2 bg-white border border-blue-200 rounded-lg text-sm outline-none focus:border-blue-500" />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* THIẾT BỊ & GIÁ TIỀN */}
+                  <div>
+                     <label className="block text-sm font-bold text-gray-700 mb-2">Thêm thiết bị (Trừ kho tự động)</label>
+                     <div className="border border-gray-200 rounded-xl p-4 max-h-48 overflow-y-auto bg-gray-50 space-y-2">
+                        {equipments.map(eq => {
+                           const eqId = eq.id || eq._id || "";
+                           const available = (eq.totalQuantity || 0) - (eq.inUseQuantity || 0);
+                           const isOutOfStock = available <= 0;
+                           const isSelected = !!quickBookData.equipments[eqId];
+                           const selectedQty = isSelected ? quickBookData.equipments[eqId].quantity : 0;
+                           const eqPrice = Number(eq.price || 50000); 
+
+                           return (
+                             <div key={eqId} className={`flex items-center justify-between p-3 rounded-lg border ${isSelected ? 'bg-emerald-50 border-emerald-300' : 'bg-white border-transparent hover:border-gray-300'} ${isOutOfStock && !isSelected ? 'opacity-40' : 'shadow-sm'}`}>
+                               <label className="flex items-center gap-3 cursor-pointer flex-1">
+                                 <input 
+                                    type="checkbox" checked={isSelected} 
+                                    onChange={() => toggleEquipment(eqId, eq.name, available, eqPrice)} 
+                                    disabled={isOutOfStock && !isSelected} 
+                                    className="w-5 h-5 text-emerald-600 rounded border-gray-300 focus:ring-emerald-500 cursor-pointer" 
+                                 />
+                                 <div>
+                                    <span className="text-sm font-black text-gray-900">{eq.name}</span>
+                                    <div className="flex items-center gap-2 mt-0.5">
+                                      <span className={`text-xs px-2 py-0.5 rounded-md font-bold ${isOutOfStock ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-700'}`}>
+                                        {isOutOfStock ? 'Hết hàng' : `Còn: ${available}`}
+                                      </span>
+                                      <span className="text-xs text-blue-700 font-bold bg-blue-50 px-2 py-0.5 rounded-md flex items-center gap-1">
+                                        <Banknote className="w-3 h-3"/> {eqPrice.toLocaleString('vi-VN')}đ / lượt
+                                      </span>
+                                    </div>
+                                 </div>
+                               </label>
+                               
+                               {isSelected && (
+                                 <div className="flex items-center gap-2 bg-white border border-emerald-300 rounded-lg p-1 shadow-inner">
+                                   <button type="button" onClick={() => updateEqQuantity(eqId, -1)} className="w-7 h-7 bg-gray-100 hover:bg-gray-200 rounded text-gray-700 font-black">-</button>
+                                   <span className="text-base font-black w-6 text-center text-emerald-700">{selectedQty}</span>
+                                   <button type="button" onClick={() => updateEqQuantity(eqId, 1)} disabled={selectedQty >= available} className="w-7 h-7 bg-emerald-100 hover:bg-emerald-200 disabled:opacity-50 rounded text-emerald-700 font-black">+</button>
+                                 </div>
+                               )}
+                             </div>
+                           )
+                        })}
+                     </div>
+                  </div>
+
+                  {/* TỔNG HÓA ĐƠN */}
+                  <div className="bg-slate-900 rounded-xl p-5 flex items-center justify-between shadow-lg">
+                    <div>
+                      <p className="text-gray-400 text-xs font-bold uppercase tracking-wider mb-1">Tổng tiền tạm tính</p>
+                      <p className="text-gray-300 text-xs">(Bao gồm Phòng + Thiết bị)</p>
+                    </div>
+                    <div className="text-3xl font-black text-emerald-400">
+                      {calculateTotalCost().toLocaleString('vi-VN')}đ
+                    </div>
+                  </div>
+
+                  <div className="pt-2 flex justify-end gap-3 shrink-0">
+                     <button type="button" onClick={() => setShowQuickBook(false)} className="px-6 py-3 font-bold text-gray-500 hover:bg-gray-100 rounded-xl transition-colors">Hủy bỏ</button>
+                     <button type="submit" id="btn-submit-quickbook" className="px-8 py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-black rounded-xl shadow-xl transition-all active:scale-95 text-lg">Xác nhận Check-in</button>
+                  </div>
+                </form>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+
+        {/* ================= MODAL XEM CHI TIẾT CA ĐẶT ================= */}
+        <AnimatePresence>
+          {selectedBooking && (
+            <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm" onClick={() => setSelectedBooking(null)}>
+              <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} onClick={e => e.stopPropagation()} className="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col">
+                <div className="bg-slate-900 p-5 flex justify-between items-center text-white shrink-0">
+                  <h3 className="font-black text-xl flex items-center gap-2"><FileText className="w-5 h-5 text-blue-400"/> Chi tiết Ca đặt phòng</h3>
+                  <button onClick={() => setSelectedBooking(null)} className="hover:bg-slate-700 p-1 rounded-full"><X className="w-6 h-6" /></button>
+                </div>
+                
+                <div className="p-6 space-y-6">
+                  <div className="flex items-start justify-between border-b border-gray-100 pb-4">
+                    <div>
+                      <h4 className="text-2xl font-black text-gray-900">{selectedBooking.customerName}</h4>
+                      <p className="text-sm font-medium text-gray-500 mt-1">SĐT: {selectedBooking.phone}</p>
+                    </div>
+                    <span className="bg-emerald-100 text-emerald-700 font-bold px-3 py-1 rounded-full text-xs uppercase tracking-wider">
+                      {selectedBooking.status}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="bg-gray-50 p-4 rounded-xl border border-gray-100">
+                      <p className="text-xs font-bold text-gray-400 uppercase mb-1">Thời gian mượn</p>
+                      <p className="text-lg font-black text-gray-900">{selectedBooking.startTime} - {minsToTime(timeToMins(selectedBooking.startTime) + selectedBooking.durationMins)}</p>
+                      <p className="text-xs font-medium text-amber-600 mt-1 flex items-center gap-1"><Clock className="w-3 h-3"/> Dọn dẹp: {selectedBooking.bufferMins} phút</p>
+                    </div>
+                    <div className="bg-gray-50 p-4 rounded-xl border border-gray-100">
+                      <p className="text-xs font-bold text-gray-400 uppercase mb-1">Phòng Lab</p>
+                      <p className="text-lg font-black text-gray-900 line-clamp-1">{rooms.find(r => r.id === selectedBooking.roomId || r._id === selectedBooking.roomId)?.title || rooms.find(r => r.id === selectedBooking.roomId || r._id === selectedBooking.roomId)?.name || "Phòng học"}</p>
+                    </div>
+                  </div>
+
+                  <div>
+                    <h5 className="text-sm font-bold text-gray-900 mb-3 flex items-center gap-2"><Package className="w-4 h-4 text-blue-500"/> Thiết bị mượn kèm</h5>
+                    {(!selectedBooking.equipments || selectedBooking.equipments.length === 0) ? (
+                      <p className="text-sm text-gray-500 italic bg-gray-50 p-3 rounded-lg border border-gray-100">Không mượn thêm thiết bị.</p>
+                    ) : (
+                      <ul className="space-y-2">
+                        {selectedBooking.equipments.map((eq, idx) => (
+                          <li key={idx} className="flex justify-between items-center bg-blue-50/50 border border-blue-100 p-3 rounded-xl">
+                            <span className="font-bold text-gray-800 text-sm">{eq.name}</span>
+                            <span className="bg-blue-100 text-blue-700 font-black px-3 py-1 rounded-lg text-xs">x{eq.quantity}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+
+                  {selectedBooking.note && (
+                    <div className="bg-amber-50 border border-amber-100 p-4 rounded-xl">
+                       <p className="text-xs font-bold text-amber-800 uppercase mb-1">Ghi chú vận hành:</p>
+                       <p className="text-sm font-medium text-amber-900">{selectedBooking.note}</p>
+                    </div>
+                  )}
+                </div>
+
+                <div className="bg-gray-50 p-4 border-t border-gray-100 flex justify-end">
+                   <button onClick={() => setSelectedBooking(null)} className="px-6 py-2.5 bg-slate-900 hover:bg-black text-white font-bold rounded-xl shadow-md">Đóng lại</button>
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+
+      </div>
+    );
+  };
+
+  // ================= SIDEBAR =================
   const renderSidebar = () => (
     <aside className="w-64 bg-slate-900 text-slate-300 flex flex-col h-screen sticky top-0 shrink-0 shadow-2xl z-30 hidden md:flex">
       <div className="p-6 border-b border-slate-800">
@@ -161,484 +852,8 @@ export default function ManagerDashboardPage() {
     </aside>
   );
 
-  // ================= TAB 1: GIÁM SÁT VẬN HÀNH (CÓ DATE PICKER) =================
-  //const renderDashboard = () => {
-  //   const utilizationData = [
-  //     { name: "07:00", active: 10 }, { name: "09:00", active: 35 }, { name: "13:00", active: 40 }, { name: "15:00", active: 20 }
-  //   ];
-  //   const damageData = [
-  //     { name: "Bình thường", value: 300 }, { name: "Hỏng do khách", value: 5 }, { name: "Hao mòn", value: 15 }
-  //   ];
-
-  //   return (
-  //     <div className="space-y-6 pb-10">
-  //       {/* Header & Lọc thời gian có Date Picker */}
-  //       <div className="flex flex-col xl:flex-row justify-between items-start xl:items-end gap-4 bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
-  //         <div>
-  //           <h2 className="text-2xl font-black text-gray-900">Giám sát Trực tiếp</h2>
-  //           <p className="text-gray-500 text-sm mt-1">Cập nhật trạng thái phòng và thiết bị realtime.</p>
-  //         </div>
-  //         <div className="flex flex-wrap items-center gap-3 w-full xl:w-auto">
-  //           <button className="flex-1 sm:flex-none flex items-center justify-center gap-2 bg-slate-900 text-white px-4 py-2.5 rounded-xl text-sm font-bold shadow-md hover:bg-black transition-colors">
-  //             <QrCode className="w-4 h-4" /> Quét mã QR
-  //           </button>
-  //           <div className="flex bg-gray-100 p-1 rounded-xl border border-gray-200 w-full sm:w-auto items-center overflow-x-auto scrollbar-hide">
-  //             {[{ id: "today", label: "Hôm nay" }, { id: "yesterday", label: "Hôm qua" }, { id: "7days", label: "7 Ngày" }].map(f => (
-  //               <button key={f.id} onClick={() => { setTimeFilter(f.id as TimeFilter); setCustomDate(""); }}
-  //                 className={`px-4 py-1.5 text-sm font-bold rounded-lg whitespace-nowrap transition-all ${timeFilter === f.id && !customDate ? "bg-white text-emerald-600 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}
-  //               >{f.label}</button>
-  //             ))}
-  //             <div className="h-4 w-px bg-gray-300 mx-2"></div>
-  //             {/* DATE PICKER TÙY CHỌN NGÀY */}
-  //             <input 
-  //               type="date" 
-  //               value={customDate}
-  //               onChange={(e) => { setCustomDate(e.target.value); setTimeFilter("custom"); }}
-  //               className={`px-3 py-1 text-sm font-bold rounded-lg bg-transparent outline-none cursor-pointer ${customDate ? "text-emerald-600 bg-white shadow-sm" : "text-gray-500"}`}
-  //             />
-  //           </div>
-  //         </div>
-  //       </div>
-
-  //       {/* Báo cáo thống kê... (Giữ nguyên như cũ) */}
-  //       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-  //         <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
-  //           <p className="text-xs font-bold text-gray-500 mb-1">ĐANG SỬ DỤNG</p>
-  //           <h3 className="text-2xl font-black text-emerald-600">18/25 <span className="text-sm font-medium text-gray-400">Phòng</span></h3>
-  //         </div>
-  //         <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
-  //           <p className="text-xs font-bold text-gray-500 mb-1">CHỜ DUYỆT</p>
-  //           <h3 className="text-2xl font-black text-amber-500">12 <span className="text-sm font-medium text-gray-400">Đơn</span></h3>
-  //         </div>
-  //         <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
-  //           <p className="text-xs font-bold text-gray-500 mb-1">THIẾT BỊ RỜI KHO</p>
-  //           <h3 className="text-2xl font-black text-blue-600">45 <span className="text-sm font-medium text-gray-400">Món</span></h3>
-  //         </div>
-  //         <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
-  //           <p className="text-xs font-bold text-gray-500 mb-1">BẢO TRÌ ĐỘT XUẤT</p>
-  //           <h3 className="text-2xl font-black text-red-500">2 <span className="text-sm font-medium text-gray-400">Sự cố</span></h3>
-  //         </div>
-  //       </div>
-
-  //       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-  //         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm flex flex-col h-[350px]">
-  //           <div className="p-4 border-b border-gray-100"><h3 className="font-bold text-gray-900 flex items-center gap-2"><Clock className="w-5 h-5 text-emerald-500"/> Ca sắp diễn ra (Trong 2h)</h3></div>
-  //           <div className="p-4 overflow-y-auto space-y-3">
-  //              <div className="text-center text-sm text-gray-500 py-10">Hiển thị lịch sắp tới...</div>
-  //           </div>
-  //         </div>
-  //         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm flex flex-col h-[350px]">
-  //           <div className="p-4 border-b border-gray-100"><h3 className="font-bold text-gray-900 flex items-center gap-2"><AlertTriangle className="w-5 h-5 text-amber-500"/> Đơn chờ duyệt khẩn</h3></div>
-  //           <div className="p-4 overflow-y-auto space-y-3">
-  //               <div className="text-center text-sm text-gray-500 py-10">Không có đơn chờ duyệt.</div>
-  //           </div>
-  //         </div>
-  //       </div>
-  //     </div>
-  //   );
-  // };
-
-  const renderLabsTable = () => (
-      <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden animate-in fade-in duration-300">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="bg-gray-50 border-b border-gray-200 text-sm">
-                <th className="p-4 font-bold text-gray-600">Tên Phòng</th>
-                <th className="p-4 font-bold text-gray-600">Vị trí(Tòa Nhà - Tầng)</th>
-                <th className="p-4 font-bold text-gray-600">Sức chứa</th>
-                <th className="p-4 font-bold text-gray-600">Trạng thái</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {rooms.map((room) => (
-                <tr key={room.id || room._id} className="hover:bg-gray-50 transition-colors">
-                  <td className="p-4 font-bold text-gray-900 flex items-center gap-3">
-                    {/* HÌNH ẢNH PHÒNG */}
-                    {room.imageUrl ? (
-                      <img src={room.imageUrl} alt={room.name} className="w-10 h-10 rounded-lg object-cover border border-gray-200 shadow-sm" />
-                    ) : (
-                      <div className="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center text-blue-600"><DoorOpen className="w-5 h-5"/></div>
-                    )}
-                    {room.name}
-                  </td>
-                  <td className="p-4 text-gray-600">{room.building || "Chưa gán"} - {room.floor || "Chưa gán"}</td>
-                  <td className="p-4 text-gray-600">{room.capacity || 0} người</td>
-                  <td className="p-4">
-                    {room.maintenanceMode ? (
-                      <span className="inline-flex items-center gap-1.5 bg-red-50 text-red-700 px-3 py-1 rounded-full text-xs font-bold border border-red-100"><Wrench className="w-3.5 h-3.5"/> Bảo trì</span>
-                    ) : room.isBooked ? (
-                      <span className="inline-flex items-center gap-1.5 bg-amber-50 text-amber-700 px-3 py-1 rounded-full text-xs font-bold border border-amber-100"><Clock className="w-3.5 h-3.5"/> Đã đặt</span>
-                    ) : (
-                      <span className="inline-flex items-center gap-1.5 bg-emerald-50 text-emerald-700 px-3 py-1 rounded-full text-xs font-bold border border-emerald-100"><CheckCircle2 className="w-3.5 h-3.5"/> Sẵn sàng</span>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    );
-  const renderEquipmentsTable = () => (
-      <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden animate-in fade-in duration-300">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="bg-gray-50 border-b border-gray-200 text-sm">
-                <th className="p-4 font-bold text-gray-600">Tên Thiết bị</th>
-                <th className="p-4 font-bold text-gray-600">Danh mục</th>
-                <th className="p-4 font-bold text-gray-600">Số lượng (Kho)</th>
-                <th className="p-4 font-bold text-gray-600">Trạng thái</th>
-                <th className="p-4 font-bold text-gray-600">Vị trí phòng</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {equipments.map((eq) => {
-                const matchedRoom = rooms.find(r => (r.id || r._id) === eq.roomId);
-                const roomName = matchedRoom ? matchedRoom.name : "Trong kho";
-                const availableQty = (eq.totalQuantity || 0) - (eq.inUseQuantity || 0);
-
-                return (
-                  <tr key={eq.id || eq._id} className="hover:bg-gray-50 transition-colors">
-                    <td className="p-4 font-bold text-gray-900 flex items-center gap-3">
-                      {/* HÌNH ẢNH THIẾT BỊ */}
-                      {eq.imageUrl ? (
-                        <img src={eq.imageUrl} alt={eq.name} className="w-10 h-10 rounded-lg object-cover border border-gray-200 shadow-sm" />
-                      ) : (
-                        <div className="w-10 h-10 rounded-lg bg-indigo-100 flex items-center justify-center text-indigo-600"><Package className="w-5 h-5"/></div>
-                      )}
-                      {eq.name}
-                    </td>
-                    <td className="p-4"><span className="bg-gray-100 text-gray-600 px-2.5 py-1 rounded-md text-xs font-bold">{eq.category || "Vật tư"}</span></td>
-                    
-                    {/* CỘT SỐ LƯỢNG */}
-                    <td className="p-4">
-                      {eq.managementType === 'pool' ? (
-                        <span className="inline-flex items-center gap-1.5 bg-blue-50 text-blue-700 px-3 py-1 rounded-full text-xs font-bold border border-blue-100">Còn: {availableQty}/{eq.totalQuantity}</span>
-                      ) : (
-                         <span className="inline-flex items-center gap-1.5 bg-gray-100 text-gray-700 px-3 py-1 rounded-full text-xs font-bold border border-gray-200">Đơn chiếc (Serial)</span>
-                      )}
-                    </td>
-
-                    {/* CỘT TRẠNG THÁI RIÊNG BIỆT */}
-                    <td className="p-4">
-                      {eq.status === 'available' ? (
-                         <span className="inline-flex items-center gap-1.5 bg-emerald-50 text-emerald-700 px-3 py-1 rounded-full text-xs font-bold border border-emerald-100"><CheckCircle2 className="w-3.5 h-3.5"/> Sẵn sàng</span>
-                      ) : eq.status === 'maintenance' ? (
-                        <span className="inline-flex items-center gap-1.5 bg-red-50 text-red-700 px-3 py-1 rounded-full text-xs font-bold border border-red-100"><Wrench className="w-3.5 h-3.5"/> Bảo trì</span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1.5 bg-gray-100 text-gray-700 px-3 py-1 rounded-full text-xs font-bold border border-gray-200">Thanh lý</span>
-                      )}
-                    </td>
-
-                    <td className="p-4 text-gray-600 flex items-center gap-1.5"><MapPin className="w-4 h-4 text-gray-400"/> {roomName}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    );
-
-  const renderDashboard = () => {
-    // TÍNH TOÁN CON SỐ REAL-TIME TỪ DỮ LIỆU
-    const usedRoomsCount = rooms.filter(l => l.isBooked).length;
-    const maintenanceRoomsCount = rooms.filter(l => l.maintenanceMode).length;
-    const maintenanceEqsCount = equipments.filter(e => e.status === 'maintenance').length;
-    const totalMaintenance = maintenanceRoomsCount + maintenanceEqsCount;
-    const itemsOut = equipments.reduce((sum, eq) => sum + (eq.inUseQuantity || 0), 0);
-
-    const renderOverview = () => (
-      <div className="space-y-6 animate-in fade-in duration-300">
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
-            <p className="text-xs font-bold text-gray-500 mb-1">ĐANG SỬ DỤNG</p>
-            <h3 className="text-2xl font-black text-emerald-600">{usedRoomsCount}/{rooms.length} <span className="text-sm font-medium text-gray-400">Phòng</span></h3>
-          </div>
-          <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
-            <p className="text-xs font-bold text-gray-500 mb-1">CHỜ DUYỆT</p>
-            <h3 className="text-2xl font-black text-amber-500">12 <span className="text-sm font-medium text-gray-400">Đơn</span></h3>
-          </div>
-          <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
-            <p className="text-xs font-bold text-gray-500 mb-1">THIẾT BỊ RỜI KHO</p>
-            <h3 className="text-2xl font-black text-blue-600">{itemsOut} <span className="text-sm font-medium text-gray-400">Món</span></h3>
-          </div>
-          <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
-            <p className="text-xs font-bold text-gray-500 mb-1">BẢO TRÌ ĐỘT XUẤT</p>
-            <h3 className="text-2xl font-black text-red-500">{totalMaintenance} <span className="text-sm font-medium text-gray-400">Sự cố</span></h3>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm flex flex-col h-[350px]">
-            <div className="p-4 border-b border-gray-100"><h3 className="font-bold text-gray-900 flex items-center gap-2"><Clock className="w-5 h-5 text-emerald-500"/> Ca sắp diễn ra (Trong 2h)</h3></div>
-            <div className="p-4 overflow-y-auto space-y-3">
-               <div className="text-center text-sm text-gray-500 py-10">Hiển thị lịch sắp tới...</div>
-            </div>
-          </div>
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm flex flex-col h-[350px]">
-            <div className="p-4 border-b border-gray-100"><h3 className="font-bold text-gray-900 flex items-center gap-2"><AlertTriangle className="w-5 h-5 text-amber-500"/> Đơn chờ duyệt khẩn</h3></div>
-            <div className="p-4 overflow-y-auto space-y-3">
-                <div className="text-center text-sm text-gray-500 py-10">Không có đơn chờ duyệt.</div>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-
-    
-
-    return (
-      <div className="space-y-6 pb-10">
-        {/* Header & Lọc thời gian có Date Picker */}
-        <div className="flex flex-col xl:flex-row justify-between items-start xl:items-end gap-4 bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
-          <div>
-            <h2 className="text-2xl font-black text-gray-900">Giám sát Trực tiếp</h2>
-            <p className="text-gray-500 text-sm mt-1">Cập nhật trạng thái phòng và thiết bị realtime.</p>
-          </div>
-          <div className="flex flex-wrap items-center gap-3 w-full xl:w-auto">
-            <button className="flex-1 sm:flex-none flex items-center justify-center gap-2 bg-slate-900 text-white px-4 py-2.5 rounded-xl text-sm font-bold shadow-md hover:bg-black transition-colors">
-              <QrCode className="w-4 h-4" /> Quét mã QR
-            </button>
-            <div className="flex bg-gray-100 p-1 rounded-xl border border-gray-200 w-full sm:w-auto items-center overflow-x-auto scrollbar-hide">
-              {[{ id: "today", label: "Hôm nay" }, { id: "yesterday", label: "Hôm qua" }, { id: "7days", label: "7 Ngày" }].map(f => (
-                <button key={f.id} onClick={() => { setTimeFilter(f.id as TimeFilter); setCustomDate(""); }}
-                  className={`px-4 py-1.5 text-sm font-bold rounded-lg whitespace-nowrap transition-all ${timeFilter === f.id && !customDate ? "bg-white text-emerald-600 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}
-                >{f.label}</button>
-              ))}
-              <div className="h-4 w-px bg-gray-300 mx-2"></div>
-              {/* DATE PICKER TÙY CHỌN NGÀY */}
-              <input 
-                type="date" 
-                value={customDate}
-                onChange={(e) => { setCustomDate(e.target.value); setTimeFilter("custom"); }}
-                className={`px-3 py-1 text-sm font-bold rounded-lg bg-transparent outline-none cursor-pointer ${customDate ? "text-emerald-600 bg-white shadow-sm" : "text-gray-500"}`}
-              />
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  };
-
-  // ================= TAB 2: LỊCH ĐIỀU PHỐI (CÓ QUICK BOOK) =================
-  const renderTimeline = () => {
-    const startHour = 7;
-    const endHour = 21;
-    const totalMins = (endHour - startHour) * 60;
-    const timeHeaders = [];
-    for (let i = startHour; i <= endHour; i++) timeHeaders.push(`${i.toString().padStart(2, '0')}:00`);
-
-    const getStatusColor = (status: string) => {
-      if (status === 'checked-in') return 'bg-emerald-500 border-emerald-600 text-white';
-      if (status === 'confirmed') return 'bg-blue-500 border-blue-600 text-white';
-      if (status === 'pending') return 'bg-amber-400 border-amber-500 text-amber-950';
-      return 'bg-gray-400 text-white';
-    };
-
-    return (
-      <div className="space-y-6 flex flex-col h-[calc(100vh-6rem)]">
-        <div className="flex justify-between items-end shrink-0">
-          <div>
-            <h2 className="text-2xl font-black text-gray-900">Lịch Điều Phối (Excel Grid)</h2>
-            <p className="text-gray-500 mt-1 flex gap-4 text-sm font-medium">
-              <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-emerald-500"></span> Đang dùng</span>
-              <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-blue-500"></span> Đã duyệt</span>
-              <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-gray-200"></span> Lịch trống (Click để đặt)</span>
-            </p>
-          </div>
-          <div className="flex items-center gap-3">
-             <input type="date" defaultValue={new Date().toISOString().split('T')[0]} className="px-4 py-2 border border-gray-200 rounded-xl text-sm font-bold bg-white" />
-          </div>
-        </div>
-
-        <div className="flex-1 bg-white border border-gray-200 rounded-2xl overflow-auto relative shadow-sm">
-          <div className="min-w-[1200px]">
-            {/* Header Khung giờ */}
-            <div className="flex sticky top-0 z-20 bg-slate-50 border-b border-gray-200 shadow-sm">
-              <div className="w-64 shrink-0 sticky left-0 z-30 bg-slate-50 border-r border-gray-200 p-4 font-black text-gray-700 flex items-center justify-between">
-                Danh sách Phòng
-              </div>
-              <div className="flex-1 relative flex">
-                {timeHeaders.map((time, idx) => (
-                  <div key={idx} className="flex-1 border-r border-gray-100 p-3 text-xs font-bold text-gray-400 text-center relative">
-                    <span className="absolute -left-3 top-3 bg-slate-50 px-1">{time}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Các Hàng: Từng Phòng Lab (HIỂN THỊ CẢ PHÒNG TRỐNG) */}
-            {rooms.map((room) => {
-              const roomBookings = bookings.filter(b => b.roomId === room.id);
-
-              return (
-                <div key={room.id} className="flex border-b border-gray-100 group hover:bg-emerald-50/30 transition-colors h-24">
-                  <div className="w-64 shrink-0 sticky left-0 z-10 bg-white group-hover:bg-emerald-50/50 border-r border-gray-200 p-4 flex flex-col justify-center">
-                    <h3 className="font-bold text-gray-900 leading-tight">{room.name}</h3>
-                    <p className="text-xs text-gray-500 font-medium mt-1"><MapPin className="w-3 h-3 inline" /> {room.building} - {room.floor}</p>
-                    <p className="text-xs text-gray-400 mt-0.5"><Users className="w-3 h-3 inline" /> {room.capacity} người</p>
-                  </div>
-
-                  {/* Khu vực lưới: Click background để gọi Modal Quick Book */}
-                  <div 
-                    className="flex-1 relative bg-[url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAGXRFWHRTb2Z0d2FyZQBBZG9iZSBJbWFnZVJlYWR5ccllPAAAABZJREFUeNpi2rVq1X8GBgYQwgcsAAgwAA9GA9/5o7wLAAAAAElFTkSuQmCC')] cursor-pointer hover:bg-emerald-50/20"
-                    onClick={() => {
-                      setQuickBookData(prev => ({ ...prev, roomId: room.id, roomName: room.name }));
-                      setShowQuickBook(true);
-                    }}
-                    title="Click vào ô trống để Đặt phòng nhanh"
-                  >
-                    {roomBookings.map((booking) => {
-                      const [h, m] = booking.startTime.split(':').map(Number);
-                      const startMins = (h - startHour) * 60 + m;
-                      const leftPct = (startMins / totalMins) * 100;
-                      const widthPct = (booking.durationMins / totalMins) * 100;
-
-                      return (
-                        <div 
-                          key={booking.id} 
-                          className={`absolute top-2 bottom-2 ${getStatusColor(booking.status)} border rounded-lg p-2 shadow-sm z-10 flex flex-col justify-center cursor-default`}
-                          style={{ left: `${leftPct}%`, width: `${widthPct}%` }}
-                          onClick={(e) => { e.stopPropagation(); /* Mở form sửa nếu cần */ }}
-                        >
-                          <p className="text-xs font-bold truncate leading-tight">{booking.customerName}</p>
-                          <p className="text-[10px] opacity-90 truncate font-medium">{booking.startTime}</p>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* MODAL ĐẶT PHÒNG NHANH (QUICK BOOK) */}
-        {showQuickBook && (
-          <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
-            <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
-              <div className="bg-emerald-600 p-4 flex justify-between items-center text-white">
-                <h3 className="font-black text-lg">Đặt phòng nhanh (Walk-in)</h3>
-                <button onClick={() => setShowQuickBook(false)}><X className="w-5 h-5 hover:bg-emerald-700 rounded-full" /></button>
-              </div>
-              <form onSubmit={handleQuickBookSubmit} className="p-6 space-y-4">
-                <div className="p-3 bg-emerald-50 border border-emerald-100 rounded-xl mb-4">
-                  <p className="text-xs font-bold text-emerald-700 uppercase">Phòng được chọn:</p>
-                  <p className="font-black text-emerald-900">{quickBookData.roomName}</p>
-                </div>
-                <div>
-                  <label className="block text-sm font-bold text-gray-700 mb-1">Tên khách hàng / GV *</label>
-                  <input type="text" required value={quickBookData.customerName} onChange={e => setQuickBookData({...quickBookData, customerName: e.target.value})} className="w-full px-4 py-2 border rounded-lg" placeholder="Nhập tên..." />
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-bold text-gray-700 mb-1">Giờ bắt đầu</label>
-                    <input type="time" required value={quickBookData.startTime} onChange={e => setQuickBookData({...quickBookData, startTime: e.target.value})} className="w-full px-4 py-2 border rounded-lg" />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-bold text-gray-700 mb-1">Thời lượng (Phút)</label>
-                    <input type="number" required value={quickBookData.durationMins} onChange={e => setQuickBookData({...quickBookData, durationMins: parseInt(e.target.value)})} className="w-full px-4 py-2 border rounded-lg" />
-                  </div>
-                </div>
-                <button type="submit" className="w-full mt-4 bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 rounded-xl shadow-md transition-all">
-                  Tạo ca & Check-in ngay
-                </button>
-              </form>
-            </motion.div>
-          </div>
-        )}
-      </div>
-    );
-  };
-
-  // ================= TAB 3: BÁO CÁO (REPORTS) =================
-  const renderReports = () => (
-    <div className="space-y-6 max-w-4xl mx-auto">
-      <div>
-        <h2 className="text-2xl font-black text-gray-900">Báo cáo Sự cố & Vận hành</h2>
-        <p className="text-gray-500 mt-1">Gửi trực tiếp các vấn đề phát sinh lên Ban quản trị (Admin).</p>
-      </div>
-
-      <form className="bg-white p-6 md:p-8 rounded-2xl shadow-sm border border-gray-200">
-        <div className="space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div>
-              <label className="block text-sm font-bold text-gray-700 mb-1">Loại báo cáo</label>
-              <select className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-emerald-500">
-                <option>Hỏng hóc thiết bị</option>
-                <option>Cơ sở hạ tầng (Điện, Nước, Điều hòa)</option>
-                <option>Phản ánh của Khách hàng</option>
-                <option>Đề xuất mua sắm mới</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-bold text-gray-700 mb-1">Mức độ nghiêm trọng</label>
-              <select className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-red-500">
-                <option>Bình thường</option>
-                <option>Khẩn cấp (Cần xử lý ngay)</option>
-              </select>
-            </div>
-          </div>
-          <div>
-            <label className="block text-sm font-bold text-gray-700 mb-1">Tiêu đề báo cáo</label>
-            <input type="text" className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-emerald-500" placeholder="VD: Hỏng điều hòa phòng Lab 01" />
-          </div>
-          <div>
-            <label className="block text-sm font-bold text-gray-700 mb-1">Chi tiết mô tả</label>
-            <textarea rows={5} className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-emerald-500" placeholder="Mô tả rõ tình trạng sự cố..."></textarea>
-          </div>
-          <div>
-            <label className="block text-sm font-bold text-gray-700 mb-1">Đính kèm ảnh hiện trường</label>
-            <input type="file" className="text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-sm file:font-semibold file:bg-emerald-50 file:text-emerald-700" />
-          </div>
-          <button type="button" onClick={() => alert("Đã gửi báo cáo lên Admin!")} className="w-full md:w-auto px-8 py-3 bg-slate-900 hover:bg-black text-white font-bold rounded-xl shadow-md">
-            Gửi Báo Cáo
-          </button>
-        </div>
-      </form>
-    </div>
-  );
-
-  // ================= TAB 4: TRA CỨU (LOOKUP) =================
-  const renderLookup = () => (
-    <div className="space-y-8 max-w-5xl mx-auto">
-      <div className="text-center py-8">
-        <h2 className="text-3xl font-black text-gray-900 mb-4">Hệ thống Tra cứu Nhanh</h2>
-        <div className="relative max-w-2xl mx-auto">
-          <Search className="w-6 h-6 absolute left-4 top-1/2 -translate-y-1/2 text-emerald-600" />
-          <input 
-            type="text" 
-            placeholder="Nhập Số điện thoại, Mã đơn đặt phòng, hoặc Serial Thiết bị..." 
-            className="w-full pl-12 pr-4 py-4 text-lg bg-white border-2 border-emerald-100 rounded-2xl focus:outline-none focus:border-emerald-500 shadow-sm"
-          />
-          <button className="absolute right-2 top-1/2 -translate-y-1/2 bg-emerald-600 text-white font-bold px-6 py-2 rounded-xl">Tìm</button>
-        </div>
-      </div>
-
-      <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-sm">
-        <div className="p-4 bg-gray-50 border-b border-gray-200 font-bold text-gray-700">Kết quả tìm kiếm mẫu</div>
-        <table className="w-full text-left text-sm">
-          <tbody>
-            <tr className="border-b hover:bg-gray-50">
-              <td className="p-4"><span className="bg-blue-100 text-blue-700 text-xs font-bold px-2 py-1 rounded">Mã Đơn</span></td>
-              <td className="p-4 font-bold">BK-99120</td>
-              <td className="p-4 text-gray-600">Khách: Lê Thị B - SĐT: 0987654321</td>
-              <td className="p-4 text-emerald-600 font-bold">Hoàn tất</td>
-            </tr>
-            <tr className="hover:bg-gray-50">
-              <td className="p-4"><span className="bg-amber-100 text-amber-700 text-xs font-bold px-2 py-1 rounded">Thiết bị</span></td>
-              <td className="p-4 font-bold">SN: PROJ-4K-01</td>
-              <td className="p-4 text-gray-600">Máy chiếu 4K Sony</td>
-              <td className="p-4 text-amber-600 font-bold">Đang cho mượn</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
+  const renderReports = () => <div className="p-6 bg-white rounded-2xl border border-gray-100 text-center py-20 text-gray-400">Giao diện Báo cáo sự cố</div>;
+  const renderLookup = () => <div className="p-6 bg-white rounded-2xl border border-gray-100 text-center py-20 text-gray-400">Giao diện Tra cứu thông tin</div>;
 
   return (
     <div className="flex h-screen bg-slate-50 font-sans overflow-hidden">
@@ -666,7 +881,7 @@ export default function ManagerDashboardPage() {
 
         <AnimatePresence mode="wait">
           {loading ? (
-            <div className="flex justify-center items-center py-20">
+            <div className="flex justify-center items-center h-full">
                <div className="w-10 h-10 border-4 border-emerald-200 border-t-emerald-600 rounded-full animate-spin"></div>
             </div>
           ) : (
