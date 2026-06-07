@@ -43,6 +43,7 @@ export default function LoginPage() {
       }
 
       localStorage.setItem("access_token", data.access_token);
+      localStorage.setItem("user_name", data.user_name);
 
       if (data.role === "ADMIN") {
         router.push("/admin");
