@@ -94,8 +94,8 @@ export default function AdvancedAdminDashboard() {
   });
 
   // ================= FETCH DATA =================
-  //const API_URL = "https://booklab247.onrender.com/api/v1";
-  const API_URL = "http://localhost:8000/api/v1";
+  const API_URL = "https://booklab247.onrender.com/api/v1";
+  //const API_URL = "http://localhost:8000/api/v1";
 
   useEffect(() => {
     fetchData();

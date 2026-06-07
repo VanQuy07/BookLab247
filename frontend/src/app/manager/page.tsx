@@ -68,7 +68,8 @@ export default function ManagerDashboardPage() {
     roomId: "", roomName: "", customerName: "", phone: "", startTime: "08:00", durationMins: 60, note: ""
   });
 
-  const API_URL = "http://localhost:8000/api/v1";
+  const API_URL = "https://booklab247.onrender.com/api/v1";
+  //const API_URL = "http://localhost:8000/api/v1";
 
   useEffect(() => {
     const token = localStorage.getItem("access_token");

@@ -55,7 +55,7 @@ export default function UserLabsPage() {
     const fetchLabs = async () => {
       try {
         setLoading(true);
-        const response = await fetch("http://localhost:8000/api/v1/labs");
+        const response = await fetch("https://booklab247.onrender.com/api/v1");
         
         if (!response.ok) throw new Error("Không thể kết nối với máy chủ");
         
