@@ -172,73 +172,63 @@ export default function ManagerDashboardPage() {
   }, [router]);
 
   const loadData = async () => {
-    try {
-      setLoading(true);
-      const [roomsData, eqRes] = await Promise.all([
-        labService.getAllLabs(),
-        fetch(`${API_URL}/equipments`),
-      ]);
+    setLoading(true);
+    const token = localStorage.getItem("access_token");
 
-      if (roomsData.length > 0) {
+    // 1. Luồng tải dữ liệu Phòng Lab
+    try {
+      const roomsRes = await fetch(`${API_URL}/labs`, {
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      const roomsData = roomsRes.ok ? await roomsRes.json() : [];
+      console.log("Dữ liệu Phòng kéo về:", roomsData);
+
+      if (roomsData && roomsData.length > 0) {
         setRooms(
-          roomsData.map((room) => ({
-            id: room.id,
-            title: room.title,
-            capacity: room.capacity,
+          roomsData.map((room: any) => ({
+            id: room.id || room._id,
+            title: room.name || room.title,
+            building: room.building || "Chưa gán",
+            floor: room.floor || "Chưa gán",
+            capacity: room.capacity || 0,
             imageUrl: room.imageUrl,
-            price: room.price ? Number(room.price) : undefined,
+            price: room.pricePerHour || room.price || 0,
+            maintenanceMode: room.maintenanceMode || false,
+            isBooked: room.isBooked || false,
           })),
         );
-      } else
-        setRooms([
-          {
-            id: "r1",
-            title: "FANMEETING KIENTHUHAI",
-            building: "Khác",
-            floor: "",
-            capacity: 10000,
-          },
-          {
-            id: "r2",
-            title: "Lab Hóa - Sinh 02",
-            building: "Tòa B",
-            floor: "Tầng 1",
-            capacity: 20,
-          },
-          {
-            id: "r3",
-            title: "Phòng VIP Học Máy (Trống)",
-            building: "Tòa A",
-            floor: "Tầng 2",
-            capacity: 30,
-          },
-        ]);
-
-      if (eqRes.ok) setEquipments(await eqRes.json());
-      else
-        setEquipments([
-          {
-            id: "eq1",
-            name: "máy chiếu",
-            totalQuantity: 10,
-            inUseQuantity: 2,
-            status: "available",
-            managementType: "pool",
-          },
-          {
-            id: "eq2",
-            name: "bảng viết",
-            totalQuantity: 300,
-            inUseQuantity: 67,
-            status: "available",
-            managementType: "pool",
-          },
-        ]);
+      } else {
+        setRooms([]);
+      }
     } catch (error) {
-      console.error(error);
-    } finally {
-      setLoading(false);
+      console.error("Lỗi khi tải Phòng Lab:", error);
+      setRooms([]);
     }
+
+    // 2. Luồng tải dữ liệu Thiết bị
+    try {
+      const eqRes = await fetch(`${API_URL}/equipments`, {
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      const equipmentsData = eqRes.ok ? await eqRes.json() : [];
+
+      if (equipmentsData && equipmentsData.length > 0) {
+        setEquipments(equipmentsData);
+      } else {
+        setEquipments([]);
+      }
+    } catch (error) {
+      console.error("Lỗi khi tải Thiết bị:", error);
+      setEquipments([]);
+    }
+
+    setLoading(false);
   };
 
   const handleLogout = () => {
