@@ -4,9 +4,27 @@ import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  LayoutDashboard, CalendarDays, LogOut,
-  X, Clock, MapPin, ShieldCheck, Search, FileText, Users, Plus, ChevronLeft, ChevronRight, Package,
-  AlertTriangle, TrendingUp, QrCode, CheckCircle2, Wrench, DoorOpen, Banknote
+  LayoutDashboard,
+  CalendarDays,
+  LogOut,
+  X,
+  Clock,
+  MapPin,
+  ShieldCheck,
+  Search,
+  FileText,
+  Users,
+  Plus,
+  ChevronLeft,
+  ChevronRight,
+  Package,
+  AlertTriangle,
+  TrendingUp,
+  QrCode,
+  CheckCircle2,
+  Wrench,
+  DoorOpen,
+  Banknote,
 } from "lucide-react";
 
 import { labService } from "../../services/lab";
@@ -61,32 +79,54 @@ interface BookingItem {
   date?: string;
 }
 
-type MenuTab = "dashboard" | "labs" | "equipments" | "timeline" | "reports" | "lookup";
+type MenuTab =
+  | "dashboard"
+  | "labs"
+  | "equipments"
+  | "timeline"
+  | "reports"
+  | "lookup";
 type TimeFilter = "today" | "yesterday" | "7days" | "month" | "custom";
 
 const COLORS = ["#3b82f6", "#ef4444", "#f59e0b"];
 
 // ================= DỮ LIỆU MẪU ĐẶT PHÒNG =================
 const INITIAL_BOOKINGS: BookingItem[] = [
-  { 
-    id: "b1", roomId: "r1", customerName: "Nguyễn Văn Quý", phone: "0901234567", status: "checked-in", 
-    startTime: "08:00", durationMins: 120, bufferMins: 15, note: "Khách ca sáng",
-    equipments: [{ id: "eq1", name: "máy chiếu", quantity: 2, price: 50000 }]
+  {
+    id: "b1",
+    roomId: "r1",
+    customerName: "Nguyễn Văn Quý",
+    phone: "0901234567",
+    status: "checked-in",
+    startTime: "08:00",
+    durationMins: 120,
+    bufferMins: 15,
+    note: "Khách ca sáng",
+    equipments: [{ id: "eq1", name: "máy chiếu", quantity: 2, price: 50000 }],
   },
-  { 
-    id: "b2", roomId: "r2", customerName: "Lê Thị B", phone: "0987654321", status: "confirmed", 
-    startTime: "13:00", durationMins: 180, bufferMins: 15, note: "Học nhóm hội thảo",
-    equipments: []
+  {
+    id: "b2",
+    roomId: "r2",
+    customerName: "Lê Thị B",
+    phone: "0987654321",
+    status: "confirmed",
+    startTime: "13:00",
+    durationMins: 180,
+    bufferMins: 15,
+    note: "Học nhóm hội thảo",
+    equipments: [],
   },
 ];
 
 export default function ManagerDashboardPage() {
   const router = useRouter();
-  const [activeMenu, setActiveMenu] = useState<MenuTab>("timeline"); 
+  const [activeMenu, setActiveMenu] = useState<MenuTab>("timeline");
   const [loading, setLoading] = useState<boolean>(true);
-  
+
   const [timeFilter, setTimeFilter] = useState<TimeFilter>("today");
-  const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [selectedDate, setSelectedDate] = useState<string>(
+    new Date().toISOString().split("T")[0],
+  );
   const [customDate, setCustomDate] = useState<string>("");
   const [currentTime, setCurrentTime] = useState(new Date());
 
@@ -96,17 +136,26 @@ export default function ManagerDashboardPage() {
   const [buildingFilter, setBuildingFilter] = useState<string>("all");
   const [roomSearchQuery, setRoomSearchQuery] = useState("");
 
-  
   // ================= STATES QUICK BOOK & VIEW BOOKING =================
   const [showQuickBook, setShowQuickBook] = useState(false);
   const [quickBookData, setQuickBookData] = useState({
-    roomId: "", customerName: "", phone: "", capacity: 1, 
-    startDate: selectedDate, startTime: "08:00", 
-    endDate: selectedDate, endTime: "10:00", 
+    roomId: "",
+    customerName: "",
+    phone: "",
+    capacity: 1,
+    startDate: selectedDate,
+    startTime: "08:00",
+    endDate: selectedDate,
+    endTime: "10:00",
     note: "",
-    equipments: {} as Record<string, { name: string, quantity: number, max: number, price: number }>
+    equipments: {} as Record<
+      string,
+      { name: string; quantity: number; max: number; price: number }
+    >,
   });
-  const [selectedBooking, setSelectedBooking] = useState<BookingItem | null>(null);
+  const [selectedBooking, setSelectedBooking] = useState<BookingItem | null>(
+    null,
+  );
 
   const API_URL = "https://booklab247.onrender.com/api/v1";
   //const API_URL = "http://localhost:8000/api/v1";
@@ -127,9 +176,9 @@ export default function ManagerDashboardPage() {
       setLoading(true);
       const [roomsData, eqRes] = await Promise.all([
         labService.getAllLabs(),
-        fetch(`${API_URL}/equipments`)
+        fetch(`${API_URL}/equipments`),
       ]);
-      
+
       if (roomsData.length > 0) {
         setRooms(
           roomsData.map((room) => ({
@@ -138,19 +187,53 @@ export default function ManagerDashboardPage() {
             capacity: room.capacity,
             imageUrl: room.imageUrl,
             price: room.price ? Number(room.price) : undefined,
-          }))
+          })),
         );
-      } else setRooms([
-        { id: "r1", title: "FANMEETING KIENTHUHAI", building: "Khác", floor: "", capacity: 10000 },
-        { id: "r2", title: "Lab Hóa - Sinh 02", building: "Tòa B", floor: "Tầng 1", capacity: 20 },
-        { id: "r3", title: "Phòng VIP Học Máy (Trống)", building: "Tòa A", floor: "Tầng 2", capacity: 30 }
-      ]);
+      } else
+        setRooms([
+          {
+            id: "r1",
+            title: "FANMEETING KIENTHUHAI",
+            building: "Khác",
+            floor: "",
+            capacity: 10000,
+          },
+          {
+            id: "r2",
+            title: "Lab Hóa - Sinh 02",
+            building: "Tòa B",
+            floor: "Tầng 1",
+            capacity: 20,
+          },
+          {
+            id: "r3",
+            title: "Phòng VIP Học Máy (Trống)",
+            building: "Tòa A",
+            floor: "Tầng 2",
+            capacity: 30,
+          },
+        ]);
 
-      if(eqRes.ok) setEquipments(await eqRes.json());
-      else setEquipments([
-        { id: "eq1", name: "máy chiếu", totalQuantity: 10, inUseQuantity: 2, status: 'available', managementType: 'pool' },
-        { id: "eq2", name: "bảng viết", totalQuantity: 300, inUseQuantity: 67, status: 'available', managementType: 'pool' }
-      ]);
+      if (eqRes.ok) setEquipments(await eqRes.json());
+      else
+        setEquipments([
+          {
+            id: "eq1",
+            name: "máy chiếu",
+            totalQuantity: 10,
+            inUseQuantity: 2,
+            status: "available",
+            managementType: "pool",
+          },
+          {
+            id: "eq2",
+            name: "bảng viết",
+            totalQuantity: 300,
+            inUseQuantity: 67,
+            status: "available",
+            managementType: "pool",
+          },
+        ]);
     } catch (error) {
       console.error(error);
     } finally {
@@ -164,33 +247,56 @@ export default function ManagerDashboardPage() {
   };
 
   const timeToMins = (timeStr: string) => {
-    const [h, m] = timeStr.split(':').map(Number);
+    const [h, m] = timeStr.split(":").map(Number);
     return h * 60 + m;
   };
 
   const minsToTime = (mins: number) => {
     const h = Math.floor(mins / 60);
     const m = mins % 60;
-    return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
+    return `${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}`;
   };
 
-  const toggleEquipment = (eqId: string, eqName: string, available: number, price: number) => {
+  const toggleEquipment = (
+    eqId: string,
+    eqName: string,
+    available: number,
+    price: number,
+  ) => {
     const currentEqs = { ...quickBookData.equipments };
     if (currentEqs[eqId]) delete currentEqs[eqId];
-    else currentEqs[eqId] = { name: eqName, quantity: 1, max: available, price: price };
+    else
+      currentEqs[eqId] = {
+        name: eqName,
+        quantity: 1,
+        max: available,
+        price: price,
+      };
     setQuickBookData({ ...quickBookData, equipments: currentEqs });
   };
   // Tính Tổng Tiền (Real-time)
   const calculateTotalCost = () => {
-    const startObj = new Date(`${quickBookData.startDate}T${quickBookData.startTime}`);
-    const endObj = new Date(`${quickBookData.endDate}T${quickBookData.endTime}`);
-    const diffMins = Math.max(0, (endObj.getTime() - startObj.getTime()) / 60000);
-    
-    const selectedRoom = rooms.find(r => (r.id || r._id) === quickBookData.roomId);
+    const startObj = new Date(
+      `${quickBookData.startDate}T${quickBookData.startTime}`,
+    );
+    const endObj = new Date(
+      `${quickBookData.endDate}T${quickBookData.endTime}`,
+    );
+    const diffMins = Math.max(
+      0,
+      (endObj.getTime() - startObj.getTime()) / 60000,
+    );
+
+    const selectedRoom = rooms.find(
+      (r) => (r.id || r._id) === quickBookData.roomId,
+    );
     const roomPricePerHour = Number(selectedRoom?.price || 100000); // Lấy giá phòng (mặc định 100k)
-    
+
     const roomTotal = (diffMins / 60) * roomPricePerHour;
-    const eqTotal = Object.values(quickBookData.equipments).reduce((sum, eq) => sum + (eq.price * eq.quantity), 0);
+    const eqTotal = Object.values(quickBookData.equipments).reduce(
+      (sum, eq) => sum + eq.price * eq.quantity,
+      0,
+    );
 
     return roomTotal + eqTotal;
   };
@@ -209,13 +315,19 @@ export default function ManagerDashboardPage() {
   // ================= XỬ LÝ SUBMIT ĐẶT LỊCH NHANH (GIỮ NGUYÊN TỪ HEAD) =================
   const handleQuickBookSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     // Ghép Ngày + Giờ để xử lý đặt xuyên ngày
-    const startDateTime = new Date(`${quickBookData.startDate}T${quickBookData.startTime}`);
-    const endDateTime = new Date(`${quickBookData.endDate}T${quickBookData.endTime}`);
-    
-    const durationMins = (endDateTime.getTime() - startDateTime.getTime()) / 60000;
-    if(durationMins <= 0) return alert("⛔ LỖI:\nGiờ kết thúc phải sau giờ bắt đầu!");
+    const startDateTime = new Date(
+      `${quickBookData.startDate}T${quickBookData.startTime}`,
+    );
+    const endDateTime = new Date(
+      `${quickBookData.endDate}T${quickBookData.endTime}`,
+    );
+
+    const durationMins =
+      (endDateTime.getTime() - startDateTime.getTime()) / 60000;
+    if (durationMins <= 0)
+      return alert("⛔ LỖI:\nGiờ kết thúc phải sau giờ bắt đầu!");
 
     const now = new Date();
     if (startDateTime < now) {
@@ -223,45 +335,65 @@ export default function ManagerDashboardPage() {
     }
 
     const targetId = quickBookData.roomId;
-    if(!targetId) return alert("Vui lòng chọn phòng!");
+    if (!targetId) return alert("Vui lòng chọn phòng!");
 
     // Check trùng lịch xuyên ngày (Dùng Timestamp)
     const newStartMs = startDateTime.getTime();
-    const newEndMsWithBuffer = endDateTime.getTime() + (15 * 60000); // Đệm dọn dẹp 15p
-    
-    const roomBookings = bookings.filter(b => b.roomId === targetId);
+    const newEndMsWithBuffer = endDateTime.getTime() + 15 * 60000; // Đệm dọn dẹp 15p
+
+    const roomBookings = bookings.filter((b) => b.roomId === targetId);
     for (const exist of roomBookings) {
-      const existDate = exist.date || quickBookData.startDate; 
-      const existStartMs = new Date(`${existDate}T${exist.startTime}`).getTime();
-      const existEndMsWithBuffer = existStartMs + ((exist.durationMins + exist.bufferMins) * 60000);
-      
-      if (newStartMs < existEndMsWithBuffer && newEndMsWithBuffer > existStartMs) {
-        return alert(`⛔ LỖI TRÙNG LỊCH!\nPhòng đã có khách [${exist.customerName}] đặt vào khoảng thời gian này.`);
+      const existDate = exist.date || quickBookData.startDate;
+      const existStartMs = new Date(
+        `${existDate}T${exist.startTime}`,
+      ).getTime();
+      const existEndMsWithBuffer =
+        existStartMs + (exist.durationMins + exist.bufferMins) * 60000;
+
+      if (
+        newStartMs < existEndMsWithBuffer &&
+        newEndMsWithBuffer > existStartMs
+      ) {
+        return alert(
+          `⛔ LỖI TRÙNG LỊCH!\nPhòng đã có khách [${exist.customerName}] đặt vào khoảng thời gian này.`,
+        );
       }
     }
 
-    const borrowedEquipments: BorrowedEquipment[] = Object.entries(quickBookData.equipments).map(
-      ([id, data]) => ({ id, name: data.name, quantity: data.quantity, price: data.price })
-    );
+    const borrowedEquipments: BorrowedEquipment[] = Object.entries(
+      quickBookData.equipments,
+    ).map(([id, data]) => ({
+      id,
+      name: data.name,
+      quantity: data.quantity,
+      price: data.price,
+    }));
 
     const payload = {
       room_id: targetId,
       customer_name: quickBookData.customerName,
       phone: quickBookData.phone,
-      date: quickBookData.startDate, 
+      date: quickBookData.startDate,
       start_time: quickBookData.startTime,
       duration_mins: durationMins,
       buffer_mins: 15,
       note: quickBookData.note,
-      equipments: borrowedEquipments
+      equipments: borrowedEquipments,
     };
 
     try {
-      const submitBtn = document.getElementById("btn-submit-quickbook") as HTMLButtonElement;
-      if(submitBtn) { submitBtn.disabled = true; submitBtn.innerText = "Đang lưu..."; }
+      const submitBtn = document.getElementById(
+        "btn-submit-quickbook",
+      ) as HTMLButtonElement;
+      if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.innerText = "Đang lưu...";
+      }
 
       const response = await fetch(`${API_URL}/bookings`, {
-        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload)
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
       });
 
       if (!response.ok) throw new Error("Lỗi lưu Database");
@@ -270,15 +402,26 @@ export default function ManagerDashboardPage() {
 
       const newBooking: BookingItem = {
         id: responseData.data?.id || `b${Date.now()}`,
-        roomId: targetId, customerName: quickBookData.customerName, phone: quickBookData.phone,
-        status: "checked-in", date: quickBookData.startDate, startTime: quickBookData.startTime,
-        durationMins: durationMins, bufferMins: 15, note: quickBookData.note, equipments: borrowedEquipments
+        roomId: targetId,
+        customerName: quickBookData.customerName,
+        phone: quickBookData.phone,
+        status: "checked-in",
+        date: quickBookData.startDate,
+        startTime: quickBookData.startTime,
+        durationMins: durationMins,
+        bufferMins: 15,
+        note: quickBookData.note,
+        equipments: borrowedEquipments,
       };
 
-      const updatedEquipments = equipments.map(eq => {
+      const updatedEquipments = equipments.map((eq) => {
         const eqId = eq.id || eq._id || "";
         if (quickBookData.equipments[eqId]) {
-          return { ...eq, inUseQuantity: (eq.inUseQuantity || 0) + quickBookData.equipments[eqId].quantity };
+          return {
+            ...eq,
+            inUseQuantity:
+              (eq.inUseQuantity || 0) + quickBookData.equipments[eqId].quantity,
+          };
         }
         return eq;
       });
@@ -286,21 +429,30 @@ export default function ManagerDashboardPage() {
       setEquipments(updatedEquipments);
       setBookings([...bookings, newBooking]);
       setShowQuickBook(false);
-      setQuickBookData({ ...quickBookData, customerName: "", phone: "", equipments: {} });
+      setQuickBookData({
+        ...quickBookData,
+        customerName: "",
+        phone: "",
+        equipments: {},
+      });
       alert("✅ Đã lưu ca đặt phòng thành công!");
-
     } catch (err: any) {
       alert(`⛔ LỖI SERVER:\n${err.message}`);
     } finally {
-      const submitBtn = document.getElementById("btn-submit-quickbook") as HTMLButtonElement;
-      if(submitBtn) { submitBtn.disabled = false; submitBtn.innerText = "Xác nhận Check-in & Thanh toán"; }
+      const submitBtn = document.getElementById(
+        "btn-submit-quickbook",
+      ) as HTMLButtonElement;
+      if (submitBtn) {
+        submitBtn.disabled = false;
+        submitBtn.innerText = "Xác nhận Check-in & Thanh toán";
+      }
     }
   };
 
   const changeDate = (days: number) => {
     const date = new Date(selectedDate);
     date.setDate(date.getDate() + days);
-    setSelectedDate(date.toISOString().split('T')[0]);
+    setSelectedDate(date.toISOString().split("T")[0]);
   };
 
   // ================= CÁC GIAO DIỆN TỪ NHÁNH INCOMING ĐÃ ĐƯỢC GIỮ LẠI =================
@@ -311,31 +463,52 @@ export default function ManagerDashboardPage() {
           <thead>
             <tr className="bg-gray-50 border-b border-gray-200 text-sm">
               <th className="p-4 font-bold text-gray-600">Tên Phòng</th>
-              <th className="p-4 font-bold text-gray-600">Vị trí(Tòa Nhà - Tầng)</th>
+              <th className="p-4 font-bold text-gray-600">
+                Vị trí(Tòa Nhà - Tầng)
+              </th>
               <th className="p-4 font-bold text-gray-600">Sức chứa</th>
               <th className="p-4 font-bold text-gray-600">Trạng thái</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
             {rooms.map((room) => (
-              <tr key={room.id || room._id} className="hover:bg-gray-50 transition-colors">
+              <tr
+                key={room.id || room._id}
+                className="hover:bg-gray-50 transition-colors"
+              >
                 <td className="p-4 font-bold text-gray-900 flex items-center gap-3">
                   {room.imageUrl ? (
-                    <img src={room.imageUrl} alt={room.name || room.title} className="w-10 h-10 rounded-lg object-cover border border-gray-200 shadow-sm" />
+                    <img
+                      src={room.imageUrl}
+                      alt={room.name || room.title}
+                      className="w-10 h-10 rounded-lg object-cover border border-gray-200 shadow-sm"
+                    />
                   ) : (
-                    <div className="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center text-blue-600"><DoorOpen className="w-5 h-5"/></div>
+                    <div className="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center text-blue-600">
+                      <DoorOpen className="w-5 h-5" />
+                    </div>
                   )}
                   {room.name || room.title}
                 </td>
-                <td className="p-4 text-gray-600">{room.building || "Chưa gán"} - {room.floor || "Chưa gán"}</td>
-                <td className="p-4 text-gray-600">{room.capacity || 0} người</td>
+                <td className="p-4 text-gray-600">
+                  {room.building || "Chưa gán"} - {room.floor || "Chưa gán"}
+                </td>
+                <td className="p-4 text-gray-600">
+                  {room.capacity || 0} người
+                </td>
                 <td className="p-4">
                   {room.maintenanceMode ? (
-                    <span className="inline-flex items-center gap-1.5 bg-red-50 text-red-700 px-3 py-1 rounded-full text-xs font-bold border border-red-100"><Wrench className="w-3.5 h-3.5"/> Bảo trì</span>
+                    <span className="inline-flex items-center gap-1.5 bg-red-50 text-red-700 px-3 py-1 rounded-full text-xs font-bold border border-red-100">
+                      <Wrench className="w-3.5 h-3.5" /> Bảo trì
+                    </span>
                   ) : room.isBooked ? (
-                    <span className="inline-flex items-center gap-1.5 bg-amber-50 text-amber-700 px-3 py-1 rounded-full text-xs font-bold border border-amber-100"><Clock className="w-3.5 h-3.5"/> Đã đặt</span>
+                    <span className="inline-flex items-center gap-1.5 bg-amber-50 text-amber-700 px-3 py-1 rounded-full text-xs font-bold border border-amber-100">
+                      <Clock className="w-3.5 h-3.5" /> Đã đặt
+                    </span>
                   ) : (
-                    <span className="inline-flex items-center gap-1.5 bg-emerald-50 text-emerald-700 px-3 py-1 rounded-full text-xs font-bold border border-emerald-100"><CheckCircle2 className="w-3.5 h-3.5"/> Sẵn sàng</span>
+                    <span className="inline-flex items-center gap-1.5 bg-emerald-50 text-emerald-700 px-3 py-1 rounded-full text-xs font-bold border border-emerald-100">
+                      <CheckCircle2 className="w-3.5 h-3.5" /> Sẵn sàng
+                    </span>
                   )}
                 </td>
               </tr>
@@ -361,40 +534,70 @@ export default function ManagerDashboardPage() {
           </thead>
           <tbody className="divide-y divide-gray-100">
             {equipments.map((eq) => {
-              const matchedRoom = rooms.find(r => (r.id || r._id) === eq.roomId);
-              const roomName = matchedRoom ? (matchedRoom.name || matchedRoom.title) : "Trong kho";
-              const availableQty = (eq.totalQuantity || 0) - (eq.inUseQuantity || 0);
+              const matchedRoom = rooms.find(
+                (r) => (r.id || r._id) === eq.roomId,
+              );
+              const roomName = matchedRoom
+                ? matchedRoom.name || matchedRoom.title
+                : "Trong kho";
+              const availableQty =
+                (eq.totalQuantity || 0) - (eq.inUseQuantity || 0);
 
               return (
-                <tr key={eq.id || eq._id} className="hover:bg-gray-50 transition-colors">
+                <tr
+                  key={eq.id || eq._id}
+                  className="hover:bg-gray-50 transition-colors"
+                >
                   <td className="p-4 font-bold text-gray-900 flex items-center gap-3">
                     {eq.imageUrl ? (
-                      <img src={eq.imageUrl} alt={eq.name} className="w-10 h-10 rounded-lg object-cover border border-gray-200 shadow-sm" />
+                      <img
+                        src={eq.imageUrl}
+                        alt={eq.name}
+                        className="w-10 h-10 rounded-lg object-cover border border-gray-200 shadow-sm"
+                      />
                     ) : (
-                      <div className="w-10 h-10 rounded-lg bg-indigo-100 flex items-center justify-center text-indigo-600"><Package className="w-5 h-5"/></div>
+                      <div className="w-10 h-10 rounded-lg bg-indigo-100 flex items-center justify-center text-indigo-600">
+                        <Package className="w-5 h-5" />
+                      </div>
                     )}
                     {eq.name}
                   </td>
-                  <td className="p-4"><span className="bg-gray-100 text-gray-600 px-2.5 py-1 rounded-md text-xs font-bold">{eq.category || "Vật tư"}</span></td>
-                  
                   <td className="p-4">
-                    {eq.managementType === 'pool' ? (
-                      <span className="inline-flex items-center gap-1.5 bg-blue-50 text-blue-700 px-3 py-1 rounded-full text-xs font-bold border border-blue-100">Còn: {availableQty}/{eq.totalQuantity}</span>
+                    <span className="bg-gray-100 text-gray-600 px-2.5 py-1 rounded-md text-xs font-bold">
+                      {eq.category || "Vật tư"}
+                    </span>
+                  </td>
+
+                  <td className="p-4">
+                    {eq.managementType === "pool" ? (
+                      <span className="inline-flex items-center gap-1.5 bg-blue-50 text-blue-700 px-3 py-1 rounded-full text-xs font-bold border border-blue-100">
+                        Còn: {availableQty}/{eq.totalQuantity}
+                      </span>
                     ) : (
-                       <span className="inline-flex items-center gap-1.5 bg-gray-100 text-gray-700 px-3 py-1 rounded-full text-xs font-bold border border-gray-200">Đơn chiếc (Serial)</span>
+                      <span className="inline-flex items-center gap-1.5 bg-gray-100 text-gray-700 px-3 py-1 rounded-full text-xs font-bold border border-gray-200">
+                        Đơn chiếc (Serial)
+                      </span>
                     )}
                   </td>
 
                   <td className="p-4">
-                    {eq.status === 'available' ? (
-                       <span className="inline-flex items-center gap-1.5 bg-emerald-50 text-emerald-700 px-3 py-1 rounded-full text-xs font-bold border border-emerald-100"><CheckCircle2 className="w-3.5 h-3.5"/> Sẵn sàng</span>
-                    ) : eq.status === 'maintenance' ? (
-                      <span className="inline-flex items-center gap-1.5 bg-red-50 text-red-700 px-3 py-1 rounded-full text-xs font-bold border border-red-100"><Wrench className="w-3.5 h-3.5"/> Bảo trì</span>
+                    {eq.status === "available" ? (
+                      <span className="inline-flex items-center gap-1.5 bg-emerald-50 text-emerald-700 px-3 py-1 rounded-full text-xs font-bold border border-emerald-100">
+                        <CheckCircle2 className="w-3.5 h-3.5" /> Sẵn sàng
+                      </span>
+                    ) : eq.status === "maintenance" ? (
+                      <span className="inline-flex items-center gap-1.5 bg-red-50 text-red-700 px-3 py-1 rounded-full text-xs font-bold border border-red-100">
+                        <Wrench className="w-3.5 h-3.5" /> Bảo trì
+                      </span>
                     ) : (
-                      <span className="inline-flex items-center gap-1.5 bg-gray-100 text-gray-700 px-3 py-1 rounded-full text-xs font-bold border border-gray-200">Thanh lý</span>
+                      <span className="inline-flex items-center gap-1.5 bg-gray-100 text-gray-700 px-3 py-1 rounded-full text-xs font-bold border border-gray-200">
+                        Thanh lý
+                      </span>
                     )}
                   </td>
-                  <td className="p-4 text-gray-600 flex items-center gap-1.5"><MapPin className="w-4 h-4 text-gray-400"/> {roomName}</td>
+                  <td className="p-4 text-gray-600 flex items-center gap-1.5">
+                    <MapPin className="w-4 h-4 text-gray-400" /> {roomName}
+                  </td>
                 </tr>
               );
             })}
@@ -405,34 +608,57 @@ export default function ManagerDashboardPage() {
   );
 
   const renderDashboard = () => {
-    const usedRoomsCount = rooms.filter(l => l.isBooked).length;
-    const maintenanceRoomsCount = rooms.filter(l => l.maintenanceMode).length;
-    const maintenanceEqsCount = equipments.filter(e => e.status === 'maintenance').length;
+    const usedRoomsCount = rooms.filter((l) => l.isBooked).length;
+    const maintenanceRoomsCount = rooms.filter((l) => l.maintenanceMode).length;
+    const maintenanceEqsCount = equipments.filter(
+      (e) => e.status === "maintenance",
+    ).length;
     const totalMaintenance = maintenanceRoomsCount + maintenanceEqsCount;
-    const itemsOut = equipments.reduce((sum, eq) => sum + (eq.inUseQuantity || 0), 0);
+    const itemsOut = equipments.reduce(
+      (sum, eq) => sum + (eq.inUseQuantity || 0),
+      0,
+    );
 
     return (
       <div className="space-y-6 pb-10">
         <div className="flex flex-col xl:flex-row justify-between items-start xl:items-end gap-4 bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
           <div>
-            <h2 className="text-2xl font-black text-gray-900">Giám sát Trực tiếp</h2>
-            <p className="text-gray-500 text-sm mt-1">Cập nhật trạng thái phòng và thiết bị realtime.</p>
+            <h2 className="text-2xl font-black text-gray-900">
+              Giám sát Trực tiếp
+            </h2>
+            <p className="text-gray-500 text-sm mt-1">
+              Cập nhật trạng thái phòng và thiết bị realtime.
+            </p>
           </div>
           <div className="flex flex-wrap items-center gap-3 w-full xl:w-auto">
             <button className="flex-1 sm:flex-none flex items-center justify-center gap-2 bg-slate-900 text-white px-4 py-2.5 rounded-xl text-sm font-bold shadow-md hover:bg-black transition-colors">
               <QrCode className="w-4 h-4" /> Quét mã QR
             </button>
             <div className="flex bg-gray-100 p-1 rounded-xl border border-gray-200 w-full sm:w-auto items-center overflow-x-auto scrollbar-hide">
-              {[{ id: "today", label: "Hôm nay" }, { id: "yesterday", label: "Hôm qua" }, { id: "7days", label: "7 Ngày" }].map(f => (
-                <button key={f.id} onClick={() => { setTimeFilter(f.id as TimeFilter); setCustomDate(""); }}
+              {[
+                { id: "today", label: "Hôm nay" },
+                { id: "yesterday", label: "Hôm qua" },
+                { id: "7days", label: "7 Ngày" },
+              ].map((f) => (
+                <button
+                  key={f.id}
+                  onClick={() => {
+                    setTimeFilter(f.id as TimeFilter);
+                    setCustomDate("");
+                  }}
                   className={`px-4 py-1.5 text-sm font-bold rounded-lg whitespace-nowrap transition-all ${timeFilter === f.id && !customDate ? "bg-white text-emerald-600 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}
-                >{f.label}</button>
+                >
+                  {f.label}
+                </button>
               ))}
               <div className="h-4 w-px bg-gray-300 mx-2"></div>
-              <input 
-                type="date" 
+              <input
+                type="date"
                 value={customDate}
-                onChange={(e) => { setCustomDate(e.target.value); setTimeFilter("custom"); }}
+                onChange={(e) => {
+                  setCustomDate(e.target.value);
+                  setTimeFilter("custom");
+                }}
                 className={`px-3 py-1 text-sm font-bold rounded-lg bg-transparent outline-none cursor-pointer ${customDate ? "text-emerald-600 bg-white shadow-sm" : "text-gray-500"}`}
               />
             </div>
@@ -442,34 +668,66 @@ export default function ManagerDashboardPage() {
         <div className="space-y-6 animate-in fade-in duration-300">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
-              <p className="text-xs font-bold text-gray-500 mb-1">ĐANG SỬ DỤNG</p>
-              <h3 className="text-2xl font-black text-emerald-600">{usedRoomsCount}/{rooms.length} <span className="text-sm font-medium text-gray-400">Phòng</span></h3>
+              <p className="text-xs font-bold text-gray-500 mb-1">
+                ĐANG SỬ DỤNG
+              </p>
+              <h3 className="text-2xl font-black text-emerald-600">
+                {usedRoomsCount}/{rooms.length}{" "}
+                <span className="text-sm font-medium text-gray-400">Phòng</span>
+              </h3>
             </div>
             <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
               <p className="text-xs font-bold text-gray-500 mb-1">CHỜ DUYỆT</p>
-              <h3 className="text-2xl font-black text-amber-500">12 <span className="text-sm font-medium text-gray-400">Đơn</span></h3>
+              <h3 className="text-2xl font-black text-amber-500">
+                12{" "}
+                <span className="text-sm font-medium text-gray-400">Đơn</span>
+              </h3>
             </div>
             <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
-              <p className="text-xs font-bold text-gray-500 mb-1">THIẾT BỊ RỜI KHO</p>
-              <h3 className="text-2xl font-black text-blue-600">{itemsOut} <span className="text-sm font-medium text-gray-400">Món</span></h3>
+              <p className="text-xs font-bold text-gray-500 mb-1">
+                THIẾT BỊ RỜI KHO
+              </p>
+              <h3 className="text-2xl font-black text-blue-600">
+                {itemsOut}{" "}
+                <span className="text-sm font-medium text-gray-400">Món</span>
+              </h3>
             </div>
             <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
-              <p className="text-xs font-bold text-gray-500 mb-1">BẢO TRÌ ĐỘT XUẤT</p>
-              <h3 className="text-2xl font-black text-red-500">{totalMaintenance} <span className="text-sm font-medium text-gray-400">Sự cố</span></h3>
+              <p className="text-xs font-bold text-gray-500 mb-1">
+                BẢO TRÌ ĐỘT XUẤT
+              </p>
+              <h3 className="text-2xl font-black text-red-500">
+                {totalMaintenance}{" "}
+                <span className="text-sm font-medium text-gray-400">Sự cố</span>
+              </h3>
             </div>
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm flex flex-col h-[350px]">
-              <div className="p-4 border-b border-gray-100"><h3 className="font-bold text-gray-900 flex items-center gap-2"><Clock className="w-5 h-5 text-emerald-500"/> Ca sắp diễn ra (Trong 2h)</h3></div>
+              <div className="p-4 border-b border-gray-100">
+                <h3 className="font-bold text-gray-900 flex items-center gap-2">
+                  <Clock className="w-5 h-5 text-emerald-500" /> Ca sắp diễn ra
+                  (Trong 2h)
+                </h3>
+              </div>
               <div className="p-4 overflow-y-auto space-y-3">
-                 <div className="text-center text-sm text-gray-500 py-10">Hiển thị lịch sắp tới...</div>
+                <div className="text-center text-sm text-gray-500 py-10">
+                  Hiển thị lịch sắp tới...
+                </div>
               </div>
             </div>
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm flex flex-col h-[350px]">
-              <div className="p-4 border-b border-gray-100"><h3 className="font-bold text-gray-900 flex items-center gap-2"><AlertTriangle className="w-5 h-5 text-amber-500"/> Đơn chờ duyệt khẩn</h3></div>
+              <div className="p-4 border-b border-gray-100">
+                <h3 className="font-bold text-gray-900 flex items-center gap-2">
+                  <AlertTriangle className="w-5 h-5 text-amber-500" /> Đơn chờ
+                  duyệt khẩn
+                </h3>
+              </div>
               <div className="p-4 overflow-y-auto space-y-3">
-                  <div className="text-center text-sm text-gray-500 py-10">Không có đơn chờ duyệt.</div>
+                <div className="text-center text-sm text-gray-500 py-10">
+                  Không có đơn chờ duyệt.
+                </div>
               </div>
             </div>
           </div>
@@ -483,66 +741,117 @@ export default function ManagerDashboardPage() {
     const startHour = 7;
     const endHour = 21;
     const totalMins = (endHour - startHour) * 60;
-    
-    const timeHeaders:string[] = [];
-    for (let i = startHour; i <= endHour; i++) timeHeaders.push(`${i.toString().padStart(2, '0')}:00`);
 
-    const uniqueBuildings = Array.from(new Set(rooms.map(r => r.building || "Khác"))).filter(Boolean);
+    const timeHeaders: string[] = [];
+    for (let i = startHour; i <= endHour; i++)
+      timeHeaders.push(`${i.toString().padStart(2, "0")}:00`);
+
+    const uniqueBuildings = Array.from(
+      new Set(rooms.map((r) => r.building || "Khác")),
+    ).filter(Boolean);
 
     // CHỈ hiển thị những phòng đang có khách đặt lịch
-    const filteredRooms = rooms.filter(room => {
-       const roomIdStr = room.id || room._id || "";
-       const hasBooking = bookings.some(b => b.roomId === roomIdStr);
-       if (!hasBooking) return false; 
+    const filteredRooms = rooms.filter((room) => {
+      const roomIdStr = room.id || room._id || "";
+      const hasBooking = bookings.some((b) => b.roomId === roomIdStr);
+      if (!hasBooking) return false;
 
-       if(buildingFilter !== "all" && (room.building || "Khác") !== buildingFilter) return false;
-       return true;
+      if (
+        buildingFilter !== "all" &&
+        (room.building || "Khác") !== buildingFilter
+      )
+        return false;
+      return true;
     });
 
     const getStatusColor = (status: string) => {
-      if (status === 'checked-in') return 'bg-emerald-500 border-emerald-600 text-white shadow-sm';
-      if (status === 'confirmed') return 'bg-blue-500 border-blue-600 text-white shadow-sm';
-      if (status === 'pending') return 'bg-amber-400 border-amber-500 text-amber-950 shadow-sm';
-      return 'bg-gray-400 text-white';
+      if (status === "checked-in")
+        return "bg-emerald-500 border-emerald-600 text-white shadow-sm";
+      if (status === "confirmed")
+        return "bg-blue-500 border-blue-600 text-white shadow-sm";
+      if (status === "pending")
+        return "bg-amber-400 border-amber-500 text-amber-950 shadow-sm";
+      return "bg-gray-400 text-white";
     };
 
     const currentHour = currentTime.getHours();
     const currentMin = currentTime.getMinutes();
     let currentLinePct: number | null = null;
     if (currentHour >= startHour && currentHour <= endHour) {
-       currentLinePct = ((currentHour - startHour) * 60 + currentMin) / totalMins * 100;
+      currentLinePct =
+        (((currentHour - startHour) * 60 + currentMin) / totalMins) * 100;
     }
 
     return (
       <div className="space-y-6 flex flex-col h-[calc(100vh-6rem)] relative">
         <div className="flex flex-col xl:flex-row justify-between items-start xl:items-end gap-4 shrink-0">
           <div>
-            <h2 className="text-2xl font-black text-gray-900">Lịch Điều Phối Vận Hành</h2>
+            <h2 className="text-2xl font-black text-gray-900">
+              Lịch Điều Phối Vận Hành
+            </h2>
             <p className="text-gray-500 mt-1 flex gap-4 text-sm font-medium">
-              <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-emerald-500"></span> Đang dùng</span>
-              <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-blue-500"></span> Đã duyệt</span>
-              <span className="text-xs text-gray-400 font-semibold self-center bg-gray-100 px-2.5 py-0.5 rounded-md">Đang tự động ẩn phòng trống</span>
+              <span className="flex items-center gap-1">
+                <span className="w-3 h-3 rounded-full bg-emerald-500"></span>{" "}
+                Đang dùng
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="w-3 h-3 rounded-full bg-blue-500"></span> Đã
+                duyệt
+              </span>
+              <span className="text-xs text-gray-400 font-semibold self-center bg-gray-100 px-2.5 py-0.5 rounded-md">
+                Đang tự động ẩn phòng trống
+              </span>
             </p>
           </div>
-          
+
           <div className="flex flex-wrap items-center gap-3 w-full xl:w-auto">
-            <select 
-              value={buildingFilter} onChange={e => setBuildingFilter(e.target.value)}
+            <select
+              value={buildingFilter}
+              onChange={(e) => setBuildingFilter(e.target.value)}
               className="px-4 py-2 border border-gray-200 rounded-xl text-sm font-bold bg-white outline-none focus:border-emerald-500"
             >
               <option value="all">Tất cả khu vực tòa nhà</option>
-              {uniqueBuildings.map((b, i) => <option key={i} value={b}>{b}</option>)}
+              {uniqueBuildings.map((b, i) => (
+                <option key={i} value={b}>
+                  {b}
+                </option>
+              ))}
             </select>
 
-            <button onClick={() => setSelectedDate(new Date().toISOString().split('T')[0])} className="px-4 py-2 bg-slate-100 text-slate-700 font-bold rounded-xl text-sm hover:bg-slate-200">Hôm nay</button>
+            <button
+              onClick={() =>
+                setSelectedDate(new Date().toISOString().split("T")[0])
+              }
+              className="px-4 py-2 bg-slate-100 text-slate-700 font-bold rounded-xl text-sm hover:bg-slate-200"
+            >
+              Hôm nay
+            </button>
             <div className="flex items-center bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm">
-               <button onClick={() => changeDate(-1)} className="p-2 hover:bg-gray-100 text-gray-500"><ChevronLeft className="w-5 h-5"/></button>
-               <input type="date" value={selectedDate} onChange={e => setSelectedDate(e.target.value)} className="px-2 py-1 text-sm font-bold outline-none cursor-pointer" />
-               <button onClick={() => changeDate(1)} className="p-2 hover:bg-gray-100 text-gray-500"><ChevronRight className="w-5 h-5"/></button>
+              <button
+                onClick={() => changeDate(-1)}
+                className="p-2 hover:bg-gray-100 text-gray-500"
+              >
+                <ChevronLeft className="w-5 h-5" />
+              </button>
+              <input
+                type="date"
+                value={selectedDate}
+                onChange={(e) => setSelectedDate(e.target.value)}
+                className="px-2 py-1 text-sm font-bold outline-none cursor-pointer"
+              />
+              <button
+                onClick={() => changeDate(1)}
+                className="p-2 hover:bg-gray-100 text-gray-500"
+              >
+                <ChevronRight className="w-5 h-5" />
+              </button>
             </div>
 
-            <button onClick={() => setShowQuickBook(true)} className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-sm flex items-center gap-2 shadow-md">
-              <Plus className="w-4 h-4"/> Đặt lịch nhanh
+            <button
+              onClick={() => setShowQuickBook(true)}
+              className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-sm flex items-center gap-2 shadow-md"
+            >
+              <Plus className="w-4 h-4" /> Đặt lịch nhanh
             </button>
           </div>
         </div>
@@ -550,19 +859,30 @@ export default function ManagerDashboardPage() {
         {/* LƯỚI TIMELINE */}
         <div className="flex-1 bg-white border border-gray-200 rounded-2xl overflow-auto relative shadow-sm">
           <div className="min-w-[1200px] h-full flex flex-col relative">
-            
             {currentLinePct !== null && (
-              <div className="absolute top-0 bottom-0 w-[2px] bg-red-500 z-40 pointer-events-none" style={{ left: `calc(16rem + ${currentLinePct} * (100% - 16rem) / 100)` }}>
-                 <div className="absolute -top-1 -left-[5px] w-3 h-3 bg-red-500 rotate-45 rounded-sm shadow-sm"></div>
+              <div
+                className="absolute top-0 bottom-0 w-[2px] bg-red-500 z-40 pointer-events-none"
+                style={{
+                  left: `calc(16rem + ${currentLinePct} * (100% - 16rem) / 100)`,
+                }}
+              >
+                <div className="absolute -top-1 -left-[5px] w-3 h-3 bg-red-500 rotate-45 rounded-sm shadow-sm"></div>
               </div>
             )}
 
             <div className="flex sticky top-0 z-30 bg-slate-50 border-b border-gray-200 shadow-sm">
-              <div className="w-64 shrink-0 sticky left-0 z-40 bg-slate-50 border-r border-gray-200 p-4 font-black text-gray-700">Không gian phòng Lab</div>
+              <div className="w-64 shrink-0 sticky left-0 z-40 bg-slate-50 border-r border-gray-200 p-4 font-black text-gray-700">
+                Không gian phòng Lab
+              </div>
               <div className="flex-1 relative flex">
                 {timeHeaders.map((time, idx) => (
-                  <div key={idx} className="flex-1 border-r border-gray-100 p-3 text-xs font-bold text-gray-400 text-center relative">
-                    <span className="absolute -left-3 top-3 bg-slate-50 px-1">{time}</span>
+                  <div
+                    key={idx}
+                    className="flex-1 border-r border-gray-100 p-3 text-xs font-bold text-gray-400 text-center relative"
+                  >
+                    <span className="absolute -left-3 top-3 bg-slate-50 px-1">
+                      {time}
+                    </span>
                   </div>
                 ))}
               </div>
@@ -570,53 +890,85 @@ export default function ManagerDashboardPage() {
 
             {filteredRooms.length === 0 ? (
               <div className="flex flex-col items-center justify-center flex-1 py-20 text-gray-400">
-                 <CalendarDays className="w-12 h-12 mb-3 text-gray-200" />
-                 <p className="font-medium text-sm">Hiện tại không có phòng nào có lịch đặt trùng khớp.</p>
+                <CalendarDays className="w-12 h-12 mb-3 text-gray-200" />
+                <p className="font-medium text-sm">
+                  Hiện tại không có phòng nào có lịch đặt trùng khớp.
+                </p>
               </div>
             ) : (
               filteredRooms.map((room) => {
                 const roomIdStr = room.id || room._id || "";
-                const roomBookings = bookings.filter(b => b.roomId === roomIdStr);
+                const roomBookings = bookings.filter(
+                  (b) => b.roomId === roomIdStr,
+                );
 
                 return (
-                  <div key={roomIdStr} className="flex border-b border-gray-100 group hover:bg-slate-50/50 transition-colors h-24 relative">
+                  <div
+                    key={roomIdStr}
+                    className="flex border-b border-gray-100 group hover:bg-slate-50/50 transition-colors h-24 relative"
+                  >
                     <div className="w-64 shrink-0 sticky left-0 z-20 bg-white group-hover:bg-slate-50 border-r border-gray-200 p-4 flex flex-col justify-center">
-                      <h3 className="font-bold text-gray-900 leading-tight truncate">{room.title || room.name || "Chưa đặt tên"}</h3>
+                      <h3 className="font-bold text-gray-900 leading-tight truncate">
+                        {room.title || room.name || "Chưa đặt tên"}
+                      </h3>
                       <p className="text-xs text-gray-500 font-medium mt-1">
-                        <MapPin className="w-3 h-3 inline mr-1" /> {room.building || "Tòa khác"} - {room.floor || ""}
+                        <MapPin className="w-3 h-3 inline mr-1" />{" "}
+                        {room.building || "Tòa khác"} - {room.floor || ""}
                       </p>
-                      <p className="text-xs text-gray-400 mt-0.5"><Users className="w-3 h-3 inline mr-1" /> Sức chứa: {room.capacity} chỗ</p>
+                      <p className="text-xs text-gray-400 mt-0.5">
+                        <Users className="w-3 h-3 inline mr-1" /> Sức chứa:{" "}
+                        {room.capacity} chỗ
+                      </p>
                     </div>
 
                     <div className="flex-1 relative bg-white">
                       <div className="absolute inset-0 flex pointer-events-none">
-                         {timeHeaders.map((_, idx) => <div key={idx} className="flex-1 border-r border-gray-100/60 border-dashed"></div>)}
+                        {timeHeaders.map((_, idx) => (
+                          <div
+                            key={idx}
+                            className="flex-1 border-r border-gray-100/60 border-dashed"
+                          ></div>
+                        ))}
                       </div>
 
                       {roomBookings.map((booking) => {
-                        const startMins = timeToMins(booking.startTime) - timeToMins("07:00");
+                        const startMins =
+                          timeToMins(booking.startTime) - timeToMins("07:00");
                         const leftPct = (startMins / totalMins) * 100;
-                        const widthPct = (booking.durationMins / totalMins) * 100;
-                        const bufferWidthPct = (booking.bufferMins / totalMins) * 100;
-                        const endTimeStr = minsToTime(timeToMins(booking.startTime) + booking.durationMins);
+                        const widthPct =
+                          (booking.durationMins / totalMins) * 100;
+                        const bufferWidthPct =
+                          (booking.bufferMins / totalMins) * 100;
+                        const endTimeStr = minsToTime(
+                          timeToMins(booking.startTime) + booking.durationMins,
+                        );
 
                         return (
                           <React.Fragment key={booking.id}>
-                            <div 
+                            <div
                               className={`absolute top-2 bottom-2 ${getStatusColor(booking.status)} border rounded-xl px-3 py-1 overflow-hidden z-10 flex flex-col justify-center cursor-pointer hover:brightness-110 transition-all`}
-                              style={{ left: `${leftPct}%`, width: `${widthPct}%` }}
+                              style={{
+                                left: `${leftPct}%`,
+                                width: `${widthPct}%`,
+                              }}
                               onClick={() => setSelectedBooking(booking)}
                             >
-                              <p className="text-xs font-black truncate leading-tight">{booking.customerName}</p>
-                              <p className="text-[10px] opacity-90 truncate font-semibold mt-0.5">{booking.startTime} - {endTimeStr}</p>
+                              <p className="text-xs font-black truncate leading-tight">
+                                {booking.customerName}
+                              </p>
+                              <p className="text-[10px] opacity-90 truncate font-semibold mt-0.5">
+                                {booking.startTime} - {endTimeStr}
+                              </p>
                             </div>
 
                             {booking.bufferMins > 0 && (
-                              <div 
+                              <div
                                 className="absolute top-2 bottom-2 z-0 bg-slate-50 border-y border-r border-slate-200 rounded-r-lg opacity-60 flex items-center justify-center overflow-hidden"
-                                style={{ 
-                                  left: `${leftPct + widthPct}%`, width: `${bufferWidthPct}%`,
-                                  backgroundImage: "repeating-linear-gradient(45deg, transparent, transparent 5px, rgba(0,0,0,0.03) 5px, rgba(0,0,0,0.03) 10px)"
+                                style={{
+                                  left: `${leftPct + widthPct}%`,
+                                  width: `${bufferWidthPct}%`,
+                                  backgroundImage:
+                                    "repeating-linear-gradient(45deg, transparent, transparent 5px, rgba(0,0,0,0.03) 5px, rgba(0,0,0,0.03) 10px)",
                                 }}
                               />
                             )}
@@ -636,123 +988,293 @@ export default function ManagerDashboardPage() {
         <AnimatePresence>
           {showQuickBook && (
             <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
-              <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[95vh]">
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[95vh]"
+              >
                 <div className="bg-emerald-600 p-5 flex justify-between items-center text-white shrink-0">
-                  <h3 className="font-black text-xl flex items-center gap-2"><Clock className="w-5 h-5"/> Đặt Phòng Nhanh (POS)</h3>
-                  <button onClick={() => setShowQuickBook(false)} className="hover:bg-emerald-700 p-1 rounded-full"><X className="w-6 h-6" /></button>
+                  <h3 className="font-black text-xl flex items-center gap-2">
+                    <Clock className="w-5 h-5" /> Đặt Phòng Nhanh (POS)
+                  </h3>
+                  <button
+                    onClick={() => setShowQuickBook(false)}
+                    className="hover:bg-emerald-700 p-1 rounded-full"
+                  >
+                    <X className="w-6 h-6" />
+                  </button>
                 </div>
-                
-                <form onSubmit={handleQuickBookSubmit} className="p-6 overflow-y-auto space-y-6">
-                  
+
+                <form
+                  onSubmit={handleQuickBookSubmit}
+                  className="p-6 overflow-y-auto space-y-6"
+                >
                   {/* Tìm Kiếm và Chọn Phòng */}
                   <div className="bg-gray-50 p-4 rounded-xl border border-gray-200">
                     <label className="block text-sm font-bold text-gray-700 mb-2 flex items-center justify-between">
                       Chọn Phòng Lab *
                       <div className="relative w-48">
-                         <Search className="w-4 h-4 absolute left-2 top-1/2 -translate-y-1/2 text-gray-400" />
-                         <input type="text" placeholder="Tìm tên phòng..." value={roomSearchQuery} onChange={e => setRoomSearchQuery(e.target.value)} className="w-full pl-8 pr-2 py-1 text-xs border border-gray-300 rounded-md focus:outline-none focus:border-emerald-500" />
+                        <Search className="w-4 h-4 absolute left-2 top-1/2 -translate-y-1/2 text-gray-400" />
+                        <input
+                          type="text"
+                          placeholder="Tìm tên phòng..."
+                          value={roomSearchQuery}
+                          onChange={(e) => setRoomSearchQuery(e.target.value)}
+                          className="w-full pl-8 pr-2 py-1 text-xs border border-gray-300 rounded-md focus:outline-none focus:border-emerald-500"
+                        />
                       </div>
                     </label>
-                    <select required value={quickBookData.roomId} onChange={e => setQuickBookData({...quickBookData, roomId: e.target.value})} className="w-full px-4 py-3 bg-white border border-gray-300 rounded-xl font-bold text-emerald-800 outline-none focus:border-emerald-500 shadow-sm">
-                      <option value="" disabled>-- Vui lòng chọn một phòng --</option>
-                      {rooms.filter(r => (r.title || r.name || "").toLowerCase().includes(roomSearchQuery.toLowerCase())).map(r => (
-                        <option key={r.id||r._id} value={r.id||r._id}>
-                          {r.title || r.name} - Sức chứa: {r.capacity} ({Number(r.price || 100000).toLocaleString('vi-VN')}đ/h)
-                        </option>
-                      ))}
+                    <select
+                      required
+                      value={quickBookData.roomId}
+                      onChange={(e) =>
+                        setQuickBookData({
+                          ...quickBookData,
+                          roomId: e.target.value,
+                        })
+                      }
+                      className="w-full px-4 py-3 bg-white border border-gray-300 rounded-xl font-bold text-emerald-800 outline-none focus:border-emerald-500 shadow-sm"
+                    >
+                      <option value="" disabled>
+                        -- Vui lòng chọn một phòng --
+                      </option>
+                      {rooms
+                        .filter((r) =>
+                          (r.title || r.name || "")
+                            .toLowerCase()
+                            .includes(roomSearchQuery.toLowerCase()),
+                        )
+                        .map((r) => (
+                          <option key={r.id || r._id} value={r.id || r._id}>
+                            {r.title || r.name} - Sức chứa: {r.capacity} (
+                            {Number(r.price || 100000).toLocaleString("vi-VN")}
+                            đ/h)
+                          </option>
+                        ))}
                     </select>
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
-                      <label className="block text-sm font-bold text-gray-700 mb-1">Họ Tên Người Thuê *</label>
-                      <input type="text" required value={quickBookData.customerName} onChange={e => setQuickBookData({...quickBookData, customerName: e.target.value})} className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-emerald-500" placeholder="VD: Nguyễn Văn A" />
+                      <label className="block text-sm font-bold text-gray-700 mb-1">
+                        Họ Tên Người Thuê *
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={quickBookData.customerName}
+                        onChange={(e) =>
+                          setQuickBookData({
+                            ...quickBookData,
+                            customerName: e.target.value,
+                          })
+                        }
+                        className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-emerald-500"
+                        placeholder="VD: Nguyễn Văn A"
+                      />
                     </div>
                     <div>
-                      <label className="block text-sm font-bold text-gray-700 mb-1">Số điện thoại liên hệ *</label>
-                      <input type="text" required value={quickBookData.phone} onChange={e => setQuickBookData({...quickBookData, phone: e.target.value})} className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-emerald-500" placeholder="VD: 0901234567" />
+                      <label className="block text-sm font-bold text-gray-700 mb-1">
+                        Số điện thoại liên hệ *
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={quickBookData.phone}
+                        onChange={(e) =>
+                          setQuickBookData({
+                            ...quickBookData,
+                            phone: e.target.value,
+                          })
+                        }
+                        className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-emerald-500"
+                        placeholder="VD: 0901234567"
+                      />
                     </div>
                   </div>
 
                   {/* Cho phép chọn lịch xuyên ngày */}
                   <div className="bg-blue-50/50 p-4 rounded-xl border border-blue-100 grid grid-cols-2 md:grid-cols-4 gap-4">
                     <div className="md:col-span-2">
-                      <label className="block text-sm font-bold text-blue-900 mb-1">Bắt đầu từ *</label>
+                      <label className="block text-sm font-bold text-blue-900 mb-1">
+                        Bắt đầu từ *
+                      </label>
                       <div className="flex gap-2">
-                         <input type="date" required value={quickBookData.startDate} onChange={e => setQuickBookData({...quickBookData, startDate: e.target.value})} className="w-full px-3 py-2 bg-white border border-blue-200 rounded-lg text-sm outline-none focus:border-blue-500" />
-                         <input type="time" required value={quickBookData.startTime} onChange={e => setQuickBookData({...quickBookData, startTime: e.target.value})} className="w-24 px-2 py-2 bg-white border border-blue-200 rounded-lg text-sm outline-none focus:border-blue-500" />
+                        <input
+                          type="date"
+                          required
+                          value={quickBookData.startDate}
+                          onChange={(e) =>
+                            setQuickBookData({
+                              ...quickBookData,
+                              startDate: e.target.value,
+                            })
+                          }
+                          className="w-full px-3 py-2 bg-white border border-blue-200 rounded-lg text-sm outline-none focus:border-blue-500"
+                        />
+                        <input
+                          type="time"
+                          required
+                          value={quickBookData.startTime}
+                          onChange={(e) =>
+                            setQuickBookData({
+                              ...quickBookData,
+                              startTime: e.target.value,
+                            })
+                          }
+                          className="w-24 px-2 py-2 bg-white border border-blue-200 rounded-lg text-sm outline-none focus:border-blue-500"
+                        />
                       </div>
                     </div>
                     <div className="md:col-span-2">
-                      <label className="block text-sm font-bold text-blue-900 mb-1">Đến khi *</label>
+                      <label className="block text-sm font-bold text-blue-900 mb-1">
+                        Đến khi *
+                      </label>
                       <div className="flex gap-2">
-                         <input type="date" required value={quickBookData.endDate} onChange={e => setQuickBookData({...quickBookData, endDate: e.target.value})} className="w-full px-3 py-2 bg-white border border-blue-200 rounded-lg text-sm outline-none focus:border-blue-500" />
-                         <input type="time" required value={quickBookData.endTime} onChange={e => setQuickBookData({...quickBookData, endTime: e.target.value})} className="w-24 px-2 py-2 bg-white border border-blue-200 rounded-lg text-sm outline-none focus:border-blue-500" />
+                        <input
+                          type="date"
+                          required
+                          value={quickBookData.endDate}
+                          onChange={(e) =>
+                            setQuickBookData({
+                              ...quickBookData,
+                              endDate: e.target.value,
+                            })
+                          }
+                          className="w-full px-3 py-2 bg-white border border-blue-200 rounded-lg text-sm outline-none focus:border-blue-500"
+                        />
+                        <input
+                          type="time"
+                          required
+                          value={quickBookData.endTime}
+                          onChange={(e) =>
+                            setQuickBookData({
+                              ...quickBookData,
+                              endTime: e.target.value,
+                            })
+                          }
+                          className="w-24 px-2 py-2 bg-white border border-blue-200 rounded-lg text-sm outline-none focus:border-blue-500"
+                        />
                       </div>
                     </div>
                   </div>
 
                   {/* THIẾT BỊ & GIÁ TIỀN */}
                   <div>
-                     <label className="block text-sm font-bold text-gray-700 mb-2">Thêm thiết bị (Trừ kho tự động)</label>
-                     <div className="border border-gray-200 rounded-xl p-4 max-h-48 overflow-y-auto bg-gray-50 space-y-2">
-                        {equipments.map(eq => {
-                           const eqId = eq.id || eq._id || "";
-                           const available = (eq.totalQuantity || 0) - (eq.inUseQuantity || 0);
-                           const isOutOfStock = available <= 0;
-                           const isSelected = !!quickBookData.equipments[eqId];
-                           const selectedQty = isSelected ? quickBookData.equipments[eqId].quantity : 0;
-                           const eqPrice = Number(eq.price || 50000); 
+                    <label className="block text-sm font-bold text-gray-700 mb-2">
+                      Thêm thiết bị (Trừ kho tự động)
+                    </label>
+                    <div className="border border-gray-200 rounded-xl p-4 max-h-48 overflow-y-auto bg-gray-50 space-y-2">
+                      {equipments.map((eq) => {
+                        const eqId = eq.id || eq._id || "";
+                        const available =
+                          (eq.totalQuantity || 0) - (eq.inUseQuantity || 0);
+                        const isOutOfStock = available <= 0;
+                        const isSelected = !!quickBookData.equipments[eqId];
+                        const selectedQty = isSelected
+                          ? quickBookData.equipments[eqId].quantity
+                          : 0;
+                        const eqPrice = Number(eq.price || 50000);
 
-                           return (
-                             <div key={eqId} className={`flex items-center justify-between p-3 rounded-lg border ${isSelected ? 'bg-emerald-50 border-emerald-300' : 'bg-white border-transparent hover:border-gray-300'} ${isOutOfStock && !isSelected ? 'opacity-40' : 'shadow-sm'}`}>
-                               <label className="flex items-center gap-3 cursor-pointer flex-1">
-                                 <input 
-                                    type="checkbox" checked={isSelected} 
-                                    onChange={() => toggleEquipment(eqId, eq.name, available, eqPrice)} 
-                                    disabled={isOutOfStock && !isSelected} 
-                                    className="w-5 h-5 text-emerald-600 rounded border-gray-300 focus:ring-emerald-500 cursor-pointer" 
-                                 />
-                                 <div>
-                                    <span className="text-sm font-black text-gray-900">{eq.name}</span>
-                                    <div className="flex items-center gap-2 mt-0.5">
-                                      <span className={`text-xs px-2 py-0.5 rounded-md font-bold ${isOutOfStock ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-700'}`}>
-                                        {isOutOfStock ? 'Hết hàng' : `Còn: ${available}`}
-                                      </span>
-                                      <span className="text-xs text-blue-700 font-bold bg-blue-50 px-2 py-0.5 rounded-md flex items-center gap-1">
-                                        <Banknote className="w-3 h-3"/> {eqPrice.toLocaleString('vi-VN')}đ / lượt
-                                      </span>
-                                    </div>
-                                 </div>
-                               </label>
-                               
-                               {isSelected && (
-                                 <div className="flex items-center gap-2 bg-white border border-emerald-300 rounded-lg p-1 shadow-inner">
-                                   <button type="button" onClick={() => updateEqQuantity(eqId, -1)} className="w-7 h-7 bg-gray-100 hover:bg-gray-200 rounded text-gray-700 font-black">-</button>
-                                   <span className="text-base font-black w-6 text-center text-emerald-700">{selectedQty}</span>
-                                   <button type="button" onClick={() => updateEqQuantity(eqId, 1)} disabled={selectedQty >= available} className="w-7 h-7 bg-emerald-100 hover:bg-emerald-200 disabled:opacity-50 rounded text-emerald-700 font-black">+</button>
-                                 </div>
-                               )}
-                             </div>
-                           )
-                        })}
-                     </div>
+                        return (
+                          <div
+                            key={eqId}
+                            className={`flex items-center justify-between p-3 rounded-lg border ${isSelected ? "bg-emerald-50 border-emerald-300" : "bg-white border-transparent hover:border-gray-300"} ${isOutOfStock && !isSelected ? "opacity-40" : "shadow-sm"}`}
+                          >
+                            <label className="flex items-center gap-3 cursor-pointer flex-1">
+                              <input
+                                type="checkbox"
+                                checked={isSelected}
+                                onChange={() =>
+                                  toggleEquipment(
+                                    eqId,
+                                    eq.name,
+                                    available,
+                                    eqPrice,
+                                  )
+                                }
+                                disabled={isOutOfStock && !isSelected}
+                                className="w-5 h-5 text-emerald-600 rounded border-gray-300 focus:ring-emerald-500 cursor-pointer"
+                              />
+                              <div>
+                                <span className="text-sm font-black text-gray-900">
+                                  {eq.name}
+                                </span>
+                                <div className="flex items-center gap-2 mt-0.5">
+                                  <span
+                                    className={`text-xs px-2 py-0.5 rounded-md font-bold ${isOutOfStock ? "bg-red-100 text-red-600" : "bg-green-100 text-green-700"}`}
+                                  >
+                                    {isOutOfStock
+                                      ? "Hết hàng"
+                                      : `Còn: ${available}`}
+                                  </span>
+                                  <span className="text-xs text-blue-700 font-bold bg-blue-50 px-2 py-0.5 rounded-md flex items-center gap-1">
+                                    <Banknote className="w-3 h-3" />{" "}
+                                    {eqPrice.toLocaleString("vi-VN")}đ / lượt
+                                  </span>
+                                </div>
+                              </div>
+                            </label>
+
+                            {isSelected && (
+                              <div className="flex items-center gap-2 bg-white border border-emerald-300 rounded-lg p-1 shadow-inner">
+                                <button
+                                  type="button"
+                                  onClick={() => updateEqQuantity(eqId, -1)}
+                                  className="w-7 h-7 bg-gray-100 hover:bg-gray-200 rounded text-gray-700 font-black"
+                                >
+                                  -
+                                </button>
+                                <span className="text-base font-black w-6 text-center text-emerald-700">
+                                  {selectedQty}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => updateEqQuantity(eqId, 1)}
+                                  disabled={selectedQty >= available}
+                                  className="w-7 h-7 bg-emerald-100 hover:bg-emerald-200 disabled:opacity-50 rounded text-emerald-700 font-black"
+                                >
+                                  +
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
 
                   {/* TỔNG HÓA ĐƠN */}
                   <div className="bg-slate-900 rounded-xl p-5 flex items-center justify-between shadow-lg">
                     <div>
-                      <p className="text-gray-400 text-xs font-bold uppercase tracking-wider mb-1">Tổng tiền tạm tính</p>
-                      <p className="text-gray-300 text-xs">(Bao gồm Phòng + Thiết bị)</p>
+                      <p className="text-gray-400 text-xs font-bold uppercase tracking-wider mb-1">
+                        Tổng tiền tạm tính
+                      </p>
+                      <p className="text-gray-300 text-xs">
+                        (Bao gồm Phòng + Thiết bị)
+                      </p>
                     </div>
                     <div className="text-3xl font-black text-emerald-400">
-                      {calculateTotalCost().toLocaleString('vi-VN')}đ
+                      {calculateTotalCost().toLocaleString("vi-VN")}đ
                     </div>
                   </div>
 
                   <div className="pt-2 flex justify-end gap-3 shrink-0">
-                     <button type="button" onClick={() => setShowQuickBook(false)} className="px-6 py-3 font-bold text-gray-500 hover:bg-gray-100 rounded-xl transition-colors">Hủy bỏ</button>
-                     <button type="submit" id="btn-submit-quickbook" className="px-8 py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-black rounded-xl shadow-xl transition-all active:scale-95 text-lg">Xác nhận Check-in</button>
+                    <button
+                      type="button"
+                      onClick={() => setShowQuickBook(false)}
+                      className="px-6 py-3 font-bold text-gray-500 hover:bg-gray-100 rounded-xl transition-colors"
+                    >
+                      Hủy bỏ
+                    </button>
+                    <button
+                      type="submit"
+                      id="btn-submit-quickbook"
+                      className="px-8 py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-black rounded-xl shadow-xl transition-all active:scale-95 text-lg"
+                    >
+                      Xác nhận Check-in
+                    </button>
                   </div>
                 </form>
               </motion.div>
@@ -763,18 +1285,39 @@ export default function ManagerDashboardPage() {
         {/* ================= MODAL XEM CHI TIẾT CA ĐẶT ================= */}
         <AnimatePresence>
           {selectedBooking && (
-            <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm" onClick={() => setSelectedBooking(null)}>
-              <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} onClick={e => e.stopPropagation()} className="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col">
+            <div
+              className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm"
+              onClick={() => setSelectedBooking(null)}
+            >
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                onClick={(e) => e.stopPropagation()}
+                className="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col"
+              >
                 <div className="bg-slate-900 p-5 flex justify-between items-center text-white shrink-0">
-                  <h3 className="font-black text-xl flex items-center gap-2"><FileText className="w-5 h-5 text-blue-400"/> Chi tiết Ca đặt phòng</h3>
-                  <button onClick={() => setSelectedBooking(null)} className="hover:bg-slate-700 p-1 rounded-full"><X className="w-6 h-6" /></button>
+                  <h3 className="font-black text-xl flex items-center gap-2">
+                    <FileText className="w-5 h-5 text-blue-400" /> Chi tiết Ca
+                    đặt phòng
+                  </h3>
+                  <button
+                    onClick={() => setSelectedBooking(null)}
+                    className="hover:bg-slate-700 p-1 rounded-full"
+                  >
+                    <X className="w-6 h-6" />
+                  </button>
                 </div>
-                
+
                 <div className="p-6 space-y-6">
                   <div className="flex items-start justify-between border-b border-gray-100 pb-4">
                     <div>
-                      <h4 className="text-2xl font-black text-gray-900">{selectedBooking.customerName}</h4>
-                      <p className="text-sm font-medium text-gray-500 mt-1">SĐT: {selectedBooking.phone}</p>
+                      <h4 className="text-2xl font-black text-gray-900">
+                        {selectedBooking.customerName}
+                      </h4>
+                      <p className="text-sm font-medium text-gray-500 mt-1">
+                        SĐT: {selectedBooking.phone}
+                      </p>
                     </div>
                     <span className="bg-emerald-100 text-emerald-700 font-bold px-3 py-1 rounded-full text-xs uppercase tracking-wider">
                       {selectedBooking.status}
@@ -783,26 +1326,64 @@ export default function ManagerDashboardPage() {
 
                   <div className="grid grid-cols-2 gap-4">
                     <div className="bg-gray-50 p-4 rounded-xl border border-gray-100">
-                      <p className="text-xs font-bold text-gray-400 uppercase mb-1">Thời gian mượn</p>
-                      <p className="text-lg font-black text-gray-900">{selectedBooking.startTime} - {minsToTime(timeToMins(selectedBooking.startTime) + selectedBooking.durationMins)}</p>
-                      <p className="text-xs font-medium text-amber-600 mt-1 flex items-center gap-1"><Clock className="w-3 h-3"/> Dọn dẹp: {selectedBooking.bufferMins} phút</p>
+                      <p className="text-xs font-bold text-gray-400 uppercase mb-1">
+                        Thời gian mượn
+                      </p>
+                      <p className="text-lg font-black text-gray-900">
+                        {selectedBooking.startTime} -{" "}
+                        {minsToTime(
+                          timeToMins(selectedBooking.startTime) +
+                            selectedBooking.durationMins,
+                        )}
+                      </p>
+                      <p className="text-xs font-medium text-amber-600 mt-1 flex items-center gap-1">
+                        <Clock className="w-3 h-3" /> Dọn dẹp:{" "}
+                        {selectedBooking.bufferMins} phút
+                      </p>
                     </div>
                     <div className="bg-gray-50 p-4 rounded-xl border border-gray-100">
-                      <p className="text-xs font-bold text-gray-400 uppercase mb-1">Phòng Lab</p>
-                      <p className="text-lg font-black text-gray-900 line-clamp-1">{rooms.find(r => r.id === selectedBooking.roomId || r._id === selectedBooking.roomId)?.title || rooms.find(r => r.id === selectedBooking.roomId || r._id === selectedBooking.roomId)?.name || "Phòng học"}</p>
+                      <p className="text-xs font-bold text-gray-400 uppercase mb-1">
+                        Phòng Lab
+                      </p>
+                      <p className="text-lg font-black text-gray-900 line-clamp-1">
+                        {rooms.find(
+                          (r) =>
+                            r.id === selectedBooking.roomId ||
+                            r._id === selectedBooking.roomId,
+                        )?.title ||
+                          rooms.find(
+                            (r) =>
+                              r.id === selectedBooking.roomId ||
+                              r._id === selectedBooking.roomId,
+                          )?.name ||
+                          "Phòng học"}
+                      </p>
                     </div>
                   </div>
 
                   <div>
-                    <h5 className="text-sm font-bold text-gray-900 mb-3 flex items-center gap-2"><Package className="w-4 h-4 text-blue-500"/> Thiết bị mượn kèm</h5>
-                    {(!selectedBooking.equipments || selectedBooking.equipments.length === 0) ? (
-                      <p className="text-sm text-gray-500 italic bg-gray-50 p-3 rounded-lg border border-gray-100">Không mượn thêm thiết bị.</p>
+                    <h5 className="text-sm font-bold text-gray-900 mb-3 flex items-center gap-2">
+                      <Package className="w-4 h-4 text-blue-500" /> Thiết bị
+                      mượn kèm
+                    </h5>
+                    {!selectedBooking.equipments ||
+                    selectedBooking.equipments.length === 0 ? (
+                      <p className="text-sm text-gray-500 italic bg-gray-50 p-3 rounded-lg border border-gray-100">
+                        Không mượn thêm thiết bị.
+                      </p>
                     ) : (
                       <ul className="space-y-2">
                         {selectedBooking.equipments.map((eq, idx) => (
-                          <li key={idx} className="flex justify-between items-center bg-blue-50/50 border border-blue-100 p-3 rounded-xl">
-                            <span className="font-bold text-gray-800 text-sm">{eq.name}</span>
-                            <span className="bg-blue-100 text-blue-700 font-black px-3 py-1 rounded-lg text-xs">x{eq.quantity}</span>
+                          <li
+                            key={idx}
+                            className="flex justify-between items-center bg-blue-50/50 border border-blue-100 p-3 rounded-xl"
+                          >
+                            <span className="font-bold text-gray-800 text-sm">
+                              {eq.name}
+                            </span>
+                            <span className="bg-blue-100 text-blue-700 font-black px-3 py-1 rounded-lg text-xs">
+                              x{eq.quantity}
+                            </span>
                           </li>
                         ))}
                       </ul>
@@ -811,20 +1392,28 @@ export default function ManagerDashboardPage() {
 
                   {selectedBooking.note && (
                     <div className="bg-amber-50 border border-amber-100 p-4 rounded-xl">
-                       <p className="text-xs font-bold text-amber-800 uppercase mb-1">Ghi chú vận hành:</p>
-                       <p className="text-sm font-medium text-amber-900">{selectedBooking.note}</p>
+                      <p className="text-xs font-bold text-amber-800 uppercase mb-1">
+                        Ghi chú vận hành:
+                      </p>
+                      <p className="text-sm font-medium text-amber-900">
+                        {selectedBooking.note}
+                      </p>
                     </div>
                   )}
                 </div>
 
                 <div className="bg-gray-50 p-4 border-t border-gray-100 flex justify-end">
-                   <button onClick={() => setSelectedBooking(null)} className="px-6 py-2.5 bg-slate-900 hover:bg-black text-white font-bold rounded-xl shadow-md">Đóng lại</button>
+                  <button
+                    onClick={() => setSelectedBooking(null)}
+                    className="px-6 py-2.5 bg-slate-900 hover:bg-black text-white font-bold rounded-xl shadow-md"
+                  >
+                    Đóng lại
+                  </button>
                 </div>
               </motion.div>
             </div>
           )}
         </AnimatePresence>
-
       </div>
     );
   };
@@ -840,14 +1429,20 @@ export default function ManagerDashboardPage() {
       </div>
       <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
         {[
-          { id: "dashboard", icon: LayoutDashboard, label: "Giám sát Vận hành" },
+          {
+            id: "dashboard",
+            icon: LayoutDashboard,
+            label: "Giám sát Vận hành",
+          },
           { id: "labs", icon: DoorOpen, label: "Phòng Thực hành" },
           { id: "equipments", icon: Package, label: "Thiết Bị" },
           { id: "timeline", icon: CalendarDays, label: "Lịch Điều phối" },
           { id: "reports", icon: FileText, label: "Báo cáo Sự cố" },
           { id: "lookup", icon: Search, label: "Tra cứu Thông tin" },
-        ].map(item => (
-          <button key={item.id} onClick={() => setActiveMenu(item.id as MenuTab)}
+        ].map((item) => (
+          <button
+            key={item.id}
+            onClick={() => setActiveMenu(item.id as MenuTab)}
             className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium transition-all ${activeMenu === item.id ? "bg-emerald-600 text-white shadow-lg shadow-emerald-900/20" : "hover:bg-slate-800"}`}
           >
             <item.icon className="w-5 h-5" /> {item.label}
@@ -855,50 +1450,81 @@ export default function ManagerDashboardPage() {
         ))}
       </nav>
       <div className="p-4 border-t border-slate-800">
-        <button onClick={handleLogout} className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-bold bg-slate-800 text-red-400 hover:bg-red-500 hover:text-white transition-colors">
+        <button
+          onClick={handleLogout}
+          className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-bold bg-slate-800 text-red-400 hover:bg-red-500 hover:text-white transition-colors"
+        >
           <LogOut className="w-4 h-4" /> Đăng xuất
         </button>
       </div>
     </aside>
   );
 
-  const renderReports = () => <div className="p-6 bg-white rounded-2xl border border-gray-100 text-center py-20 text-gray-400">Giao diện Báo cáo sự cố</div>;
-  const renderLookup = () => <div className="p-6 bg-white rounded-2xl border border-gray-100 text-center py-20 text-gray-400">Giao diện Tra cứu thông tin</div>;
+  const renderReports = () => (
+    <div className="p-6 bg-white rounded-2xl border border-gray-100 text-center py-20 text-gray-400">
+      Giao diện Báo cáo sự cố
+    </div>
+  );
+  const renderLookup = () => (
+    <div className="p-6 bg-white rounded-2xl border border-gray-100 text-center py-20 text-gray-400">
+      Giao diện Tra cứu thông tin
+    </div>
+  );
 
   return (
     <div className="flex h-screen bg-slate-50 font-sans overflow-hidden">
       {renderSidebar()}
-      
+
       <main className="flex-1 overflow-y-auto p-4 md:p-8 lg:p-10">
         {/* Mobile Header */}
         <div className="md:hidden flex justify-between items-center mb-6 bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
-           <h1 className="text-xl font-black flex items-center gap-2"><ShieldCheck className="w-6 h-6 text-emerald-500" /> Manager<span className="text-emerald-500">Ops</span></h1>
-           <button onClick={handleLogout} className="p-2 text-red-500 bg-red-50 rounded-lg"><LogOut className="w-5 h-5"/></button>
+          <h1 className="text-xl font-black flex items-center gap-2">
+            <ShieldCheck className="w-6 h-6 text-emerald-500" /> Manager
+            <span className="text-emerald-500">Ops</span>
+          </h1>
+          <button
+            onClick={handleLogout}
+            className="p-2 text-red-500 bg-red-50 rounded-lg"
+          >
+            <LogOut className="w-5 h-5" />
+          </button>
         </div>
-        
+
         {/* Mobile Nav Tabs */}
         <div className="md:hidden flex overflow-x-auto gap-2 mb-6 pb-2 scrollbar-hide">
           {[
-            { id: "dashboard", label: "Giám sát" }, { id: "timeline", label: "Điều phối" },
-            { id: "labs", label: "Phòng" }, { id: "equipments", label: "Thiết bị" },
-            { id: "reports", label: "Báo cáo" }, { id: "lookup", label: "Tra cứu" }
-          ].map(t => (
-            <button key={t.id} onClick={() => setActiveMenu(t.id as MenuTab)}
+            { id: "dashboard", label: "Giám sát" },
+            { id: "timeline", label: "Điều phối" },
+            { id: "labs", label: "Phòng" },
+            { id: "equipments", label: "Thiết bị" },
+            { id: "reports", label: "Báo cáo" },
+            { id: "lookup", label: "Tra cứu" },
+          ].map((t) => (
+            <button
+              key={t.id}
+              onClick={() => setActiveMenu(t.id as MenuTab)}
               className={`px-4 py-2 rounded-xl text-sm font-bold whitespace-nowrap ${activeMenu === t.id ? "bg-emerald-600 text-white" : "bg-white text-gray-500 border border-gray-200"}`}
-            >{t.label}</button>
+            >
+              {t.label}
+            </button>
           ))}
         </div>
 
         <AnimatePresence mode="wait">
           {loading ? (
             <div className="flex justify-center items-center h-full">
-               <div className="w-10 h-10 border-4 border-emerald-200 border-t-emerald-600 rounded-full animate-spin"></div>
+              <div className="w-10 h-10 border-4 border-emerald-200 border-t-emerald-600 rounded-full animate-spin"></div>
             </div>
           ) : (
-            <motion.div key={activeMenu} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2 }}>
+            <motion.div
+              key={activeMenu}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.2 }}
+            >
               {activeMenu === "dashboard" && renderDashboard()}
-              {activeMenu === "labs" && renderLabsTable()} 
-              {activeMenu === "equipments" && renderEquipmentsTable()} 
+              {activeMenu === "labs" && renderLabsTable()}
+              {activeMenu === "equipments" && renderEquipmentsTable()}
               {activeMenu === "timeline" && renderTimeline()}
               {activeMenu === "reports" && renderReports()}
               {activeMenu === "lookup" && renderLookup()}
