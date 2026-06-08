@@ -178,6 +178,12 @@ export default function UserDevicesPage() {
             <Link href="/dashboard/user/device" className="text-blue-600">
               Thiết bị
             </Link>
+            <Link
+              href="/dashboard/user/history"
+              className="hover:text-blue-600 transition-colors"
+            >
+              Lịch sử đặt phòng
+            </Link>
           </nav>
           <div className="flex items-center gap-4 relative z-50">
             {userName ? (
