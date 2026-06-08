@@ -108,7 +108,8 @@ export default function ManagerDashboardPage() {
   });
   const [selectedBooking, setSelectedBooking] = useState<BookingItem | null>(null);
 
-  const API_URL = "http://localhost:8000/api/v1";
+  const API_URL = "https://booklab247.onrender.com/api/v1";
+  //const API_URL = "http://localhost:8000/api/v1";
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 60000);
