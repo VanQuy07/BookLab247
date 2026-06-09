@@ -106,6 +106,18 @@ export default function BookingModal({
     if (hours <= 0) return alert("⛔ Giờ kết thúc phải sau giờ bắt đầu!");
     if (!formData.phone) return alert("⛔ Vui lòng nhập số điện thoại!");
 
+    // 2. CHỐT CHẶN QUÁ KHỨ: Lấy giờ hiện tại so sánh với giờ User chọn
+    const now = new Date();
+    const selectedStartDateTime = new Date(
+      `${formData.date}T${formData.startTime}`,
+    );
+
+    if (selectedStartDateTime < now) {
+      return alert(
+        "⛔ Không thể đặt phòng trong quá khứ! Vui lòng chọn giờ bắt đầu sau thời điểm hiện tại.",
+      );
+    }
+
     const borrowedEquipments = Object.entries(selectedEqs).map(
       ([id, data]) => ({
         id: id,
@@ -194,6 +206,7 @@ export default function BookingModal({
                 <input
                   type="date"
                   value={formData.date}
+                  min={new Date().toISOString().split("T")[0]} // Tự động lấy ngày hôm nay làm mốc nhỏ nhất
                   onChange={(e) =>
                     setFormData({ ...formData, date: e.target.value })
                   }

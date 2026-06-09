@@ -174,6 +174,22 @@ export default function ManagerDashboardPage() {
   const loadData = async () => {
     setLoading(true);
     const token = localStorage.getItem("access_token");
+    // 3. Luồng tải dữ liệu Lịch đặt phòng (MỚI THÊM)
+    try {
+      const bkRes = await fetch(`${API_URL}/bookings`, {
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      if (bkRes.ok) {
+        const bkData = await bkRes.json();
+        // Kéo toàn bộ đơn từ DB về và nạp vào State
+        setBookings(Array.isArray(bkData) ? bkData : bkData.data || []);
+      }
+    } catch (error) {
+      console.error("Lỗi khi tải Đơn đặt phòng:", error);
+    }
 
     // 1. Luồng tải dữ liệu Phòng Lab
     try {
@@ -728,22 +744,34 @@ export default function ManagerDashboardPage() {
 
   // ================= GIAO DIỆN TIMELINE EXCEL CỦA HEAD =================
   const renderTimeline = () => {
-    const startHour = 7;
-    const endHour = 21;
-    const totalMins = (endHour - startHour) * 60;
+    // 1. Trục thời gian 24 tiếng (00:00 đến 23:00)
+    const startHour = 0;
+    const endHour = 24;
+    const totalMins = 1440; // 24 tiếng * 60 phút
 
     const timeHeaders: string[] = [];
-    for (let i = startHour; i <= endHour; i++)
+    for (let i = startHour; i < endHour; i++) {
       timeHeaders.push(`${i.toString().padStart(2, "0")}:00`);
+    }
 
     const uniqueBuildings = Array.from(
       new Set(rooms.map((r) => r.building || "Khác")),
     ).filter(Boolean);
 
-    // CHỈ hiển thị những phòng đang có khách đặt lịch
+    // 2. LỌC ĐƠN: Chỉ lấy đơn của "Ngày đang chọn" + "Đã duyệt/Check-in"
+    const bookingsOnSelectedDate = bookings.filter((b) => {
+      const bDate = b.date || new Date().toISOString().split("T")[0]; // Nếu đơn thiếu date, mặc định là hôm nay
+      const isSameDate = bDate === selectedDate;
+      const isApproved = b.status === "confirmed" || b.status === "checked-in";
+      return isSameDate && isApproved;
+    });
+
+    // 3. LỌC PHÒNG: Chỉ hiện phòng có đơn hợp lệ ở bước 2
     const filteredRooms = rooms.filter((room) => {
       const roomIdStr = room.id || room._id || "";
-      const hasBooking = bookings.some((b) => b.roomId === roomIdStr);
+      const hasBooking = bookingsOnSelectedDate.some(
+        (b) => b.roomId === roomIdStr,
+      );
       if (!hasBooking) return false;
 
       if (
@@ -759,17 +787,17 @@ export default function ManagerDashboardPage() {
         return "bg-emerald-500 border-emerald-600 text-white shadow-sm";
       if (status === "confirmed")
         return "bg-blue-500 border-blue-600 text-white shadow-sm";
-      if (status === "pending")
-        return "bg-amber-400 border-amber-500 text-amber-950 shadow-sm";
       return "bg-gray-400 text-white";
     };
 
-    const currentHour = currentTime.getHours();
-    const currentMin = currentTime.getMinutes();
+    // 4. VẠCH THỜI GIAN THỰC TẾ (Chỉ hiện nếu đang xem ngày "Hôm nay")
+    const isToday = selectedDate === new Date().toISOString().split("T")[0];
     let currentLinePct: number | null = null;
-    if (currentHour >= startHour && currentHour <= endHour) {
-      currentLinePct =
-        (((currentHour - startHour) * 60 + currentMin) / totalMins) * 100;
+
+    if (isToday) {
+      const currentHour = currentTime.getHours();
+      const currentMin = currentTime.getMinutes();
+      currentLinePct = ((currentHour * 60 + currentMin) / totalMins) * 100;
     }
 
     return (
@@ -848,7 +876,8 @@ export default function ManagerDashboardPage() {
 
         {/* LƯỚI TIMELINE */}
         <div className="flex-1 bg-white border border-gray-200 rounded-2xl overflow-auto relative shadow-sm">
-          <div className="min-w-[1200px] h-full flex flex-col relative">
+          {/* Nới rộng khung timeline để chứa đủ 24 cột mà không bị bóp méo chữ */}
+          <div className="min-w-[1800px] h-full flex flex-col relative">
             {currentLinePct !== null && (
               <div
                 className="absolute top-0 bottom-0 w-[2px] bg-red-500 z-40 pointer-events-none"
@@ -882,13 +911,15 @@ export default function ManagerDashboardPage() {
               <div className="flex flex-col items-center justify-center flex-1 py-20 text-gray-400">
                 <CalendarDays className="w-12 h-12 mb-3 text-gray-200" />
                 <p className="font-medium text-sm">
-                  Hiện tại không có phòng nào có lịch đặt trùng khớp.
+                  Hiện tại không có lịch đặt phòng nào đã được duyệt trong ngày
+                  này.
                 </p>
               </div>
             ) : (
               filteredRooms.map((room) => {
                 const roomIdStr = room.id || room._id || "";
-                const roomBookings = bookings.filter(
+                // Chỉ lấy những đơn thuộc ngày và đã duyệt của phòng này
+                const roomBookings = bookingsOnSelectedDate.filter(
                   (b) => b.roomId === roomIdStr,
                 );
 
@@ -922,15 +953,15 @@ export default function ManagerDashboardPage() {
                       </div>
 
                       {roomBookings.map((booking) => {
-                        const startMins =
-                          timeToMins(booking.startTime) - timeToMins("07:00");
+                        // Tính toán tọa độ chuẩn theo mốc 00:00
+                        const startMins = timeToMins(booking.startTime);
                         const leftPct = (startMins / totalMins) * 100;
                         const widthPct =
                           (booking.durationMins / totalMins) * 100;
                         const bufferWidthPct =
-                          (booking.bufferMins / totalMins) * 100;
+                          ((booking.bufferMins || 15) / totalMins) * 100;
                         const endTimeStr = minsToTime(
-                          timeToMins(booking.startTime) + booking.durationMins,
+                          startMins + booking.durationMins,
                         );
 
                         return (
@@ -951,7 +982,8 @@ export default function ManagerDashboardPage() {
                               </p>
                             </div>
 
-                            {booking.bufferMins > 0 && (
+                            {/* Vùng đệm dọn dẹp */}
+                            {(booking.bufferMins || 0) > 0 && (
                               <div
                                 className="absolute top-2 bottom-2 z-0 bg-slate-50 border-y border-r border-slate-200 rounded-r-lg opacity-60 flex items-center justify-center overflow-hidden"
                                 style={{
