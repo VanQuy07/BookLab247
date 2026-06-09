@@ -20,6 +20,7 @@ import {
   Hexagon,
   User,
   LogOut,
+  FilterX,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -79,10 +80,20 @@ export default function UserDevicesPage() {
   const [loading, setLoading] = useState<boolean>(true);
   const [viewMode, setViewMode] = useState<ViewMode>("grid");
   const [isMobileFilterOpen, setIsMobileFilterOpen] = useState<boolean>(false);
+
+  const [searchQuery, setSearchQuery] = useState("");
+  const [activeBadge, setActiveBadge] = useState<string | null>(null);
+  const [selectedDate, setSelectedDate] = useState<string>("");
+  const [onlyAvailable, setOnlyAvailable] = useState<boolean>(false);
+  const [statusFilter, setStatusFilter] = useState<string[]>([]);
+  const [managementFilter, setManagementFilter] = useState<string[]>([]);
+  const [priceFilter, setPriceFilter] = useState<string[]>([]);
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({
     time: true,
     category: true,
     status: true,
+    management: true,
+    price: true,
   });
 
   // Gọi API lấy dữ liệu thiết bị THỰC TẾ từ MongoDB (Backend)
@@ -149,8 +160,79 @@ export default function UserDevicesPage() {
     fetchDevicesFromAdmin();
   }, []);
 
+  //Lọc
+  const filteredDevices = devices.filter((device) => {
+    if (
+      searchQuery &&
+      !device.name.toLowerCase().includes(searchQuery.toLowerCase())
+    )
+      return false;
+
+    if (activeBadge) {
+      if (
+        activeBadge === "🔌 Vật tư tiêu hao" &&
+        !device.category.toLowerCase().includes("tiêu hao")
+      )
+        return false;
+      if (
+        activeBadge === "🧩 Kit Vi điều khiển" &&
+        !device.category.toLowerCase().includes("kit")
+      )
+        return false;
+      if (
+        activeBadge === "⚡ Dụng cụ đo lường" &&
+        !device.category.toLowerCase().includes("đo lường")
+      )
+        return false;
+      if (
+        activeBadge === "💡 Điện - Điện tử" &&
+        !device.category.toLowerCase().includes("điện")
+      )
+        return false;
+      
+    }
+
+    if (statusFilter.length > 0 && !statusFilter.includes(device.status))
+      return false;
+    if (
+      managementFilter.length > 0 &&
+      !managementFilter.includes(device.managementType)
+    )
+      return false;
+
+    if (priceFilter.length > 0) {
+      const isFree = device.price === 0;
+      if (priceFilter.includes("free") && !isFree) return false;
+      if (priceFilter.includes("paid") && isFree) return false;
+    }
+
+    if (onlyAvailable) {
+      if (device.status !== "available" || device.quantity <= 0) return false;
+    }
+
+    return true;
+  });
+
   const toggleSection = (section: string) => {
     setOpenSections((prev) => ({ ...prev, [section]: !prev[section] }));
+  };
+  const toggleFilter = (
+    setState: React.Dispatch<React.SetStateAction<string[]>>,
+    value: string,
+  ) => {
+    setState((prev) =>
+      prev.includes(value) ? prev.filter((v) => v !== value) : [...prev, value],
+    );
+  };
+
+  const clearAllFilters = () => {
+    setSearchQuery("");
+    setActiveBadge(null);
+    setSelectedDate("");
+    setOnlyAvailable(false);
+    setStatusFilter([]);
+    setManagementFilter([]);
+    setPriceFilter([]);
   };
 
   return (
@@ -245,14 +327,19 @@ export default function UserDevicesPage() {
             Danh mục nhanh:
           </span>
           {[
-            "Điện - Điện tử",
-            "Công nghệ thông tin",
-            "Hóa - Sinh",
-            "Vật tư tiêu hao",
+            "🔥 Mượn nhiều nhất",
+            "🔌 Vật tư tiêu hao",
+            "🧩 Kit Vi điều khiển",
+            "⚡ Dụng cụ đo lường",
+            "🎓 Đồ án chuyên ngành",
+            "💡 Điện - Điện tử",
           ].map((badge) => (
             <button
               key={badge}
-              className="px-4 py-2 rounded-full bg-white border border-gray-200 text-sm font-medium text-gray-700 hover:bg-blue-50 hover:text-blue-700 hover:border-blue-200 transition-colors whitespace-nowrap"
+              onClick={() =>
+                setActiveBadge(activeBadge === badge ? null : badge)
+              }
+              className={`px-4 py-2 rounded-full border text-sm font-medium transition-colors whitespace-nowrap ${activeBadge === badge ? "bg-blue-600 text-white border-blue-600 shadow-md" : "bg-white border-gray-200 text-gray-700 hover:bg-blue-50 hover:text-blue-700"}`}
             >
               {badge}
             </button>
@@ -277,7 +364,10 @@ export default function UserDevicesPage() {
                   Bộ lọc Thiết bị
                 </h2>
                 <div className="flex items-center gap-3">
-                  <button className="text-sm font-semibold text-blue-600 hover:text-blue-800">
+                  <button
+                    onClick={clearAllFilters}
+                    className="text-sm font-semibold text-blue-600 hover:text-blue-800"
+                  >
                     Xóa tất cả
                   </button>
                   <button
@@ -290,10 +380,11 @@ export default function UserDevicesPage() {
               </div>
 
               <div className="p-5 overflow-y-auto space-y-6">
+                {/*1. Lọc thời gian*/}
                 <div>
                   <button
                     onClick={() => toggleSection("time")}
-                    className="flex items-center justify-between w-full font-bold text-gray-900 mb-4"
+                    className="flex items-center justify-between w-full font-bold text-gray-900 mb-4 outline-none"
                   >
                     Thời gian cần mượn{" "}
                     {openSections["time"] ? (
@@ -304,19 +395,23 @@ export default function UserDevicesPage() {
                   </button>
                   {openSections["time"] && (
                     <div className="space-y-3">
-                      <div className="flex items-center gap-2 px-3 py-2 border border-gray-200 rounded-lg focus-within:border-blue-500">
+                      <div className="flex items-center gap-2 px-3 py-2 border border-gray-200 rounded-lg focus-within:border-blue-500 bg-white">
                         <Calendar className="w-4 h-4 text-gray-400" />
                         <input
                           type="date"
-                          className="w-full text-sm outline-none bg-transparent"
+                          value={selectedDate}
+                          onChange={(e) => setSelectedDate(e.target.value)}
+                          className="w-full text-sm outline-none bg-transparent text-gray-700"
                         />
                       </div>
-                      <label className="flex items-center gap-2 mt-2 cursor-pointer">
+                      <label className="flex items-center gap-2 mt-2 cursor-pointer group">
                         <input
                           type="checkbox"
-                          className="w-4 h-4 text-blue-600 rounded border-gray-300"
+                          checked={onlyAvailable}
+                          onChange={(e) => setOnlyAvailable(e.target.checked)}
+                          className="w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500 cursor-pointer"
                         />
-                        <span className="text-sm font-medium text-gray-700">
+                        <span className="text-sm font-medium text-gray-600 group-hover:text-gray-900">
                           Chỉ hiện đồ có sẵn
                         </span>
                       </label>
@@ -326,43 +421,148 @@ export default function UserDevicesPage() {
 
                 <hr className="border-gray-100" />
 
+                {/* 2. Trạng thái kho */}
                 <div>
                   <button
-                    onClick={() => toggleSection("category")}
-                    className="flex items-center justify-between w-full font-bold text-gray-900 mb-3"
+                    onClick={() => toggleSection("status")}
+                    className="flex items-center justify-between w-full font-bold text-gray-900 mb-4 outline-none"
                   >
-                    Nhóm thiết bị{" "}
-                    {openSections["category"] ? (
+                    Trạng thái trong kho{" "}
+                    {openSections["status"] ? (
                       <ChevronUp className="w-4 h-4" />
                     ) : (
                       <ChevronDown className="w-4 h-4" />
                     )}
                   </button>
-                  {openSections["category"] && (
-                    <div className="space-y-2">
-                      {[
-                        { label: "Dụng cụ đo lường", count: 45 },
-                        { label: "Kit vi điều khiển", count: 120 },
-                        { label: "Dụng cụ thí nghiệm", count: 80 },
-                      ].map((item, idx) => (
-                        <label
-                          key={idx}
-                          className="flex items-center justify-between cursor-pointer group"
-                        >
-                          <div className="flex items-center gap-2">
-                            <input
-                              type="checkbox"
-                              className="w-4 h-4 text-blue-600 rounded border-gray-300"
-                            />
-                            <span className="text-sm text-gray-600 group-hover:text-gray-900">
-                              {item.label}
-                            </span>
-                          </div>
-                          <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">
-                            {item.count}
-                          </span>
-                        </label>
-                      ))}
+                  {openSections["status"] && (
+                    <div className="space-y-3">
+                      <label className="flex items-center gap-3 cursor-pointer group">
+                        <input
+                          type="checkbox"
+                          checked={statusFilter.includes("available")}
+                          onChange={() =>
+                            toggleFilter(setStatusFilter, "available")
+                          }
+                          className="w-4 h-4 text-blue-600 rounded border-gray-300 cursor-pointer"
+                        />
+                        <span className="text-sm font-medium text-gray-600 group-hover:text-gray-900">
+                          Sẵn sàng cho mượn
+                        </span>
+                      </label>
+                      <label className="flex items-center gap-3 cursor-pointer group">
+                        <input
+                          type="checkbox"
+                          checked={statusFilter.includes("out_of_stock")}
+                          onChange={() =>
+                            toggleFilter(setStatusFilter, "out_of_stock")
+                          }
+                          className="w-4 h-4 text-blue-600 rounded border-gray-300 cursor-pointer"
+                        />
+                        <span className="text-sm font-medium text-gray-600 group-hover:text-gray-900">
+                          Tạm hết / Đang sử dụng
+                        </span>
+                      </label>
+                      <label className="flex items-center gap-3 cursor-pointer group">
+                        <input
+                          type="checkbox"
+                          checked={statusFilter.includes("maintenance")}
+                          onChange={() =>
+                            toggleFilter(setStatusFilter, "maintenance")
+                          }
+                          className="w-4 h-4 text-amber-500 rounded border-gray-300 focus:ring-amber-500 cursor-pointer"
+                        />
+                        <span className="text-sm font-medium text-gray-600 group-hover:text-gray-900">
+                          Đang bảo trì
+                        </span>
+                      </label>
+                    </div>
+                  )}
+                </div>
+                <hr className="border-gray-100" />
+
+                {/* 3. Loại hình quản lý */}
+                <div>
+                  <button
+                    onClick={() => toggleSection("management")}
+                    className="flex items-center justify-between w-full font-bold text-gray-900 mb-3 outline-none"
+                  >
+                    Loại hình quản lý{" "}
+                    {openSections["management"] ? (
+                      <ChevronUp className="w-4 h-4" />
+                    ) : (
+                      <ChevronDown className="w-4 h-4" />
+                    )}
+                  </button>
+                  {openSections["management"] && (
+                    <div className="space-y-3 mt-2">
+                      <label className="flex items-center gap-3 cursor-pointer group">
+                        <input
+                          type="checkbox"
+                          checked={managementFilter.includes("pool")}
+                          onChange={() =>
+                            toggleFilter(setManagementFilter, "pool")
+                          }
+                          className="w-4 h-4 text-blue-600 rounded border-gray-300 cursor-pointer"
+                        />
+                        <span className="text-sm font-medium text-gray-600 group-hover:text-gray-900">
+                          Theo số lượng (Pool)
+                        </span>
+                      </label>
+                      <label className="flex items-center gap-3 cursor-pointer group">
+                        <input
+                          type="checkbox"
+                          checked={managementFilter.includes("serial")}
+                          onChange={() =>
+                            toggleFilter(setManagementFilter, "serial")
+                          }
+                          className="w-4 h-4 text-blue-600 rounded border-gray-300 cursor-pointer"
+                        />
+                        <span className="text-sm font-medium text-gray-600 group-hover:text-gray-900">
+                          Mượn đơn chiếc (Serial)
+                        </span>
+                      </label>
+                    </div>
+                  )}
+                </div>
+                <hr className="border-gray-100" />
+
+                {/* 4. Chi phí */}
+                <div>
+                  <button
+                    onClick={() => toggleSection("price")}
+                    className="flex items-center justify-between w-full font-bold text-gray-900 mb-3 outline-none"
+                  >
+                    Chi phí sử dụng{" "}
+                    {openSections["price"] ? (
+                      <ChevronUp className="w-4 h-4" />
+                    ) : (
+                      <ChevronDown className="w-4 h-4" />
+                    )}
+                  </button>
+                  {openSections["price"] && (
+                    <div className="space-y-3 mt-2">
+                      <label className="flex items-center gap-3 cursor-pointer group">
+                        <input
+                          type="checkbox"
+                          checked={priceFilter.includes("free")}
+                          onChange={() => toggleFilter(setPriceFilter, "free")}
+                          className="w-4 h-4 text-blue-600 rounded border-gray-300 cursor-pointer"
+                        />
+                        <span className="text-sm font-medium text-gray-600 group-hover:text-gray-900">
+                          Miễn phí (Trường cấp)
+                        </span>
+                      </label>
+                      <label className="flex items-center gap-3 cursor-pointer group">
+                        <input
+                          type="checkbox"
+                          checked={priceFilter.includes("paid")}
+                          onChange={() => toggleFilter(setPriceFilter, "paid")}
+                          className="w-4 h-4 text-blue-600 rounded border-gray-300 cursor-pointer"
+                        />
+                        <span className="text-sm font-medium text-gray-600 group-hover:text-gray-900">
+                          Có tính phí
+                        </span>
+                      </label>
                     </div>
                   )}
                 </div>
@@ -373,12 +573,14 @@ export default function UserDevicesPage() {
           {/* ================= THÔNG TIN CHÍNH ================= */}
           <main className="flex-1 min-w-0">
             <div className="flex flex-col sm:flex-row items-center justify-between gap-4 mb-6 bg-white p-4 rounded-2xl border border-gray-200 shadow-sm">
-              <div className="relative w-full sm:max-w-xs">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+              <div className="relative w-full sm:max-w-md">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
                 <input
                   type="text"
-                  placeholder="Tìm mã hoặc tên..."
-                  className="w-full pl-9 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-blue-500"
+                  placeholder="Tìm theo tên thiết bị hoặc mô tả..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full pl-10 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-blue-500 focus:bg-white transition-colors"
                 />
               </div>
               <div className="flex items-center justify-between w-full sm:w-auto gap-4">
@@ -388,10 +590,6 @@ export default function UserDevicesPage() {
                 >
                   <SlidersHorizontal className="w-4 h-4" /> Bộ lọc
                 </button>
-                <select className="px-3 py-2 bg-transparent border border-gray-200 rounded-lg text-sm font-medium outline-none cursor-pointer">
-                  <option>Mới nhập về</option>
-                  <option>Số lượng nhiều nhất</option>
-                </select>
                 <div className="hidden sm:flex items-center bg-gray-100 rounded-lg p-1">
                   <button
                     onClick={() => setViewMode("grid")}
@@ -416,12 +614,21 @@ export default function UserDevicesPage() {
                   Đang tải thiết bị từ máy chủ...
                 </p>
               </div>
-            ) : devices.length === 0 ? (
-              <div className="text-center py-20 bg-white rounded-2xl border border-gray-200 shadow-sm">
-                <Package className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-                <p className="text-gray-500 font-medium">
-                  Chưa có thiết bị nào được lưu trên hệ thống.
+            ) : filteredDevices.length === 0 ? (
+              <div className="text-center py-24 bg-white rounded-2xl border border-dashed border-gray-300 flex flex-col items-center">
+                <FilterX className="w-16 h-16 text-gray-300 mb-4" />
+                <h3 className="text-lg font-bold text-gray-900 mb-1">
+                  Không tìm thấy thiết bị nào
+                </h3>
+                <p className="text-gray-500 mb-6">
+                  Thử thay đổi từ khóa hoặc bỏ bớt các bộ lọc hiện tại.
                 </p>
+                <button
+                  onClick={clearAllFilters}
+                  className="px-6 py-2 bg-blue-50 text-blue-600 font-bold rounded-xl hover:bg-blue-100 transition-colors"
+                >
+                  Xóa tất cả bộ lọc
+                </button>
               </div>
             ) : (
               <div
@@ -431,16 +638,14 @@ export default function UserDevicesPage() {
                     : "flex flex-col gap-4"
                 }
               >
-                {devices.map((device) => (
+                {filteredDevices.map((device) => (
                   <div
                     key={device.id}
                     className={`bg-white border border-gray-200 rounded-2xl overflow-hidden hover:shadow-xl hover:border-blue-200 transition-all duration-300 group ${viewMode === "list" ? "flex flex-col sm:flex-row" : "flex flex-col"}`}
                   >
-                    {/* Ảnh */}
                     <div
                       className={`relative overflow-hidden bg-gray-100 ${viewMode === "list" ? "sm:w-64 h-48 sm:h-auto shrink-0" : "h-52 w-full"}`}
                     >
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
                         src={device.image}
                         alt={device.name}
@@ -459,7 +664,7 @@ export default function UserDevicesPage() {
                         )}
                         {device.status === "out_of_stock" && (
                           <span className="px-3 py-1 bg-red-500/90 backdrop-blur-sm text-white text-xs font-bold rounded-full flex items-center gap-1">
-                            <AlertCircle className="w-3.5 h-3.5" /> Hết hàng
+                            <AlertCircle className="w-3.5 h-3.5" /> Tạm hết
                           </span>
                         )}
                       </div>
@@ -476,7 +681,7 @@ export default function UserDevicesPage() {
                           </p>
                         </div>
                         <div className="flex items-center gap-1 bg-yellow-50 px-2 py-1 rounded-lg text-xs font-bold text-yellow-700 border border-yellow-100">
-                          <Star className="w-3.5 h-3.5 fill-yellow-400 text-yellow-400" />{" "}
+                          <Star className="w-3.5 h-3.5 fill-yellow-400 text-yellow-400" />
                           {device.rating}
                         </div>
                       </div>
@@ -487,7 +692,7 @@ export default function UserDevicesPage() {
                           <span
                             className={`flex items-center gap-1.5 font-bold px-2.5 py-1 rounded-md border ${device.quantity > 0 ? "bg-blue-50 border-blue-100 text-blue-700" : "bg-red-50 border-red-100 text-red-600"}`}
                           >
-                            <Package className="w-4 h-4" /> Còn lại:{" "}
+                            <Package className="w-4 h-4" /> Còn lại:
                             {device.quantity} / {device.totalQuantity} cái
                           </span>
                         ) : (
