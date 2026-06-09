@@ -28,20 +28,22 @@ export default function UserBookingHistoryPage() {
     setLoading(true);
     try {
       const token = localStorage.getItem("access_token");
-      // Gọi API lấy danh sách đơn đặt phòng của User hiện tại
-      const response = await fetch(
-        "https://booklab247.onrender.com/api/v1/bookings/my-bookings",
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
+
+      // ĐÃ SỬA LẠI ĐƯỜNG DẪN BỎ CHỮ /my-bookings
+      const response = await fetch("http://localhost:8000/api/v1/bookings", {
+        headers: {
+          Authorization: `Bearer ${token}`,
         },
-      );
+      });
 
       if (response.ok) {
         const data = await response.json();
-        // Giả sử API trả về mảng, nếu trả về { data: [...] } thì dùng data.data
-        setBookings(Array.isArray(data) ? data : data.data || []);
+        console.log("Dữ liệu API trả về:", data); // Lệnh này sẽ in ra dữ liệu trong F12
+
+        // Tùy cấu trúc API của bạn trả về, thường là data trực tiếp hoặc nằm trong data.data / data.items
+        setBookings(Array.isArray(data) ? data : data.data || data.items || []);
+      } else {
+        console.log("Lỗi gọi API:", response.status);
       }
     } catch (error) {
       console.error("Lỗi khi tải lịch sử:", error);

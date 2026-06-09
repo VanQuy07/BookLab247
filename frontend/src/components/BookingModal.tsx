@@ -129,8 +129,9 @@ export default function BookingModal({
 
     try {
       const token = localStorage.getItem("access_token");
+      // Đảm bảo dòng fetch của bạn trong BookingModal sửa thành thế này:
       const response = await fetch(
-        "https://booklab247.onrender.com/api/v1/bookings",
+        `${process.env.NEXT_PUBLIC_API_URL}/api/v1/bookings`,
         {
           method: "POST",
           headers: {
