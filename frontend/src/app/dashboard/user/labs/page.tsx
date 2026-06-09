@@ -1,5 +1,5 @@
 "use client";
-
+import BookingModal from "../../../../components/BookingModal";
 import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import {
@@ -44,6 +44,8 @@ interface LabItem {
 
 // ================= COMPONENT =================
 export default function UserLabsPage() {
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [selectedRoomToBook, setSelectedRoomToBook] = useState<any>(null);
   const router = useRouter();
   const [userName, setUserName] = useState<string | null>(null);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
@@ -380,7 +382,15 @@ export default function UserLabsPage() {
                         <div className="flex gap-2">
                           <button
                             disabled={lab.maintenanceMode || lab.isBooked}
-                            className={`px-5 py-2.5 rounded-xl font-bold transition-colors ${lab.maintenanceMode || lab.isBooked ? "bg-gray-200 text-gray-400 cursor-not-allowed" : "bg-blue-600 hover:bg-blue-700 text-white shadow-md shadow-blue-600/20 active:scale-95"}`}
+                            onClick={() => {
+                              setSelectedRoomToBook(lab); // Truyền đúng data của phòng (biến lab) vào State
+                              setIsModalOpen(true); // Bật công tắc mở Modal
+                            }}
+                            className={`px-5 py-2.5 rounded-xl font-bold transition-colors ${
+                              lab.maintenanceMode || lab.isBooked
+                                ? "bg-gray-200 text-gray-400 cursor-not-allowed"
+                                : "bg-blue-600 hover:bg-blue-700 text-white shadow-md shadow-blue-600/20 active:scale-95"
+                            }`}
                           >
                             {lab.maintenanceMode
                               ? "Tạm ngưng"
@@ -398,6 +408,11 @@ export default function UserLabsPage() {
           </main>
         </div>
       </div>
-    </div>
+      <BookingModal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        room={selectedRoomToBook}
+      />
+    </div> // Đây là thẻ đóng div cuối cùng của bạn
   );
 }
