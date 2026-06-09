@@ -157,8 +157,16 @@ export default function ManagerDashboardPage() {
     null,
   );
 
+  // ================= STATES MAINTENANCE REPORT =================
+  const [reportModal, setReportModal] = useState<{
+    isOpen: boolean;
+    type: "room" | "equipment";
+    itemId: string;
+    itemName: string;
+    reason: string;
+  }>({ isOpen: false, type: "room", itemId: "", itemName: "", reason: "" });
+
   const API_URL = "https://booklab247.onrender.com/api/v1";
-  //const API_URL = "http://localhost:8000/api/v1";
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 60000);
@@ -175,7 +183,6 @@ export default function ManagerDashboardPage() {
     setLoading(true);
     const token = localStorage.getItem("access_token");
 
-    // 1. Luồng tải dữ liệu Phòng Lab
     try {
       const roomsRes = await fetch(`${API_URL}/labs`, {
         headers: {
@@ -184,7 +191,6 @@ export default function ManagerDashboardPage() {
         },
       });
       const roomsData = roomsRes.ok ? await roomsRes.json() : [];
-      console.log("Dữ liệu Phòng kéo về:", roomsData);
 
       if (roomsData && roomsData.length > 0) {
         setRooms(
@@ -208,7 +214,6 @@ export default function ManagerDashboardPage() {
       setRooms([]);
     }
 
-    // 2. Luồng tải dữ liệu Thiết bị
     try {
       const eqRes = await fetch(`${API_URL}/equipments`, {
         headers: {
@@ -264,7 +269,7 @@ export default function ManagerDashboardPage() {
       };
     setQuickBookData({ ...quickBookData, equipments: currentEqs });
   };
-  // Tính Tổng Tiền (Real-time)
+  
   const calculateTotalCost = () => {
     const startObj = new Date(
       `${quickBookData.startDate}T${quickBookData.startTime}`,
@@ -280,7 +285,7 @@ export default function ManagerDashboardPage() {
     const selectedRoom = rooms.find(
       (r) => (r.id || r._id) === quickBookData.roomId,
     );
-    const roomPricePerHour = Number(selectedRoom?.price || 100000); // Lấy giá phòng (mặc định 100k)
+    const roomPricePerHour = Number(selectedRoom?.price || 100000);
 
     const roomTotal = (diffMins / 60) * roomPricePerHour;
     const eqTotal = Object.values(quickBookData.equipments).reduce(
@@ -302,11 +307,9 @@ export default function ManagerDashboardPage() {
     }
   };
 
-  // ================= XỬ LÝ SUBMIT ĐẶT LỊCH NHANH (GIỮ NGUYÊN TỪ HEAD) =================
   const handleQuickBookSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    // Ghép Ngày + Giờ để xử lý đặt xuyên ngày
     const startDateTime = new Date(
       `${quickBookData.startDate}T${quickBookData.startTime}`,
     );
@@ -316,8 +319,9 @@ export default function ManagerDashboardPage() {
 
     const durationMins =
       (endDateTime.getTime() - startDateTime.getTime()) / 60000;
-    if (durationMins <= 0)
-      return alert("⛔ LỖI:\nGiờ kết thúc phải sau giờ bắt đầu!");
+    
+    if (durationMins <= 30)
+      return alert("⛔ LỖI:\nThời gian đặt phòng tối thiểu phải từ 30 phút trở lên!");
 
     const now = new Date();
     if (startDateTime < now) {
@@ -327,9 +331,8 @@ export default function ManagerDashboardPage() {
     const targetId = quickBookData.roomId;
     if (!targetId) return alert("Vui lòng chọn phòng!");
 
-    // Check trùng lịch xuyên ngày (Dùng Timestamp)
     const newStartMs = startDateTime.getTime();
-    const newEndMsWithBuffer = endDateTime.getTime() + 15 * 60000; // Đệm dọn dẹp 15p
+    const newEndMsWithBuffer = endDateTime.getTime() + 15 * 60000;
 
     const roomBookings = bookings.filter((b) => b.roomId === targetId);
     for (const exist of roomBookings) {
@@ -439,13 +442,28 @@ export default function ManagerDashboardPage() {
     }
   };
 
+  // ================= XỬ LÝ BÁO CÁO BẢO TRÌ =================
+  const handleReportSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!reportModal.reason.trim()) return alert("Vui lòng nhập lý do!");
+
+    if (reportModal.type === "room") {
+      setRooms(rooms.map(r => (r.id === reportModal.itemId || r._id === reportModal.itemId) ? { ...r, maintenanceMode: true } : r));
+    } else {
+      setEquipments(equipments.map(eq => (eq.id === reportModal.itemId || eq._id === reportModal.itemId) ? { ...eq, status: 'maintenance' } : eq));
+    }
+
+    alert(`✅ Đã gửi báo cáo bảo trì cho: ${reportModal.itemName}`);
+    setReportModal({ ...reportModal, isOpen: false, reason: "" });
+  };
+
   const changeDate = (days: number) => {
     const date = new Date(selectedDate);
     date.setDate(date.getDate() + days);
     setSelectedDate(date.toISOString().split("T")[0]);
   };
 
-  // ================= CÁC GIAO DIỆN TỪ NHÁNH INCOMING ĐÃ ĐƯỢC GIỮ LẠI =================
+  // ================= GIAO DIỆN LABS & EQUIPMENTS =================
   const renderLabsTable = () => (
     <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden animate-in fade-in duration-300">
       <div className="overflow-x-auto">
@@ -458,6 +476,7 @@ export default function ManagerDashboardPage() {
               </th>
               <th className="p-4 font-bold text-gray-600">Sức chứa</th>
               <th className="p-4 font-bold text-gray-600">Trạng thái</th>
+              <th className="p-4 font-bold text-gray-600 text-center">Thao tác</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
@@ -501,6 +520,31 @@ export default function ManagerDashboardPage() {
                     </span>
                   )}
                 </td>
+                <td className="p-4 text-center">
+                  {/* YÊU CẦU 4: Bật/Tắt bảo trì cho Phòng */}
+                  {room.maintenanceMode ? (
+                    <button
+                      onClick={() => {
+                        if (confirm(`Xác nhận hoàn tất bảo trì phòng ${room.name || room.title}?`)) {
+                          const currentRoomId = room.id || room._id;
+                          setRooms(rooms.map(r => ((r.id || r._id) === currentRoomId) ? { ...r, maintenanceMode: false } : r));
+                        }
+                      }}
+                      className="p-2 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
+                      title="Hoàn tất bảo trì"
+                    >
+                      <CheckCircle2 className="w-5 h-5" />
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => setReportModal({ isOpen: true, type: 'room', itemId: room.id || room._id || '', itemName: room.title || room.name || '', reason: '' })}
+                      className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                      title="Báo cáo bảo trì/sửa chữa"
+                    >
+                      <Wrench className="w-5 h-5" />
+                    </button>
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>
@@ -520,6 +564,7 @@ export default function ManagerDashboardPage() {
               <th className="p-4 font-bold text-gray-600">Số lượng (Kho)</th>
               <th className="p-4 font-bold text-gray-600">Trạng thái</th>
               <th className="p-4 font-bold text-gray-600">Vị trí phòng</th>
+              <th className="p-4 font-bold text-gray-600 text-center">Thao tác</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
@@ -588,6 +633,31 @@ export default function ManagerDashboardPage() {
                   <td className="p-4 text-gray-600 flex items-center gap-1.5">
                     <MapPin className="w-4 h-4 text-gray-400" /> {roomName}
                   </td>
+                  <td className="p-4 text-center">
+                    {/* YÊU CẦU 4: Bật/Tắt sửa chữa cho Thiết bị */}
+                    {eq.status === "maintenance" ? (
+                      <button
+                        onClick={() => {
+                          if (confirm(`Xác nhận hoàn tất sửa chữa thiết bị ${eq.name}?`)) {
+                            const currentEqId = eq.id || eq._id;
+                            setEquipments(equipments.map(e => ((e.id || e._id) === currentEqId) ? { ...e, status: 'available' } : e));
+                          }
+                        }}
+                        className="p-2 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
+                        title="Hoàn tất sửa chữa"
+                      >
+                        <CheckCircle2 className="w-5 h-5" />
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => setReportModal({ isOpen: true, type: 'equipment', itemId: eq.id || eq._id || '', itemName: eq.name, reason: '' })}
+                        className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                        title="Báo cáo bảo trì/sửa chữa"
+                      >
+                        <Wrench className="w-5 h-5" />
+                      </button>
+                    )}
+                  </td>
                 </tr>
               );
             })}
@@ -597,153 +667,54 @@ export default function ManagerDashboardPage() {
     </div>
   );
 
-  const renderDashboard = () => {
-    const usedRoomsCount = rooms.filter((l) => l.isBooked).length;
-    const maintenanceRoomsCount = rooms.filter((l) => l.maintenanceMode).length;
-    const maintenanceEqsCount = equipments.filter(
-      (e) => e.status === "maintenance",
-    ).length;
-    const totalMaintenance = maintenanceRoomsCount + maintenanceEqsCount;
-    const itemsOut = equipments.reduce(
-      (sum, eq) => sum + (eq.inUseQuantity || 0),
-      0,
-    );
+  const renderDashboard = () => (
+    <div className="p-6 bg-white rounded-2xl border border-gray-100 text-center py-20 text-gray-400">
+      Giao diện Giám sát vận hành
+    </div>
+  );
+  const renderReports = () => (
+    <div className="p-6 bg-white rounded-2xl border border-gray-100 text-center py-20 text-gray-400">
+      Giao diện Báo cáo sự cố
+    </div>
+  );
+  const renderLookup = () => (
+    <div className="p-6 bg-white rounded-2xl border border-gray-100 text-center py-20 text-gray-400">
+      Giao diện Tra cứu thông tin
+    </div>
+  );
 
-    return (
-      <div className="space-y-6 pb-10">
-        <div className="flex flex-col xl:flex-row justify-between items-start xl:items-end gap-4 bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
-          <div>
-            <h2 className="text-2xl font-black text-gray-900">
-              Giám sát Trực tiếp
-            </h2>
-            <p className="text-gray-500 text-sm mt-1">
-              Cập nhật trạng thái phòng và thiết bị realtime.
-            </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-3 w-full xl:w-auto">
-            <button className="flex-1 sm:flex-none flex items-center justify-center gap-2 bg-slate-900 text-white px-4 py-2.5 rounded-xl text-sm font-bold shadow-md hover:bg-black transition-colors">
-              <QrCode className="w-4 h-4" /> Quét mã QR
-            </button>
-            <div className="flex bg-gray-100 p-1 rounded-xl border border-gray-200 w-full sm:w-auto items-center overflow-x-auto scrollbar-hide">
-              {[
-                { id: "today", label: "Hôm nay" },
-                { id: "yesterday", label: "Hôm qua" },
-                { id: "7days", label: "7 Ngày" },
-              ].map((f) => (
-                <button
-                  key={f.id}
-                  onClick={() => {
-                    setTimeFilter(f.id as TimeFilter);
-                    setCustomDate("");
-                  }}
-                  className={`px-4 py-1.5 text-sm font-bold rounded-lg whitespace-nowrap transition-all ${timeFilter === f.id && !customDate ? "bg-white text-emerald-600 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}
-                >
-                  {f.label}
-                </button>
-              ))}
-              <div className="h-4 w-px bg-gray-300 mx-2"></div>
-              <input
-                type="date"
-                value={customDate}
-                onChange={(e) => {
-                  setCustomDate(e.target.value);
-                  setTimeFilter("custom");
-                }}
-                className={`px-3 py-1 text-sm font-bold rounded-lg bg-transparent outline-none cursor-pointer ${customDate ? "text-emerald-600 bg-white shadow-sm" : "text-gray-500"}`}
-              />
-            </div>
-          </div>
-        </div>
-
-        <div className="space-y-6 animate-in fade-in duration-300">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
-              <p className="text-xs font-bold text-gray-500 mb-1">
-                ĐANG SỬ DỤNG
-              </p>
-              <h3 className="text-2xl font-black text-emerald-600">
-                {usedRoomsCount}/{rooms.length}{" "}
-                <span className="text-sm font-medium text-gray-400">Phòng</span>
-              </h3>
-            </div>
-            <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
-              <p className="text-xs font-bold text-gray-500 mb-1">CHỜ DUYỆT</p>
-              <h3 className="text-2xl font-black text-amber-500">
-                12{" "}
-                <span className="text-sm font-medium text-gray-400">Đơn</span>
-              </h3>
-            </div>
-            <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
-              <p className="text-xs font-bold text-gray-500 mb-1">
-                THIẾT BỊ RỜI KHO
-              </p>
-              <h3 className="text-2xl font-black text-blue-600">
-                {itemsOut}{" "}
-                <span className="text-sm font-medium text-gray-400">Món</span>
-              </h3>
-            </div>
-            <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
-              <p className="text-xs font-bold text-gray-500 mb-1">
-                BẢO TRÌ ĐỘT XUẤT
-              </p>
-              <h3 className="text-2xl font-black text-red-500">
-                {totalMaintenance}{" "}
-                <span className="text-sm font-medium text-gray-400">Sự cố</span>
-              </h3>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm flex flex-col h-[350px]">
-              <div className="p-4 border-b border-gray-100">
-                <h3 className="font-bold text-gray-900 flex items-center gap-2">
-                  <Clock className="w-5 h-5 text-emerald-500" /> Ca sắp diễn ra
-                  (Trong 2h)
-                </h3>
-              </div>
-              <div className="p-4 overflow-y-auto space-y-3">
-                <div className="text-center text-sm text-gray-500 py-10">
-                  Hiển thị lịch sắp tới...
-                </div>
-              </div>
-            </div>
-            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm flex flex-col h-[350px]">
-              <div className="p-4 border-b border-gray-100">
-                <h3 className="font-bold text-gray-900 flex items-center gap-2">
-                  <AlertTriangle className="w-5 h-5 text-amber-500" /> Đơn chờ
-                  duyệt khẩn
-                </h3>
-              </div>
-              <div className="p-4 overflow-y-auto space-y-3">
-                <div className="text-center text-sm text-gray-500 py-10">
-                  Không có đơn chờ duyệt.
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  };
-
-  // ================= GIAO DIỆN TIMELINE EXCEL CỦA HEAD =================
+  // ================= GIAO DIỆN TIMELINE EXCEL XUYÊN NGÀY =================
   const renderTimeline = () => {
     const startHour = 7;
     const endHour = 21;
-    const totalMins = (endHour - startHour) * 60;
+    const totalMins = (endHour - startHour + 1) * 60; // Khung nhìn 840 phút
 
     const timeHeaders: string[] = [];
     for (let i = startHour; i <= endHour; i++)
       timeHeaders.push(`${i.toString().padStart(2, "0")}:00`);
 
+    // Tạo Timestamp cho ngày đang chọn để bắt khoảng thời gian xem (View Port)
+    const viewStartMs = new Date(`${selectedDate}T07:00`).getTime();
+    const viewEndMs = new Date(`${selectedDate}T21:00`).getTime();
+
     const uniqueBuildings = Array.from(
       new Set(rooms.map((r) => r.building || "Khác")),
     ).filter(Boolean);
 
-    // CHỈ hiển thị những phòng đang có khách đặt lịch
+    // CHỈ hiển thị những phòng có lịch đặt GIAO NHAU với NGÀY ĐANG CHỌN
     const filteredRooms = rooms.filter((room) => {
       const roomIdStr = room.id || room._id || "";
-      const hasBooking = bookings.some((b) => b.roomId === roomIdStr);
+      const hasBooking = bookings.some((b) => {
+        if (b.roomId !== roomIdStr) return false;
+        const existDate = b.date || selectedDate;
+        const bStartMs = new Date(`${existDate}T${b.startTime}`).getTime();
+        const bEndMsWithBuffer =
+          bStartMs + (b.durationMins + b.bufferMins) * 60000;
+
+        // Thuật toán kiểm tra giao nhau (Overlap) với View Port
+        return bStartMs < viewEndMs && bEndMsWithBuffer > viewStartMs;
+      });
+
       if (!hasBooking) return false;
 
       if (
@@ -767,7 +738,13 @@ export default function ManagerDashboardPage() {
     const currentHour = currentTime.getHours();
     const currentMin = currentTime.getMinutes();
     let currentLinePct: number | null = null;
-    if (currentHour >= startHour && currentHour <= endHour) {
+
+    // Chỉ vẽ thanh đỏ Real-time nếu ngày đang xem là Hôm Nay
+    if (
+      selectedDate === new Date().toISOString().split("T")[0] &&
+      currentHour >= startHour &&
+      currentHour <= endHour
+    ) {
       currentLinePct =
         (((currentHour - startHour) * 60 + currentMin) / totalMins) * 100;
     }
@@ -789,7 +766,7 @@ export default function ManagerDashboardPage() {
                 duyệt
               </span>
               <span className="text-xs text-gray-400 font-semibold self-center bg-gray-100 px-2.5 py-0.5 rounded-md">
-                Đang tự động ẩn phòng trống
+                Đang tự động bóc tách xuyên ngày
               </span>
             </p>
           </div>
@@ -888,9 +865,18 @@ export default function ManagerDashboardPage() {
             ) : (
               filteredRooms.map((room) => {
                 const roomIdStr = room.id || room._id || "";
-                const roomBookings = bookings.filter(
-                  (b) => b.roomId === roomIdStr,
-                );
+
+                // Chỉ lấy các booking GIAO NHAU với Ngày đang hiển thị (View Port)
+                const roomBookings = bookings.filter((b) => {
+                  if (b.roomId !== roomIdStr) return false;
+                  const existDate = b.date || selectedDate;
+                  const bStartMs = new Date(
+                    `${existDate}T${b.startTime}`,
+                  ).getTime();
+                  const bEndMsWithBuffer =
+                    bStartMs + (b.durationMins + b.bufferMins) * 60000;
+                  return bStartMs < viewEndMs && bEndMsWithBuffer > viewStartMs;
+                });
 
                 return (
                   <div
@@ -922,40 +908,85 @@ export default function ManagerDashboardPage() {
                       </div>
 
                       {roomBookings.map((booking) => {
-                        const startMins =
-                          timeToMins(booking.startTime) - timeToMins("07:00");
-                        const leftPct = (startMins / totalMins) * 100;
-                        const widthPct =
-                          (booking.durationMins / totalMins) * 100;
-                        const bufferWidthPct =
-                          (booking.bufferMins / totalMins) * 100;
+                        const existDate = booking.date || selectedDate;
+                        const bStartMs = new Date(
+                          `${existDate}T${booking.startTime}`,
+                        ).getTime();
+                        const bEndMs = bStartMs + booking.durationMins * 60000;
+                        const bBufferEndMs =
+                          bEndMs + booking.bufferMins * 60000;
+
+                        // Tính toán độ rộng block dựa trên điểm giao cắt với Khung hiển thị (View Port)
+                        const visibleStartMs = Math.max(bStartMs, viewStartMs);
+                        const visibleEndMs = Math.min(bEndMs, viewEndMs);
+
+                        let leftPct = 0,
+                          widthPct = 0,
+                          bufferLeftPct = 0,
+                          bufferWidthPct = 0;
+
+                        if (visibleStartMs < visibleEndMs) {
+                          leftPct =
+                            ((visibleStartMs - viewStartMs) / 60000 / totalMins) *
+                            100;
+                          widthPct =
+                            ((visibleEndMs - visibleStartMs) / 60000 / totalMins) *
+                            100;
+                        }
+
+                        // Tính toán Buffer dọn dẹp
+                        const visibleBufferStartMs = Math.max(
+                          bEndMs,
+                          viewStartMs,
+                        );
+                        const visibleBufferEndMs = Math.min(
+                          bBufferEndMs,
+                          viewEndMs,
+                        );
+                        if (visibleBufferStartMs < visibleBufferEndMs) {
+                          bufferLeftPct =
+                            ((visibleBufferStartMs - viewStartMs) /
+                              60000 /
+                              totalMins) *
+                            100;
+                          bufferWidthPct =
+                            ((visibleBufferEndMs - visibleBufferStartMs) /
+                              60000 /
+                              totalMins) *
+                            100;
+                        }
+
+                        const trueEndTimeObj = new Date(bEndMs);
                         const endTimeStr = minsToTime(
-                          timeToMins(booking.startTime) + booking.durationMins,
+                          trueEndTimeObj.getHours() * 60 +
+                            trueEndTimeObj.getMinutes(),
                         );
 
                         return (
                           <React.Fragment key={booking.id}>
-                            <div
-                              className={`absolute top-2 bottom-2 ${getStatusColor(booking.status)} border rounded-xl px-3 py-1 overflow-hidden z-10 flex flex-col justify-center cursor-pointer hover:brightness-110 transition-all`}
-                              style={{
-                                left: `${leftPct}%`,
-                                width: `${widthPct}%`,
-                              }}
-                              onClick={() => setSelectedBooking(booking)}
-                            >
-                              <p className="text-xs font-black truncate leading-tight">
-                                {booking.customerName}
-                              </p>
-                              <p className="text-[10px] opacity-90 truncate font-semibold mt-0.5">
-                                {booking.startTime} - {endTimeStr}
-                              </p>
-                            </div>
+                            {widthPct > 0 && (
+                              <div
+                                className={`absolute top-2 bottom-2 ${getStatusColor(booking.status)} border rounded-xl px-3 py-1 overflow-hidden z-10 flex flex-col justify-center cursor-pointer hover:brightness-110 transition-all`}
+                                style={{
+                                  left: `${leftPct}%`,
+                                  width: `${widthPct}%`,
+                                }}
+                                onClick={() => setSelectedBooking(booking)}
+                              >
+                                <p className="text-xs font-black truncate leading-tight">
+                                  {booking.customerName}
+                                </p>
+                                <p className="text-[10px] opacity-90 truncate font-semibold mt-0.5">
+                                  {booking.startTime} - {endTimeStr}
+                                </p>
+                              </div>
+                            )}
 
-                            {booking.bufferMins > 0 && (
+                            {bufferWidthPct > 0 && (
                               <div
                                 className="absolute top-2 bottom-2 z-0 bg-slate-50 border-y border-r border-slate-200 rounded-r-lg opacity-60 flex items-center justify-center overflow-hidden"
                                 style={{
-                                  left: `${leftPct + widthPct}%`,
+                                  left: `${bufferLeftPct}%`,
                                   width: `${bufferWidthPct}%`,
                                   backgroundImage:
                                     "repeating-linear-gradient(45deg, transparent, transparent 5px, rgba(0,0,0,0.03) 5px, rgba(0,0,0,0.03) 10px)",
@@ -972,8 +1003,113 @@ export default function ManagerDashboardPage() {
             )}
           </div>
         </div>
+      </div>
+    );
+  };
 
-        {/* ================= MODAL QUICK BOOK ================= */}
+  // ================= SIDEBAR =================
+  const renderSidebar = () => (
+    <aside className="w-64 bg-slate-900 text-slate-300 flex flex-col h-screen sticky top-0 shrink-0 shadow-2xl z-30 hidden md:flex">
+      <div className="p-6 border-b border-slate-800">
+        <h1 className="text-2xl font-black text-white tracking-tight flex items-center gap-2">
+          <ShieldCheck className="w-7 h-7 text-emerald-500" />
+          Manager<span className="text-emerald-500">Ops</span>
+        </h1>
+      </div>
+      <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
+        {[
+          {
+            id: "dashboard",
+            icon: LayoutDashboard,
+            label: "Giám sát Vận hành",
+          },
+          { id: "labs", icon: DoorOpen, label: "Phòng Thực hành" },
+          { id: "equipments", icon: Package, label: "Thiết Bị" },
+          { id: "timeline", icon: CalendarDays, label: "Lịch Điều phối" },
+          { id: "reports", icon: FileText, label: "Báo cáo Sự cố" },
+          { id: "lookup", icon: Search, label: "Tra cứu Thông tin" },
+        ].map((item) => (
+          <button
+            key={item.id}
+            onClick={() => setActiveMenu(item.id as MenuTab)}
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium transition-all ${activeMenu === item.id ? "bg-emerald-600 text-white shadow-lg shadow-emerald-900/20" : "hover:bg-slate-800"}`}
+          >
+            <item.icon className="w-5 h-5" /> {item.label}
+          </button>
+        ))}
+      </nav>
+      <div className="p-4 border-t border-slate-800">
+        <button
+          onClick={handleLogout}
+          className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-bold bg-slate-800 text-red-400 hover:bg-red-500 hover:text-white transition-colors"
+        >
+          <LogOut className="w-4 h-4" /> Đăng xuất
+        </button>
+      </div>
+    </aside>
+  );
+
+  return (
+    <div className="flex h-screen bg-slate-50 font-sans overflow-hidden">
+      {renderSidebar()}
+
+      <main className="flex-1 overflow-y-auto p-4 md:p-8 lg:p-10 relative">
+        {/* Mobile Header */}
+        <div className="md:hidden flex justify-between items-center mb-6 bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
+          <h1 className="text-xl font-black flex items-center gap-2">
+            <ShieldCheck className="w-6 h-6 text-emerald-500" /> Manager
+            <span className="text-emerald-500">Ops</span>
+          </h1>
+          <button
+            onClick={handleLogout}
+            className="p-2 text-red-500 bg-red-50 rounded-lg"
+          >
+            <LogOut className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Mobile Nav Tabs */}
+        <div className="md:hidden flex overflow-x-auto gap-2 mb-6 pb-2 scrollbar-hide">
+          {[
+            { id: "dashboard", label: "Giám sát" },
+            { id: "timeline", label: "Điều phối" },
+            { id: "labs", label: "Phòng" },
+            { id: "equipments", label: "Thiết bị" },
+            { id: "reports", label: "Báo cáo" },
+            { id: "lookup", label: "Tra cứu" },
+          ].map((t) => (
+            <button
+              key={t.id}
+              onClick={() => setActiveMenu(t.id as MenuTab)}
+              className={`px-4 py-2 rounded-xl text-sm font-bold whitespace-nowrap ${activeMenu === t.id ? "bg-emerald-600 text-white" : "bg-white text-gray-500 border border-gray-200"}`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+
+        <AnimatePresence mode="wait">
+          {loading ? (
+            <div className="flex justify-center items-center h-full">
+              <div className="w-10 h-10 border-4 border-emerald-200 border-t-emerald-600 rounded-full animate-spin"></div>
+            </div>
+          ) : (
+            <motion.div
+              key={activeMenu}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.2 }}
+            >
+              {activeMenu === "dashboard" && renderDashboard()}
+              {activeMenu === "labs" && renderLabsTable()}
+              {activeMenu === "equipments" && renderEquipmentsTable()}
+              {activeMenu === "timeline" && renderTimeline()}
+              {activeMenu === "reports" && renderReports()}
+              {activeMenu === "lookup" && renderLookup()}
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         {/* ================= MODAL QUICK BOOK CAO CẤP ================= */}
         <AnimatePresence>
           {showQuickBook && (
@@ -989,6 +1125,7 @@ export default function ManagerDashboardPage() {
                     <Clock className="w-5 h-5" /> Đặt Phòng Nhanh (POS)
                   </h3>
                   <button
+                    type="button"
                     onClick={() => setShowQuickBook(false)}
                     className="hover:bg-emerald-700 p-1 rounded-full"
                   >
@@ -1292,6 +1429,7 @@ export default function ManagerDashboardPage() {
                     đặt phòng
                   </h3>
                   <button
+                    type="button"
                     onClick={() => setSelectedBooking(null)}
                     className="hover:bg-slate-700 p-1 rounded-full"
                   >
@@ -1394,6 +1532,7 @@ export default function ManagerDashboardPage() {
 
                 <div className="bg-gray-50 p-4 border-t border-gray-100 flex justify-end">
                   <button
+                    type="button"
                     onClick={() => setSelectedBooking(null)}
                     className="px-6 py-2.5 bg-slate-900 hover:bg-black text-white font-bold rounded-xl shadow-md"
                   >
@@ -1404,121 +1543,32 @@ export default function ManagerDashboardPage() {
             </div>
           )}
         </AnimatePresence>
-      </div>
-    );
-  };
 
-  // ================= SIDEBAR =================
-  const renderSidebar = () => (
-    <aside className="w-64 bg-slate-900 text-slate-300 flex flex-col h-screen sticky top-0 shrink-0 shadow-2xl z-30 hidden md:flex">
-      <div className="p-6 border-b border-slate-800">
-        <h1 className="text-2xl font-black text-white tracking-tight flex items-center gap-2">
-          <ShieldCheck className="w-7 h-7 text-emerald-500" />
-          Manager<span className="text-emerald-500">Ops</span>
-        </h1>
-      </div>
-      <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
-        {[
-          {
-            id: "dashboard",
-            icon: LayoutDashboard,
-            label: "Giám sát Vận hành",
-          },
-          { id: "labs", icon: DoorOpen, label: "Phòng Thực hành" },
-          { id: "equipments", icon: Package, label: "Thiết Bị" },
-          { id: "timeline", icon: CalendarDays, label: "Lịch Điều phối" },
-          { id: "reports", icon: FileText, label: "Báo cáo Sự cố" },
-          { id: "lookup", icon: Search, label: "Tra cứu Thông tin" },
-        ].map((item) => (
-          <button
-            key={item.id}
-            onClick={() => setActiveMenu(item.id as MenuTab)}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium transition-all ${activeMenu === item.id ? "bg-emerald-600 text-white shadow-lg shadow-emerald-900/20" : "hover:bg-slate-800"}`}
-          >
-            <item.icon className="w-5 h-5" /> {item.label}
-          </button>
-        ))}
-      </nav>
-      <div className="p-4 border-t border-slate-800">
-        <button
-          onClick={handleLogout}
-          className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-bold bg-slate-800 text-red-400 hover:bg-red-500 hover:text-white transition-colors"
-        >
-          <LogOut className="w-4 h-4" /> Đăng xuất
-        </button>
-      </div>
-    </aside>
-  );
-
-  const renderReports = () => (
-    <div className="p-6 bg-white rounded-2xl border border-gray-100 text-center py-20 text-gray-400">
-      Giao diện Báo cáo sự cố
-    </div>
-  );
-  const renderLookup = () => (
-    <div className="p-6 bg-white rounded-2xl border border-gray-100 text-center py-20 text-gray-400">
-      Giao diện Tra cứu thông tin
-    </div>
-  );
-
-  return (
-    <div className="flex h-screen bg-slate-50 font-sans overflow-hidden">
-      {renderSidebar()}
-
-      <main className="flex-1 overflow-y-auto p-4 md:p-8 lg:p-10">
-        {/* Mobile Header */}
-        <div className="md:hidden flex justify-between items-center mb-6 bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
-          <h1 className="text-xl font-black flex items-center gap-2">
-            <ShieldCheck className="w-6 h-6 text-emerald-500" /> Manager
-            <span className="text-emerald-500">Ops</span>
-          </h1>
-          <button
-            onClick={handleLogout}
-            className="p-2 text-red-500 bg-red-50 rounded-lg"
-          >
-            <LogOut className="w-5 h-5" />
-          </button>
-        </div>
-
-        {/* Mobile Nav Tabs */}
-        <div className="md:hidden flex overflow-x-auto gap-2 mb-6 pb-2 scrollbar-hide">
-          {[
-            { id: "dashboard", label: "Giám sát" },
-            { id: "timeline", label: "Điều phối" },
-            { id: "labs", label: "Phòng" },
-            { id: "equipments", label: "Thiết bị" },
-            { id: "reports", label: "Báo cáo" },
-            { id: "lookup", label: "Tra cứu" },
-          ].map((t) => (
-            <button
-              key={t.id}
-              onClick={() => setActiveMenu(t.id as MenuTab)}
-              className={`px-4 py-2 rounded-xl text-sm font-bold whitespace-nowrap ${activeMenu === t.id ? "bg-emerald-600 text-white" : "bg-white text-gray-500 border border-gray-200"}`}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
-
-        <AnimatePresence mode="wait">
-          {loading ? (
-            <div className="flex justify-center items-center h-full">
-              <div className="w-10 h-10 border-4 border-emerald-200 border-t-emerald-600 rounded-full animate-spin"></div>
-            </div>
-          ) : (
-            <motion.div
-              key={activeMenu}
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.2 }}
-            >
-              {activeMenu === "dashboard" && renderDashboard()}
-              {activeMenu === "labs" && renderLabsTable()}
-              {activeMenu === "equipments" && renderEquipmentsTable()}
-              {activeMenu === "timeline" && renderTimeline()}
-              {activeMenu === "reports" && renderReports()}
-              {activeMenu === "lookup" && renderLookup()}
-            </motion.div>
+        {/* === MODAL BÁO CÁO BẢO TRÌ (ĐÃ CHUYỂN RA NGOÀI VÀ SẼ HIỂN THỊ Ở MỌI TAB) === */}
+        <AnimatePresence>
+          {reportModal.isOpen && (
+             <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm z-[999]">
+                <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col">
+                  <div className="bg-red-600 p-5 flex justify-between items-center text-white shrink-0">
+                    <h3 className="font-black text-xl flex items-center gap-2"><Wrench className="w-5 h-5" /> Báo Cáo Sửa Chữa</h3>
+                    <button type="button" onClick={() => setReportModal({ ...reportModal, isOpen: false })} className="hover:bg-red-700 p-1 rounded-full"><X className="w-6 h-6" /></button>
+                  </div>
+                  <form onSubmit={handleReportSubmit} className="p-6 space-y-4">
+                    <div className="bg-red-50 p-3 rounded-lg border border-red-100">
+                       <p className="text-sm text-red-800 font-bold">Đối tượng: {reportModal.itemName}</p>
+                       <p className="text-xs text-red-600 mt-1">Hệ thống sẽ chuyển trạng thái của đối tượng này sang Bảo trì/Sửa chữa.</p>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-bold text-gray-700 mb-2">Mô tả tình trạng hỏng hóc *</label>
+                      <textarea required value={reportModal.reason} onChange={e => setReportModal({...reportModal, reason: e.target.value})} rows={4} className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-red-500 resize-none" placeholder="Ví dụ: Điều hòa không mát, máy chiếu mờ..."></textarea>
+                    </div>
+                    <div className="pt-2 flex justify-end gap-3">
+                       <button type="button" onClick={() => setReportModal({ ...reportModal, isOpen: false })} className="px-5 py-2.5 font-bold text-gray-500 hover:bg-gray-100 rounded-xl transition-colors">Hủy</button>
+                       <button type="submit" className="px-6 py-2.5 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl shadow-md transition-all active:scale-95">Xác nhận Báo hỏng</button>
+                    </div>
+                  </form>
+                </motion.div>
+             </div>
           )}
         </AnimatePresence>
       </main>
