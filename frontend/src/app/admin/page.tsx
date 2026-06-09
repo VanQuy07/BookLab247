@@ -200,10 +200,49 @@ export default function AdvancedAdminDashboard() {
   }, [activeMenu]);
            
   const fetchData = async () => {
-    if (activeMenu === "dashboard" || activeMenu === "bookings") return;
     setLoading(true);
     try {
-      if (activeMenu === "rooms") {
+      if (activeMenu === "dashboard") {
+        // [SỬA LỖI]: Bắt buộc phải kéo dữ liệu cho Dashboard thay vì return
+        const [usersRes, labsRes, eqRes] = await Promise.all([
+          fetch(`${API_URL}/auth/users`),
+          fetch(`${API_URL}/labs`),
+          fetch(`${API_URL}/equipments`),
+        ]);
+
+        const users = await usersRes.json();
+        const labs = await labsRes.json();
+        const eqs = await eqRes.json();
+
+        // Tính toán số liệu thống kê thật để gán vào Dashboard
+        setDashboardStats({
+          totalUsers: users.length || 0,
+          totalLabs: labs.length || 0,
+          totalEquipments: eqs.reduce(
+            (sum: number, eq: any) => sum + eq.totalQuantity,
+            0,
+          ),
+          inUseEquipments: eqs.reduce(
+            (sum: number, eq: any) => sum + eq.inUseQuantity,
+            0,
+          ),
+          userRolesData: [
+            {
+              name: "STUDENT",
+              value: users.filter((u: any) => u.role === "STUDENT").length,
+            },
+            {
+              name: "MANAGER",
+              value: users.filter((u: any) => u.role === "MANAGER").length,
+            },
+            {
+              name: "ADMIN",
+              value: users.filter((u: any) => u.role === "ADMIN").length,
+            },
+          ],
+          equipmentStatusData: [], // Giữ nguyên mảng rỗng tạm thời
+        });
+      } else if (activeMenu === "rooms") {
         const res = await fetch(`${API_URL}/labs`);
         setRooms(await res.json());
       } else if (activeMenu === "equipments") {
@@ -872,43 +911,46 @@ export default function AdvancedAdminDashboard() {
 
     const currentData = dashboardData[timeFilter];
     // 1. Lấy thêm một vài con số thật từ Backend để hiển thị chi tiết
-    const availableEq = dashboardStats.totalEquipments - dashboardStats.inUseEquipments;
-    const studentCount = dashboardStats.userRolesData.find((r: any) => r.name === "STUDENT")?.value || 0;
+    const availableEq =
+      dashboardStats.totalEquipments - dashboardStats.inUseEquipments;
+    const studentCount =
+      dashboardStats.userRolesData.find((r: any) => r.name === "STUDENT")
+        ?.value || 0;
 
     // 2. Cấu hình đoạn text nhỏ (subValue) linh hoạt theo Tab và DÙNG SỐ THẬT
     let subValues = { users: "", labs: "", eq: "", inUse: "" };
 
     switch (timeFilter) {
       case "yesterday":
-        subValues = { 
-          users: `Hệ thống có ${dashboardStats.totalUsers} tài khoản`, 
-          labs: `Quản lý ${dashboardStats.totalLabs} phòng`, 
-          eq: `Có sẵn ${availableEq} thiết bị`, 
-          inUse: `Chưa thu hồi ${dashboardStats.inUseEquipments} TB` 
+        subValues = {
+          users: `Hệ thống có ${dashboardStats.totalUsers} tài khoản`,
+          labs: `Quản lý ${dashboardStats.totalLabs} phòng`,
+          eq: `Có sẵn ${availableEq} thiết bị`,
+          inUse: `Chưa thu hồi ${dashboardStats.inUseEquipments} TB`,
         };
         break;
       case "today":
-        subValues = { 
-          users: `Bao gồm ${studentCount} Sinh viên`, 
-          labs: `${dashboardStats.totalLabs} phòng đang hoạt động`, 
-          eq: `Sẵn sàng ${availableEq} thiết bị rảnh`, 
-          inUse: `Đang xuất kho ${dashboardStats.inUseEquipments} TB` 
+        subValues = {
+          users: `Bao gồm ${studentCount} Sinh viên`,
+          labs: `${dashboardStats.totalLabs} phòng đang hoạt động`,
+          eq: `Sẵn sàng ${availableEq} thiết bị rảnh`,
+          inUse: `Đang xuất kho ${dashboardStats.inUseEquipments} TB`,
         };
         break;
       case "7days":
-        subValues = { 
-          users: `Tổng cộng ${dashboardStats.totalUsers} người dùng`, 
-          labs: `Hỗ trợ ${dashboardStats.totalLabs} phòng lab`, 
-          eq: `Tổng kho có ${dashboardStats.totalEquipments} TB`, 
-          inUse: `Đã mượn ${dashboardStats.inUseEquipments} TB` 
+        subValues = {
+          users: `Tổng cộng ${dashboardStats.totalUsers} người dùng`,
+          labs: `Hỗ trợ ${dashboardStats.totalLabs} phòng lab`,
+          eq: `Tổng kho có ${dashboardStats.totalEquipments} TB`,
+          inUse: `Đã mượn ${dashboardStats.inUseEquipments} TB`,
         };
         break;
       case "month":
-        subValues = { 
-          users: `Ghi nhận ${dashboardStats.totalUsers} user`, 
-          labs: `Theo dõi ${dashboardStats.totalLabs} phòng`, 
-          eq: `Số lượng: ${dashboardStats.totalEquipments} thiết bị`, 
-          inUse: `Đang dùng ${dashboardStats.inUseEquipments} TB` 
+        subValues = {
+          users: `Ghi nhận ${dashboardStats.totalUsers} user`,
+          labs: `Theo dõi ${dashboardStats.totalLabs} phòng`,
+          eq: `Số lượng: ${dashboardStats.totalEquipments} thiết bị`,
+          inUse: `Đang dùng ${dashboardStats.inUseEquipments} TB`,
         };
         break;
     }
@@ -1049,7 +1091,8 @@ export default function AdvancedAdminDashboard() {
                     }}
                   />
                   <Bar
-                    dataKey="value" name="Số lượng"
+                    dataKey="value"
+                    name="Số lượng"
                     fill="#3b82f6"
                     radius={[6, 6, 0, 0]}
                     barSize={40}
@@ -1420,8 +1463,7 @@ export default function AdvancedAdminDashboard() {
       }
     } catch (error) {
       console.error("Lỗi cập nhật trạng thái:", error);
-    }  
-
+    }
   };
 
   // Hàm xử lý Xóa vĩnh viễn
@@ -1447,7 +1489,7 @@ export default function AdvancedAdminDashboard() {
     } catch (error) {
       console.error("Lỗi xóa tài khoản:", error);
     }
-  };;
+  };
 
   const renderUsers = () => {
     // 1. Logic lọc người dùng tự động
