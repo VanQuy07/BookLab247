@@ -25,8 +25,10 @@ import {
   Banknote,
   User,
   LogOut,
+  FilterX,
 } from "lucide-react";
 import Link from "next/link";
+import { clear } from "node:console";
 
 // ================= TYPES =================
 interface LabItem {
@@ -66,9 +68,22 @@ export default function UserLabsPage() {
   const [loading, setLoading] = useState<boolean>(true);
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
   const [isMobileFilterOpen, setIsMobileFilterOpen] = useState<boolean>(false);
+
+  const [searchQuery, setSearchQuery] = useState("");
+  const [activeBadge, setActiveBadge] = useState<string | null>(null);
+  const [selectedDate, setSelectedDate] = useState<string>("");
+
+  const [statusFilter, setStatusFilter] = useState<string[]>([]);
+  const [capacityFilter, setCapacityFilter] = useState<string | null>(null);
+  const [buildingFilter, setBuildingFilter] = useState<string[]>([]);
+  const [priceFilter, setPriceFilter] = useState<string[]>([]);
+
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({
     time: true,
     capacity: true,
+    status: true,
+    building: true,
+    price: true,
   });
 
   // GỌI API LẤY DỮ LIỆU PHÒNG LAB TỪ ADMIN
@@ -111,10 +126,86 @@ export default function UserLabsPage() {
     fetchLabs();
   }, []);
 
+  const uniqueBuildings = Array.from(
+    new Set(labs.map((lab) => lab.building)),
+  ).filter(Boolean);
+
+  const filteredLabs = labs.filter((lab) => {
+    //1. Tìm theo toà nhà hoặc tên phòng
+    if (
+      searchQuery &&
+      !lab.name.toLowerCase().includes(searchQuery.toLowerCase()) &&
+      !lab.building.toLowerCase().includes(searchQuery.toLowerCase())
+    ) {
+      return false;
+    }
+    //2. Lọc theo danh mục nhanh
+    if (activeBadge) {
+      if (
+        activeBadge === "🟢 Có thể vào ngay" &&
+        (lab.maintenanceMode || lab.isBooked)
+      )
+        return false;
+      if (activeBadge === "👥 Họp nhóm / Tự học" && lab.capacity >= 20)
+        return false;
+      if (activeBadge === "🏢 Không gian lớn" && lab.capacity <= 50)
+        return false;
+      if (activeBadge === "💰 Giá tiết kiệm" && lab.pricePerHour > 60000)
+        return false;
+    }
+    //3.Lọc theo trạng thái ở Sidebar
+    if (statusFilter.length > 0) {
+      let currentStatus = "available";
+      if (lab.maintenanceMode) currentStatus = "maintenance";
+      else if (lab.isBooked) currentStatus = "booked";
+
+      if (!statusFilter.includes(currentStatus)) return false;
+    }
+    //4.Lọc theo sức chứa ở Sidebar
+    if (capacityFilter) {
+      if (capacityFilter === "small" && lab.capacity >= 20) return false;
+      if (
+        capacityFilter === "medium" &&
+        (lab.capacity < 20 || lab.capacity > 50)
+      )
+        return false;
+      if (capacityFilter === "large" && lab.capacity <= 50) return false;
+    }
+    //5.Lọc theo toà nhà ở Sidebar
+    if (buildingFilter.length > 0 && !buildingFilter.includes(lab.building)) {
+      return false;
+    }
+    //6.Lọc theo chi phí sử dụng
+    if (priceFilter.length > 0) {
+      const isFree = lab.pricePerHour === 0;
+      if (priceFilter.includes("free") && !isFree) return false;
+      if (priceFilter.includes("paid") && isFree) return false;
+    }
+
+    return true;
+  });
   const toggleSection = (section: string) => {
     setOpenSections((prev) => ({ ...prev, [section]: !prev[section] }));
   };
 
+  const toggleFilter = (
+    setState: React.Dispatch<React.SetStateAction<string[]>>,
+    value: string,
+  ) => {
+    setState((prev) =>
+      prev.includes(value) ? prev.filter((v) => v !== value) : [...prev, value],
+    );
+  };
+
+  const clearAllFilters = () => {
+    setSearchQuery("");
+    setActiveBadge(null);
+    setSelectedDate("");
+    setStatusFilter([]);
+    setCapacityFilter(null);
+    setBuildingFilter([]);
+    setPriceFilter([]);
+  };
   return (
     <div className="min-h-screen bg-slate-50 font-sans text-gray-900 selection:bg-blue-200">
       {/* ================= HEADER ================= */}
@@ -197,6 +288,28 @@ export default function UserLabsPage() {
 
       {/* ================= MAIN CONTENT ================= */}
       <div className="p-4 md:p-6 lg:p-8">
+        {/* ================= DANH MỤC NHANH (QUICK BADGES) ================= */}
+        <div className="max-w-7xl mx-auto mb-6 flex items-center gap-3 overflow-x-auto pb-2 scrollbar-hide">
+          <span className="text-sm font-bold text-gray-500 whitespace-nowrap">
+            Danh mục nhanh:
+          </span>
+          {[
+            "🟢 Có thể vào ngay",
+            "👥 Họp nhóm / Tự học",
+            "🏢 Không gian lớn",
+            "💰 Giá tiết kiệm",
+          ].map((badge) => (
+            <button
+              key={badge}
+              onClick={() =>
+                setActiveBadge(activeBadge === badge ? null : badge)
+              }
+              className={`px-4 py-2 rounded-full border text-sm font-medium transition-colors whitespace-nowrap ${activeBadge === badge ? "bg-blue-600 text-white border-blue-600 shadow-md" : "bg-white border-gray-200 text-gray-700 hover:bg-blue-50 hover:text-blue-700"}`}
+            >
+              {badge}
+            </button>
+          ))}
+        </div>
         <div className="max-w-7xl mx-auto flex flex-col lg:flex-row gap-8">
           {/* ================= SIDEBAR FILTER CỦA PHÒNG ================= */}
           {isMobileFilterOpen && (
@@ -215,7 +328,9 @@ export default function UserLabsPage() {
                   Bộ lọc Phòng Lab
                 </h2>
                 <div className="flex items-center gap-3">
-                  <button className="text-sm font-semibold text-blue-600 hover:text-blue-800">
+                  <button
+                    onClick={clearAllFilters}
+                    className="text-sm font-semibold text-blue-600 hover:text-blue-800">
                     Xóa tất cả
                   </button>
                   <button
@@ -231,9 +346,9 @@ export default function UserLabsPage() {
                 <div>
                   <button
                     onClick={() => toggleSection("time")}
-                    className="flex items-center justify-between w-full font-bold text-gray-900 mb-4"
+                    className="flex items-center justify-between w-full font-bold text-gray-900 mb-4 outline-none"
                   >
-                    Thời gian sử dụng{" "}
+                    Thời gian sử dụng
                     {openSections["time"] ? (
                       <ChevronUp className="w-4 h-4" />
                     ) : (
@@ -242,10 +357,12 @@ export default function UserLabsPage() {
                   </button>
                   {openSections["time"] && (
                     <div className="space-y-3">
-                      <div className="flex items-center gap-2 px-3 py-2 border border-gray-200 rounded-lg focus-within:border-blue-500">
+                      <div className="flex items-center gap-2 px-3 py-2 border border-gray-200 rounded-lg focus-within:border-blue-500 bg-white">
                         <Calendar className="w-4 h-4 text-gray-400" />
                         <input
                           type="date"
+                          value={selectedDate}
+                          onChange={(e) => setSelectedDate(e.target.value)}
                           className="w-full text-sm outline-none bg-transparent"
                         />
                       </div>
@@ -253,6 +370,215 @@ export default function UserLabsPage() {
                   )}
                 </div>
                 <hr className="border-gray-100" />
+                {/* 2. Trạng thái phòng */}
+                <div>
+                  <button
+                    onClick={() => toggleSection("status")}
+                    className="flex items-center justify-between w-full font-bold text-gray-900 mb-4 outline-none"
+                  >
+                    Trạng thái phòng{" "}
+                    {openSections["status"] ? (
+                      <ChevronUp className="w-4 h-4" />
+                    ) : (
+                      <ChevronDown className="w-4 h-4" />
+                    )}
+                  </button>
+                  {openSections["status"] && (
+                    <div className="space-y-3">
+                      <label className="flex items-center gap-3 cursor-pointer group">
+                        <input
+                          type="checkbox"
+                          checked={statusFilter.includes("available")}
+                          onChange={() =>
+                            toggleFilter(setStatusFilter, "available")
+                          }
+                          className="w-4 h-4 text-blue-600 rounded border-gray-300"
+                        />
+                        <span className="text-sm font-medium text-gray-600 group-hover:text-gray-900">
+                          Phòng rảnh
+                        </span>
+                      </label>
+                      <label className="flex items-center gap-3 cursor-pointer group">
+                        <input
+                          type="checkbox"
+                          checked={statusFilter.includes("booked")}
+                          onChange={() =>
+                            toggleFilter(setStatusFilter, "booked")
+                          }
+                          className="w-4 h-4 text-blue-600 rounded border-gray-300"
+                        />
+                        <span className="text-sm font-medium text-gray-600 group-hover:text-gray-900">
+                          Đang được đặt
+                        </span>
+                      </label>
+                      <label className="flex items-center gap-3 cursor-pointer group">
+                        <input
+                          type="checkbox"
+                          checked={statusFilter.includes("maintenance")}
+                          onChange={() =>
+                            toggleFilter(setStatusFilter, "maintenance")
+                          }
+                          className="w-4 h-4 text-amber-500 rounded border-gray-300"
+                        />
+                        <span className="text-sm font-medium text-gray-600 group-hover:text-gray-900">
+                          Đang bảo trì
+                        </span>
+                      </label>
+                    </div>
+                  )}
+                </div>
+                <hr className="border-gray-100" />
+
+                {/* 3. Sức chứa quy mô */}
+                <div>
+                  <button
+                    onClick={() => toggleSection("capacity")}
+                    className="flex items-center justify-between w-full font-bold text-gray-900 mb-4 outline-none"
+                  >
+                    Sức chứa không gian{" "}
+                    {openSections["capacity"] ? (
+                      <ChevronUp className="w-4 h-4" />
+                    ) : (
+                      <ChevronDown className="w-4 h-4" />
+                    )}
+                  </button>
+                  {openSections["capacity"] && (
+                    <div className="space-y-3">
+                      <label className="flex items-center gap-3 cursor-pointer group">
+                        <input
+                          type="radio"
+                          name="capacity"
+                          checked={capacityFilter === "small"}
+                          onChange={() =>
+                            setCapacityFilter(
+                              capacityFilter === "small" ? null : "small",
+                            )
+                          }
+                          className="w-4 h-4 text-blue-600 border-gray-300 focus:ring-blue-500"
+                        />
+                        <span className="text-sm font-medium text-gray-600 group-hover:text-gray-900">
+                          Nhóm nhỏ (&lt; 20 người)
+                        </span>
+                      </label>
+                      <label className="flex items-center gap-3 cursor-pointer group">
+                        <input
+                          type="radio"
+                          name="capacity"
+                          checked={capacityFilter === "medium"}
+                          onChange={() =>
+                            setCapacityFilter(
+                              capacityFilter === "medium" ? null : "medium",
+                            )
+                          }
+                          className="w-4 h-4 text-blue-600 border-gray-300 focus:ring-blue-500"
+                        />
+                        <span className="text-sm font-medium text-gray-600 group-hover:text-gray-900">
+                          Tiêu chuẩn (20 - 50 người)
+                        </span>
+                      </label>
+                      <label className="flex items-center gap-3 cursor-pointer group">
+                        <input
+                          type="radio"
+                          name="capacity"
+                          checked={capacityFilter === "large"}
+                          onChange={() =>
+                            setCapacityFilter(
+                              capacityFilter === "large" ? null : "large",
+                            )
+                          }
+                          className="w-4 h-4 text-blue-600 border-gray-300 focus:ring-blue-500"
+                        />
+                        <span className="text-sm font-medium text-gray-600 group-hover:text-gray-900">
+                          Hội trường lớn (&gt; 50 người)
+                        </span>
+                      </label>
+                    </div>
+                  )}
+                </div>
+                <hr className="border-gray-100" />
+
+                {/* 4. Tòa nhà (Tự động tăng giảm theo Data thực tế) */}
+                {uniqueBuildings.length > 0 && (
+                  <>
+                    <div>
+                      <button
+                        onClick={() => toggleSection("building")}
+                        className="flex items-center justify-between w-full font-bold text-gray-900 mb-4 outline-none"
+                      >
+                        Vị trí Tòa nhà{" "}
+                        {openSections["building"] ? (
+                          <ChevronUp className="w-4 h-4" />
+                        ) : (
+                          <ChevronDown className="w-4 h-4" />
+                        )}
+                      </button>
+                      {openSections["building"] && (
+                        <div className="space-y-3">
+                          {uniqueBuildings.map((bldg) => (
+                            <label
+                              key={bldg}
+                              className="flex items-center gap-3 cursor-pointer group"
+                            >
+                              <input
+                                type="checkbox"
+                                checked={buildingFilter.includes(bldg)}
+                                onChange={() =>
+                                  toggleFilter(setBuildingFilter, bldg)
+                                }
+                                className="w-4 h-4 text-blue-600 rounded border-gray-300"
+                              />
+                              <span className="text-sm font-medium text-gray-600 group-hover:text-gray-900">
+                                Tòa {bldg}
+                              </span>
+                            </label>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    <hr className="border-gray-100" />
+                  </>
+                )}
+
+                {/* 5. Chi phí thuê phòng */}
+                <div>
+                  <button
+                    onClick={() => toggleSection("price")}
+                    className="flex items-center justify-between w-full font-bold text-gray-900 mb-3 outline-none"
+                  >
+                    Chi phí đặt lịch{" "}
+                    {openSections["price"] ? (
+                      <ChevronUp className="w-4 h-4" />
+                    ) : (
+                      <ChevronDown className="w-4 h-4" />
+                    )}
+                  </button>
+                  {openSections["price"] && (
+                    <div className="space-y-3 mt-2">
+                      <label className="flex items-center gap-3 cursor-pointer group">
+                        <input
+                          type="checkbox"
+                          checked={priceFilter.includes("free")}
+                          onChange={() => toggleFilter(setPriceFilter, "free")}
+                          className="w-4 h-4 text-blue-600 rounded border-gray-300"
+                        />
+                        <span className="text-sm font-medium text-gray-600 group-hover:text-gray-900">
+                          Miễn phí (Tự học)
+                        </span>
+                      </label>
+                      <label className="flex items-center gap-3 cursor-pointer group">
+                        <input
+                          type="checkbox"
+                          checked={priceFilter.includes("paid")}
+                          onChange={() => toggleFilter(setPriceFilter, "paid")}
+                          className="w-4 h-4 text-blue-600 rounded border-gray-300"
+                        />
+                        <span className="text-sm font-medium text-gray-600 group-hover:text-gray-900">
+                          Có tính phí giờ
+                        </span>
+                      </label>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           </aside>
@@ -265,10 +591,18 @@ export default function UserLabsPage() {
                 <input
                   type="text"
                   placeholder="Tìm tên phòng, tòa nhà..."
-                  className="w-full pl-9 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-blue-500"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full pl-9 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-blue-500 focus:bg-white transition-colors"
                 />
               </div>
               <div className="flex items-center justify-between w-full sm:w-auto gap-4">
+                <button
+                  className="lg:hidden flex items-center gap-2 px-4 py-2.5 bg-blue-50 text-blue-700 rounded-xl text-sm font-bold"
+                  onClick={() => setIsMobileFilterOpen(true)}
+                >
+                  <SlidersHorizontal className="w-4 h-4" /> Bộ lọc
+                </button>
                 <div className="hidden sm:flex items-center bg-gray-100 rounded-lg p-1">
                   <button
                     onClick={() => setViewMode("grid")}
@@ -293,12 +627,22 @@ export default function UserLabsPage() {
                   Đang tải danh sách phòng...
                 </p>
               </div>
-            ) : labs.length === 0 ? (
-              <div className="text-center py-20 bg-white rounded-2xl border border-gray-200 shadow-sm">
-                <MapPin className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-                <p className="text-gray-500 font-medium">
-                  Chưa có phòng Lab nào trên hệ thống.
+            ) : filteredLabs.length === 0 ? (
+              <div className="text-center py-24 bg-white rounded-2xl border border-dashed border-gray-300 flex flex-col items-center">
+                <FilterX className="w-16 h-16 text-gray-300 mb-4" />
+                <h3 className="text-lg font-bold text-gray-900 mb-1">
+                  Không tìm thấy phòng phù hợp
+                </h3>
+                <p className="text-gray-500 mb-6">
+                  Thử thay đổi từ khóa hoặc thiết lập lại bộ lọc để tìm kiếm
+                  rộng hơn.
                 </p>
+                <button
+                  onClick={clearAllFilters}
+                  className="px-6 py-2 bg-blue-50 text-blue-600 font-bold rounded-xl hover:bg-blue-100 transition-colors"
+                >
+                  Xóa tất cả bộ lọc
+                </button>
               </div>
             ) : (
               <div
@@ -308,7 +652,7 @@ export default function UserLabsPage() {
                     : "flex flex-col gap-4"
                 }
               >
-                {labs.map((lab) => (
+                {filteredLabs.map((lab) => (
                   <div
                     key={lab.id}
                     className={`bg-white border border-gray-200 rounded-2xl overflow-hidden hover:shadow-xl hover:border-blue-200 transition-all duration-300 group ${viewMode === "list" ? "flex flex-col sm:flex-row" : "flex flex-col"}`}
@@ -322,8 +666,6 @@ export default function UserLabsPage() {
                         alt={lab.name}
                         className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                       />
-
-                      {/* TRẠNG THÁI PHÒNG (3 trạng thái) */}
                       <div className="absolute top-3 left-3 flex gap-2">
                         {lab.maintenanceMode ? (
                           <span className="px-3 py-1 bg-red-500/90 backdrop-blur-sm text-white text-xs font-bold rounded-full flex items-center gap-1 shadow-sm">
@@ -357,12 +699,12 @@ export default function UserLabsPage() {
                         <p className="flex items-center gap-2">
                           <MapPin className="w-4 h-4 text-blue-500" />
                           <span className="font-bold text-gray-800">
-                            Tòa {lab.building} - {lab.floor}
+                            Tòa {lab.building} - Tầng {lab.floor}
                           </span>
                         </p>
                         <p className="flex items-center gap-2">
                           <Users className="w-4 h-4 text-blue-500" />
-                          Sức chứa:{" "}
+                          Sức chứa:
                           <span className="font-bold text-gray-800">
                             {lab.capacity} người
                           </span>
@@ -373,11 +715,15 @@ export default function UserLabsPage() {
                         <div>
                           {/* GIÁ TIỀN TỪ ADMIN */}
                           <span className="text-xl font-black text-blue-600">
-                            {lab.pricePerHour.toLocaleString("vi-VN")}đ
+                            {lab.pricePerHour === 0
+                              ? "Miễn phí"
+                              : `${lab.pricePerHour.toLocaleString("vi-VN")}đ`}
                           </span>
-                          <span className="text-xs text-gray-500 font-medium ml-1">
-                            / giờ
-                          </span>
+                          {lab.pricePerHour > 0 && (
+                            <span className="text-xs text-gray-500 font-medium ml-1">
+                              / giờ
+                            </span>
+                          )}
                         </div>
                         <div className="flex gap-2">
                           <button
