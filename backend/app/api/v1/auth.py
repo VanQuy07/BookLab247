@@ -1,7 +1,12 @@
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, status, Header
 from datetime import datetime, timezone
 from pydantic import BaseModel  # Thư viện tạo form Đăng nhập
-from app.schemas.user import UserCreate, UserResponse
+from app.schemas.user import (
+    UserCreate,
+    UserResponse,
+    UserProfileResponse,
+    UserProfileUpdate,
+)
 from app.core.database import db
 from app.core.security import (
     get_password_hash,
@@ -13,6 +18,53 @@ from google.oauth2 import id_token
 from google.auth.transport import requests as google_requests
 from bson import ObjectId
 router = APIRouter()
+
+_FIXED_ACCOUNT_DEFAULTS = {
+    "token_dac_quyen_cua_admin": {
+        "full_name": "Quản Trị Viên",
+        "email": "admin@booklab247.com",
+        "role": "ADMIN",
+    },
+    "token_dac_quyen_cua_manager": {
+        "full_name": "Quản Lý Lab",
+        "email": "manager@booklab247.com",
+        "role": "MANAGER",
+    },
+}
+
+
+def _resolve_token_context(authorization: str | None) -> tuple[str, str]:
+    if not authorization:
+        raise HTTPException(status_code=401, detail="Thiếu token xác thực")
+
+    token = authorization.removeprefix("Bearer ").strip()
+    if token.startswith("token_cua_"):
+        return "mongo", token.removeprefix("token_cua_")
+
+    if token in _FIXED_ACCOUNT_DEFAULTS:
+        return "fixed", token
+
+    raise HTTPException(status_code=401, detail="Token không hợp lệ")
+
+
+def _serialize_profile(
+    source: dict,
+    fallback: dict,
+    identifier: str,
+) -> dict:
+    merged = {**fallback, **source}
+    return {
+        "_id": identifier,
+        "full_name": merged.get("full_name", ""),
+        "email": merged.get("email", ""),
+        "role": merged.get("role", "STUDENT"),
+        "is_active": merged.get("is_active", True),
+        "created_at": merged.get("created_at", datetime.now(timezone.utc)),
+        "phone": merged.get("phone"),
+        "student_id": merged.get("student_id"),
+        "department": merged.get("department"),
+        "avatar": merged.get("avatar"),
+    }
 
 
 # ==========================================
@@ -179,6 +231,75 @@ async def get_all_users():
         del user["password"]  # Bảo mật: Ẩn mật khẩu khi trả về
         users.append(user)
     return users
+
+
+@router.get("/me", response_model=UserProfileResponse)
+async def get_my_profile(authorization: str | None = Header(default=None)):
+    account_type, identifier = _resolve_token_context(authorization)
+
+    if account_type == "mongo":
+        try:
+            from bson import ObjectId
+
+            user = await db["users"].find_one({"_id": ObjectId(identifier)})
+        except Exception:
+            user = None
+
+        if not user:
+            raise HTTPException(status_code=404, detail="Không tìm thấy hồ sơ người dùng")
+
+        user["_id"] = str(user["_id"])
+        return _serialize_profile(user, {}, user["_id"])
+
+    profile = await db["user_profiles"].find_one({"_id": identifier}) or {}
+    return _serialize_profile(profile, _FIXED_ACCOUNT_DEFAULTS[identifier], identifier)
+
+
+@router.patch("/me", response_model=UserProfileResponse)
+async def update_my_profile(
+    profile_data: UserProfileUpdate,
+    authorization: str | None = Header(default=None),
+):
+    account_type, identifier = _resolve_token_context(authorization)
+
+    try:
+        update_payload = profile_data.dict(exclude_unset=True)
+
+        if not update_payload:
+            raise HTTPException(status_code=400, detail="Không có dữ liệu để cập nhật")
+
+        if account_type == "mongo":
+            try:
+                from bson import ObjectId
+
+                result = await db["users"].update_one(
+                    {"_id": ObjectId(identifier)},
+                    {"$set": update_payload},
+                )
+            except Exception:
+                raise HTTPException(status_code=400, detail="ID người dùng không hợp lệ")
+
+            if result.matched_count == 0:
+                raise HTTPException(status_code=404, detail="Không tìm thấy hồ sơ người dùng")
+
+            updated_user = await db["users"].find_one({"_id": ObjectId(identifier)})
+            if not updated_user:
+                raise HTTPException(status_code=404, detail="Không tìm thấy hồ sơ người dùng")
+
+            updated_user["_id"] = str(updated_user["_id"])
+            return _serialize_profile(updated_user, {}, updated_user["_id"])
+
+        await db["user_profiles"].update_one(
+            {"_id": identifier},
+            {"$set": {**_FIXED_ACCOUNT_DEFAULTS[identifier], **update_payload}},
+            upsert=True,
+        )
+        updated_profile = await db["user_profiles"].find_one({"_id": identifier}) or {}
+        return _serialize_profile(updated_profile, _FIXED_ACCOUNT_DEFAULTS[identifier], identifier)
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=400, detail="ID người dùng không hợp lệ")
 
 # ==========================================
 # 4. API CẬP NHẬT TRẠNG THÁI KHÓA/MỞ KHÓA

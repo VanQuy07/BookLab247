@@ -29,6 +29,11 @@ export default function RegisterPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
+  const getApiBaseUrl = () =>
+    typeof window !== "undefined" && window.location.hostname === "localhost"
+      ? "http://localhost:8000/api/v1"
+      : "https://booklab247.onrender.com/api/v1";
+
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
@@ -63,6 +68,7 @@ export default function RegisterPage() {
       }
 
       setSuccessMsg("Đăng ký thành công! Đang chuyển hướng...");
+      localStorage.setItem("api_base_url", getApiBaseUrl());
 
       setTimeout(() => {
         router.push("/login");

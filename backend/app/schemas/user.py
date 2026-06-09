@@ -27,3 +27,18 @@ class UserResponse(BaseModel):
 
     class Config:
         populate_by_name = True
+
+
+class UserProfileUpdate(BaseModel):
+    full_name: Optional[str] = None
+    phone: Optional[str] = None
+    student_id: Optional[str] = None
+    department: Optional[str] = None
+    avatar: Optional[str] = None
+
+
+class UserProfileResponse(UserResponse):
+    phone: Optional[str] = None
+    student_id: Optional[str] = None
+    department: Optional[str] = None
+    avatar: Optional[str] = None

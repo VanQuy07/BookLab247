@@ -20,6 +20,11 @@ export default function LoginPage() {
 
   const [showPassword, setShowPassword] = useState(false);
 
+  const getApiBaseUrl = () =>
+    typeof window !== "undefined" && window.location.hostname === "localhost"
+      ? "http://localhost:8000/api/v1"
+      : "https://booklab247.onrender.com/api/v1";
+
   // 1. Luồng đăng nhập bằng Email/Pass thông thường
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -44,6 +49,7 @@ export default function LoginPage() {
 
       localStorage.setItem("access_token", data.access_token);
       localStorage.setItem("user_name", data.user_name);
+      localStorage.setItem("api_base_url", getApiBaseUrl());
 
       if (data.role === "ADMIN") {
         router.push("/admin");
@@ -81,6 +87,7 @@ export default function LoginPage() {
       }
 
       localStorage.setItem("access_token", data.access_token);
+      localStorage.setItem("api_base_url", getApiBaseUrl());
 
       // Chuyển hướng thông minh dựa vào quyền
       if (data.role === "ADMIN") {
