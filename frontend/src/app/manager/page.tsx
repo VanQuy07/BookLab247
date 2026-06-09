@@ -24,6 +24,7 @@ interface ManagerRoom {
   maintenanceMode?: boolean;
   isBooked?: boolean;
   price?: number;
+  pricePerHour?: number;
 }
 
 interface EquipmentItem {
@@ -125,32 +126,25 @@ export default function ManagerDashboardPage() {
   const loadData = async () => {
     try {
       setLoading(true);
-      const [roomsData, eqRes] = await Promise.all([
-        labService.getAllLabs(),
+      const [labRes, eqRes] = await Promise.all([
+        fetch(`${API_URL}/labs`),
         fetch(`${API_URL}/equipments`)
       ]);
       
-      if (roomsData.length > 0) {
-        setRooms(
-          roomsData.map((room) => ({
-            id: room.id,
-            title: room.title,
-            capacity: room.capacity,
-            imageUrl: room.imageUrl,
-            price: room.price ? Number(room.price) : undefined,
-          }))
-        );
-      } else setRooms([
-        { id: "r1", title: "FANMEETING KIENTHUHAI", building: "Khác", floor: "", capacity: 10000 },
-        { id: "r2", title: "Lab Hóa - Sinh 02", building: "Tòa B", floor: "Tầng 1", capacity: 20 },
-        { id: "r3", title: "Phòng VIP Học Máy (Trống)", building: "Tòa A", floor: "Tầng 2", capacity: 30 }
-      ]);
+      
+      if (labRes.ok) {
+        const labsData = await labRes.json();
+        setRooms(labsData); 
+      } else {
+        setRooms([]); 
+      }
 
-      if(eqRes.ok) setEquipments(await eqRes.json());
-      else setEquipments([
-        { id: "eq1", name: "máy chiếu", totalQuantity: 10, inUseQuantity: 2, status: 'available', managementType: 'pool' },
-        { id: "eq2", name: "bảng viết", totalQuantity: 300, inUseQuantity: 67, status: 'available', managementType: 'pool' }
-      ]);
+      if (eqRes.ok) {
+        const eqsData = await eqRes.json();
+        setEquipments(eqsData);
+      } else {
+        setEquipments([]);
+      }
     } catch (error) {
       console.error(error);
     } finally {
@@ -187,7 +181,7 @@ export default function ManagerDashboardPage() {
     const diffMins = Math.max(0, (endObj.getTime() - startObj.getTime()) / 60000);
     
     const selectedRoom = rooms.find(r => (r.id || r._id) === quickBookData.roomId);
-    const roomPricePerHour = Number(selectedRoom?.price || 100000); // Lấy giá phòng (mặc định 100k)
+    const roomPricePerHour = Number(selectedRoom?.pricePerHour || selectedRoom?.price || 100000);
     
     const roomTotal = (diffMins / 60) * roomPricePerHour;
     const eqTotal = Object.values(quickBookData.equipments).reduce((sum, eq) => sum + (eq.price * eq.quantity), 0);

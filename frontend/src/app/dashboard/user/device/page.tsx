@@ -91,7 +91,8 @@ export default function UserDevicesPage() {
       try {
         setLoading(true);
         // SỬA LỖI: Trả lại đúng đường dẫn API equipments thay vì labs của nhánh master
-        const response = await fetch("https://booklab247.onrender.com/api/v1");
+        //const response = await fetch("http://localhost:8000/api/v1/equipments");
+        const response = await fetch("https://booklab247.onrender.com/api/v1/equipments");
         
         if (!response.ok) {
           throw new Error("Không thể kết nối với máy chủ");
