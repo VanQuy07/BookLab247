@@ -11,6 +11,7 @@ import {
   CheckCircle2,
   Search,
 } from "lucide-react";
+import { getApiBaseUrl } from "../services/api-client";
 
 interface BookingModalProps {
   isOpen: boolean;
@@ -39,7 +40,7 @@ export default function BookingModal({
 
   useEffect(() => {
     if (isOpen) {
-      fetch("https://booklab247.onrender.com/api/v1/equipments")
+      fetch(`${getApiBaseUrl()}/equipments`)
         .then((res) => res.json())
         .then((data) => {
           if (Array.isArray(data)) setEquipments(data);
@@ -115,9 +116,12 @@ export default function BookingModal({
       }),
     );
 
+    const customerName =
+      localStorage.getItem("user_name") || "Khách BookLab247";
+
     const payload = {
       room_id: room.id || room._id,
-      customer_name: "Kiên Lê Trung",
+      customer_name: customerName,
       phone: formData.phone,
       date: formData.date,
       start_time: formData.startTime,
@@ -129,23 +133,20 @@ export default function BookingModal({
 
     try {
       const token = localStorage.getItem("access_token");
-      // Đảm bảo dòng fetch của bạn trong BookingModal sửa thành thế này:
-      const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/api/v1/bookings`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify(payload),
+      const response = await fetch(`${getApiBaseUrl()}/bookings`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
         },
-      );
+        body: JSON.stringify(payload),
+      });
 
       if (!response.ok) throw new Error("Lỗi hệ thống, không thể đặt phòng!");
 
       alert("🎉 Đặt phòng thành công! Đơn của bạn đang chờ Admin duyệt.");
       onClose();
+      window.location.href = "/dashboard/user/history";
     } catch (error: any) {
       alert(`⛔ Thất bại: ${error.message}`);
     }

@@ -230,6 +230,12 @@ export default function UserLabsPage() {
             >
               Thiết bị
             </Link>
+            <Link
+              href="/dashboard/user/history"
+              className="hover:text-blue-600 transition-colors"
+            >
+              Lịch sử đặt phòng
+            </Link>
           </nav>
           {/* CỤC HIỂN THỊ TÊN VÀ AVATAR GÓC PHẢI */}
           <div className="flex items-center gap-4 relative z-50">

@@ -442,6 +442,54 @@ export default function ManagerDashboardPage() {
     }
   };
 
+  const updateBookingStatus = async (
+    bookingId: string,
+    status: "CHO_DUYET" | "DA_DUYET" | "BI_TU_CHOI" | "DA_HUY" | "DANG_MUON" | "DA_XONG",
+    rejectionReason?: string,
+  ) => {
+    try {
+      const response = await fetch(`${API_URL}/bookings/${bookingId}/status`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${localStorage.getItem("access_token") || ""}`,
+        },
+        body: JSON.stringify({
+          status,
+          rejection_reason: rejectionReason,
+        }),
+      });
+
+      const responseData = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(responseData.detail || "Không thể cập nhật trạng thái booking");
+      }
+
+      const normalizedId = bookingId;
+      setBookings((prev) =>
+        prev.map((booking) =>
+          (booking.id || booking._id) === normalizedId
+            ? { ...booking, ...responseData }
+            : booking,
+        ),
+      );
+      setSelectedBooking(responseData);
+      alert("Cập nhật trạng thái thành công!");
+    } catch (error: any) {
+      alert(`⛔ ${error.message}`);
+    }
+  };
+
+  const getSelectedBookingStatusLabel = (status: string) => {
+    if (status === "CHO_DUYET" || status === "pending") return "Chờ duyệt";
+    if (status === "DA_DUYET" || status === "confirmed") return "Đã duyệt";
+    if (status === "DANG_MUON" || status === "checked-in") return "Đang mượn";
+    if (status === "BI_TU_CHOI") return "Bị từ chối";
+    if (status === "DA_HUY" || status === "cancelled") return "Đã hủy";
+    if (status === "DA_XONG" || status === "completed") return "Đã xong";
+    return status;
+  };
+
   // ================= XỬ LÝ BÁO CÁO BẢO TRÌ =================
   const handleReportSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -726,12 +774,18 @@ export default function ManagerDashboardPage() {
     });
 
     const getStatusColor = (status: string) => {
-      if (status === "checked-in")
+      if (status === "checked-in" || status === "DANG_MUON")
         return "bg-emerald-500 border-emerald-600 text-white shadow-sm";
-      if (status === "confirmed")
+      if (status === "confirmed" || status === "DA_DUYET")
         return "bg-blue-500 border-blue-600 text-white shadow-sm";
-      if (status === "pending")
+      if (status === "pending" || status === "CHO_DUYET")
         return "bg-amber-400 border-amber-500 text-amber-950 shadow-sm";
+      if (status === "BI_TU_CHOI")
+        return "bg-rose-500 border-rose-600 text-white shadow-sm";
+      if (status === "DA_HUY")
+        return "bg-red-500 border-red-600 text-white shadow-sm";
+      if (status === "DA_XONG")
+        return "bg-slate-500 border-slate-600 text-white shadow-sm";
       return "bg-gray-400 text-white";
     };
 
