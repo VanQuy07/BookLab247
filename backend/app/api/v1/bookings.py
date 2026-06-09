@@ -23,6 +23,7 @@ def time_to_mins(time_str: str) -> int:
     return h * 60 + m
 
 
+# ================== 1. API TẠO ĐƠN ĐẶT PHÒNG ==================
 @router.post("")
 async def create_booking(booking: BookingCreate):
     new_start = time_to_mins(booking.start_time)
@@ -49,9 +50,28 @@ async def create_booking(booking: BookingCreate):
     new_booking_data = booking.model_dump()
     new_booking_data["start_time_mins"] = new_start
     new_booking_data["end_time_with_buffer_mins"] = new_end_with_buffer
+    
+    # Gán trạng thái mặc định là "pending" (Chờ duyệt) cho đơn mới
+    new_booking_data["status"] = "pending"
 
     result = await db["bookings"].insert_one(new_booking_data)
     new_booking_data["id"] = str(result.inserted_id)
     del new_booking_data["_id"]
 
     return {"message": "Đặt lịch thành công!", "data": new_booking_data}
+
+
+# ================== 2. API LẤY LỊCH SỬ ĐƠN ==================
+@router.get("")
+async def get_bookings():
+    # 1. Kéo toàn bộ danh sách đơn từ MongoDB
+    bookings_cursor = db["bookings"].find().sort("date", -1) # Sắp xếp ngày mới nhất lên đầu
+    bookings_list = await bookings_cursor.to_list(length=100) # Lấy tạm 100 đơn
+    
+    # 2. Xử lý ObjectId của MongoDB thành string để Frontend đọc được
+    for booking in bookings_list:
+        booking["id"] = str(booking["_id"])
+        del booking["_id"]
+        
+    # 3. Trả về đúng định dạng mảng (Array) mà Frontend đang chờ
+    return bookings_list
