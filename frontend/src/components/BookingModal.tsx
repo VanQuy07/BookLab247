@@ -102,6 +102,12 @@ export default function BookingModal({
   };
 
   const handleSubmit = async () => {
+    const token = localStorage.getItem("access_token");
+    if (!token) {
+      alert("⛔ Vui lòng đăng nhập để có thể đặt phòng!");
+      window.location.href = "/login"; // Đá văng về trang đăng nhập
+      return; // Dừng ngay lập tức, không cho chạy code bên dưới nữa
+    }
     const hours = getDurationHours();
     if (hours <= 0) return alert("⛔ Giờ kết thúc phải sau giờ bắt đầu!");
     if (!formData.phone) return alert("⛔ Vui lòng nhập số điện thoại!");
