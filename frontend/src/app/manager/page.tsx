@@ -1064,28 +1064,26 @@ export default function ManagerDashboardPage() {
   );
 
   // ================= GIAO DIỆN TIMELINE EXCEL XUYÊN NGÀY =================
+  // ================= GIAO DIỆN TIMELINE XUYÊN NGÀY (FULL 24H) =================
   const renderTimeline = () => {
-    const startHour = 7;
-    const endHour = 21;
-    const totalMins = (endHour - startHour + 1) * 60; // Khung nhìn 840 phút
-
-    const timeHeaders: string[] = [];
-    for (let i = startHour; i <= endHour; i++)
-      timeHeaders.push(`${i.toString().padStart(2, "0")}:00`);
+    const startHour = 0;
+    const endHour = 24;
+    const totalMins = 24 * 60; // Khung nhìn 1440 phút (Đủ 24 tiếng)
 
     // Tạo Timestamp cho ngày đang chọn để bắt khoảng thời gian xem (View Port)
-    const viewStartMs = new Date(`${selectedDate}T07:00`).getTime();
-    const viewEndMs = new Date(`${selectedDate}T21:00`).getTime();
+    const viewStartMs = new Date(`${selectedDate}T00:00:00`).getTime();
+    const viewEndMs = viewStartMs + 24 * 60 * 60 * 1000;
 
     const uniqueBuildings = Array.from(
       new Set(rooms.map((r) => r.building || "Khác")),
     ).filter(Boolean);
 
-    // CHỈ hiển thị những phòng có lịch đặt GIAO NHAU với NGÀY ĐANG CHỌN
+    // CHỈ hiển thị những phòng có lịch đặt GIAO NHAU với NGÀY ĐANG CHỌN
     const filteredRooms = rooms.filter((room) => {
       const roomIdStr = room.id || room._id || "";
       const hasBooking = bookings.some((b) => {
         if (b.roomId !== roomIdStr) return false;
+        if (b.status === "cancelled") return false; // Không hiển thị ca đã từ chối/hủy
         const existDate = b.date || selectedDate;
         const bStartMs = new Date(`${existDate}T${b.startTime}`).getTime();
         const bEndMsWithBuffer =
@@ -1120,17 +1118,12 @@ export default function ManagerDashboardPage() {
     let currentLinePct: number | null = null;
 
     // Chỉ vẽ thanh đỏ Real-time nếu ngày đang xem là Hôm Nay
-    if (
-      selectedDate === new Date().toISOString().split("T")[0] &&
-      currentHour >= startHour &&
-      currentHour <= endHour
-    ) {
-      currentLinePct =
-        (((currentHour - startHour) * 60 + currentMin) / totalMins) * 100;
+    if (selectedDate === new Date().toISOString().split("T")[0]) {
+      currentLinePct = ((currentHour * 60 + currentMin) / totalMins) * 100;
     }
 
     return (
-      <div className="space-y-6 flex flex-col h-[calc(100vh-6rem)] relative">
+      <div className="space-y-6 flex flex-col h-[calc(100vh-6rem)] relative animate-in fade-in duration-300">
         <div className="flex flex-col xl:flex-row justify-between items-start xl:items-end gap-4 shrink-0">
           <div>
             <h2 className="text-2xl font-black text-gray-900">
@@ -1205,7 +1198,8 @@ export default function ManagerDashboardPage() {
 
         {/* LƯỚI TIMELINE */}
         <div className="flex-1 bg-white border border-gray-200 rounded-2xl overflow-auto relative shadow-sm">
-          <div className="min-w-[1200px] h-full flex flex-col relative">
+          {/* Mở rộng chiều ngang min-w để 24 tiếng không bị ép dính vào nhau */}
+          <div className="min-w-[1600px] h-full flex flex-col relative">
             {currentLinePct !== null && (
               <div
                 className="absolute top-0 bottom-0 w-[2px] bg-red-500 z-40 pointer-events-none"
@@ -1222,16 +1216,21 @@ export default function ManagerDashboardPage() {
                 Không gian phòng Lab
               </div>
               <div className="flex-1 relative flex">
-                {timeHeaders.map((time, idx) => (
+                {/* Vẽ 24 mốc giờ */}
+                {Array.from({ length: 24 }).map((_, idx) => (
                   <div
                     key={idx}
-                    className="flex-1 border-r border-gray-100 p-3 text-xs font-bold text-gray-400 text-center relative"
+                    className="flex-1 border-r border-gray-100 p-3 text-xs font-bold text-gray-400 relative box-border"
                   >
                     <span className="absolute -left-3 top-3 bg-slate-50 px-1">
-                      {time}
+                      {idx.toString().padStart(2, "0")}:00
                     </span>
                   </div>
                 ))}
+                {/* Mốc 24:00 ở viền cuối cùng */}
+                <span className="absolute right-0 top-3 bg-slate-50 px-1 text-xs font-bold text-gray-400 translate-x-1/2">
+                  24:00
+                </span>
               </div>
             </div>
 
@@ -1246,9 +1245,9 @@ export default function ManagerDashboardPage() {
               filteredRooms.map((room) => {
                 const roomIdStr = room.id || room._id || "";
 
-                // Chỉ lấy các booking GIAO NHAU với Ngày đang hiển thị (View Port)
                 const roomBookings = bookings.filter((b) => {
                   if (b.roomId !== roomIdStr) return false;
+                  if (b.status === "cancelled") return false;
                   const existDate = b.date || selectedDate;
                   const bStartMs = new Date(
                     `${existDate}T${b.startTime}`,
@@ -1279,7 +1278,7 @@ export default function ManagerDashboardPage() {
 
                     <div className="flex-1 relative bg-white">
                       <div className="absolute inset-0 flex pointer-events-none">
-                        {timeHeaders.map((_, idx) => (
+                        {Array.from({ length: 24 }).map((_, idx) => (
                           <div
                             key={idx}
                             className="flex-1 border-r border-gray-100/60 border-dashed"
@@ -1296,7 +1295,6 @@ export default function ManagerDashboardPage() {
                         const bBufferEndMs =
                           bEndMs + booking.bufferMins * 60000;
 
-                        // Tính toán độ rộng block dựa trên điểm giao cắt với Khung hiển thị (View Port)
                         const visibleStartMs = Math.max(bStartMs, viewStartMs);
                         const visibleEndMs = Math.min(bEndMs, viewEndMs);
 
@@ -1318,7 +1316,6 @@ export default function ManagerDashboardPage() {
                             100;
                         }
 
-                        // Tính toán Buffer dọn dẹp
                         const visibleBufferStartMs = Math.max(
                           bEndMs,
                           viewStartMs,
@@ -1350,7 +1347,9 @@ export default function ManagerDashboardPage() {
                           <React.Fragment key={booking.id}>
                             {widthPct > 0 && (
                               <div
-                                className={`absolute top-2 bottom-2 ${getStatusColor(booking.status)} border rounded-xl px-3 py-1 overflow-hidden z-10 flex flex-col justify-center cursor-pointer hover:brightness-110 transition-all`}
+                                className={`absolute top-2 bottom-2 ${getStatusColor(
+                                  booking.status,
+                                )} border rounded-xl px-3 py-1 overflow-hidden z-10 flex flex-col justify-center cursor-pointer hover:brightness-110 transition-all shadow-sm`}
                                 style={{
                                   left: `${leftPct}%`,
                                   width: `${widthPct}%`,
