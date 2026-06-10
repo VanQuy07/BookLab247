@@ -135,6 +135,32 @@ export default function ManagerDashboardPage() {
   const [equipments, setEquipments] = useState<EquipmentItem[]>([]);
   const [buildingFilter, setBuildingFilter] = useState<string>("all");
   const [roomSearchQuery, setRoomSearchQuery] = useState("");
+  // ================= STATES CHO THÔNG BÁO GIAO DIỆN (TOAST & MODAL) =================
+  const [toast, setToast] = useState<{
+    show: boolean;
+    message: string;
+    type: "success" | "error";
+  }>({
+    show: false,
+    message: "",
+    type: "success",
+  });
+  const [confirmCancel, setConfirmCancel] = useState<{
+    isOpen: boolean;
+    bookingId: string;
+  }>({
+    isOpen: false,
+    bookingId: "",
+  });
+
+  // Hàm gọi thông báo nổi (tự tắt sau 3 giây)
+  const showToast = (
+    message: string,
+    type: "success" | "error" = "success",
+  ) => {
+    setToast({ show: true, message, type });
+    setTimeout(() => setToast((prev) => ({ ...prev, show: false })), 3000);
+  };
 
   // ================= STATES QUICK BOOK & VIEW BOOKING =================
   const [showQuickBook, setShowQuickBook] = useState(false);
@@ -489,19 +515,22 @@ export default function ManagerDashboardPage() {
   };
 
   // ================= XỬ LÝ DUYỆT / TỪ CHỐI ĐƠN =================
-  const handleUpdateStatus = async (bookingId: string, newStatus: string) => {
-    if (
-      newStatus === "cancelled" &&
-      !window.confirm("Bạn có chắc chắn muốn từ chối đơn này không?")
-    )
+  // ================= XỬ LÝ DUYỆT / TỪ CHỐI ĐƠN =================
+  const handleUpdateStatus = (bookingId: string, newStatus: string) => {
+    // Nếu bấm từ chối, mở bảng Xác nhận đẹp thay vì dùng window.confirm
+    if (newStatus === "cancelled") {
+      setConfirmCancel({ isOpen: true, bookingId });
       return;
+    }
+    // Nếu duyệt, gọi thẳng hàm xử lý
+    executeUpdateStatus(bookingId, newStatus);
+  };
 
+  const executeUpdateStatus = async (bookingId: string, newStatus: string) => {
     try {
       const token = localStorage.getItem("access_token");
-
-      // 🚀 CHỐT CHẶN: Ép nút Duyệt bắn API lên đúng Cloud Database!
       const API_URL = "https://booklab247.onrender.com/api/v1";
-      alert(`Đường link sắp gọi:\n${API_URL}/bookings/${bookingId}/status`);
+
       const response = await fetch(`${API_URL}/bookings/${bookingId}/status`, {
         method: "PATCH",
         headers: {
@@ -516,20 +545,22 @@ export default function ManagerDashboardPage() {
         throw new Error(errorData.detail || `Lỗi HTTP ${response.status}`);
       }
 
-      // Cập nhật lại UI ngay lập tức để đơn bay sang Lịch Điều phối
+      // Cập nhật lại UI ngay lập tức
       setBookings((prevBookings) =>
         prevBookings.map((b) =>
           b.id === bookingId ? { ...b, status: newStatus } : b,
         ),
       );
 
-      alert(
+      // Hiển thị thông báo nổi xịn sò
+      showToast(
         newStatus === "confirmed"
-          ? "✅ Đã duyệt đơn thành công!"
-          : "Đã từ chối đơn.",
+          ? "Đã duyệt đơn thành công!"
+          : "Đã từ chối đơn hàng.",
+        "success",
       );
     } catch (error: any) {
-      alert(`⛔ Lỗi chi tiết từ Server: ${error.message}`);
+      showToast(`Lỗi chi tiết: ${error.message}`, "error");
     }
   };
 
@@ -1999,6 +2030,72 @@ export default function ManagerDashboardPage() {
                 </form>
               </motion.div>
             </div>
+          )}
+        </AnimatePresence>
+        {/* ================= GIAO DIỆN XÁC NHẬN TỪ CHỐI ĐƠN ================= */}
+        <AnimatePresence>
+          {confirmCancel.isOpen && (
+            <div className="fixed inset-0 bg-black/60 z-[9999] flex items-center justify-center p-4 backdrop-blur-sm">
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden p-6 text-center"
+              >
+                <div className="w-16 h-16 bg-red-100 text-red-500 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <AlertTriangle className="w-8 h-8" />
+                </div>
+                <h3 className="text-xl font-black text-gray-900 mb-2">
+                  Xác nhận từ chối
+                </h3>
+                <p className="text-sm text-gray-500 mb-6">
+                  Bạn có chắc chắn muốn từ chối và hủy đơn đặt phòng này không?
+                  Hành động này không thể hoàn tác.
+                </p>
+                <div className="flex gap-3">
+                  <button
+                    onClick={() =>
+                      setConfirmCancel({ isOpen: false, bookingId: "" })
+                    }
+                    className="flex-1 px-4 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold rounded-xl transition-colors"
+                  >
+                    Quay lại
+                  </button>
+                  <button
+                    onClick={() => {
+                      executeUpdateStatus(confirmCancel.bookingId, "cancelled");
+                      setConfirmCancel({ isOpen: false, bookingId: "" });
+                    }}
+                    className="flex-1 px-4 py-2.5 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl transition-colors shadow-md"
+                  >
+                    Từ chối đơn
+                  </button>
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+
+        {/* ================= THÔNG BÁO NỔI (TOAST MESSAGE) ================= */}
+        <AnimatePresence>
+          {toast.show && (
+            <motion.div
+              initial={{ opacity: 0, y: 50, scale: 0.9 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 20, scale: 0.9 }}
+              className={`fixed bottom-8 right-8 z-[9999] flex items-center gap-3 px-6 py-4 rounded-2xl shadow-2xl border ${
+                toast.type === "success"
+                  ? "bg-emerald-50 border-emerald-200 text-emerald-800"
+                  : "bg-red-50 border-red-200 text-red-800"
+              }`}
+            >
+              {toast.type === "success" ? (
+                <CheckCircle2 className="w-6 h-6 text-emerald-600" />
+              ) : (
+                <AlertTriangle className="w-6 h-6 text-red-600" />
+              )}
+              <span className="font-bold text-sm">{toast.message}</span>
+            </motion.div>
           )}
         </AnimatePresence>
       </main>
