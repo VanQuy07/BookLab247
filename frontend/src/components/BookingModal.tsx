@@ -141,18 +141,22 @@ export default function BookingModal({
 
     try {
       const token = localStorage.getItem("access_token");
-      // Đảm bảo dòng fetch của bạn trong BookingModal sửa thành thế này:
-      const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/api/v1/bookings`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify(payload),
+
+      // CHỐT CHẶN: Ép buộc gửi đơn lên đúng Database Cloud của Manager
+      // const API_URL = "https://booklab247.onrender.com/api/v1";
+      // Tự động lấy link trên mạng nếu có, không thì rớt xuống localhost chạy dưới máy
+      const API_URL = process.env.NEXT_PUBLIC_API_URL
+        ? `${process.env.NEXT_PUBLIC_API_URL}/api/v1`
+        : "http://localhost:8000/api/v1";
+
+      const response = await fetch(`${API_URL}/bookings`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
         },
-      );
+        body: JSON.stringify(payload),
+      });
 
       if (!response.ok) throw new Error("Lỗi hệ thống, không thể đặt phòng!");
 
