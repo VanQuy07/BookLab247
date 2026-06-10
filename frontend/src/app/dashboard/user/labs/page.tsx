@@ -12,7 +12,6 @@ import {
   Users,
   Calendar,
   ChevronDown,
-  ChevronUp,
   Star,
   CheckCircle2,
   AlertCircle,
@@ -20,15 +19,11 @@ import {
   Hexagon,
   Clock,
   Package,
-  Cpu,
-  Monitor,
-  Banknote,
   User,
   LogOut,
   FilterX,
 } from "lucide-react";
 import Link from "next/link";
-import { clear } from "node:console";
 
 // ================= TYPES =================
 interface LabItem {
@@ -39,7 +34,7 @@ interface LabItem {
   capacity: number;
   pricePerHour: number;
   maintenanceMode: boolean;
-  isBooked: boolean; // Trạng thái đã đặt
+  isBooked: boolean;
   image: string;
   rating: number;
 }
@@ -52,19 +47,6 @@ export default function UserLabsPage() {
   const [userName, setUserName] = useState<string | null>(null);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [labs, setLabs] = useState<LabItem[]>([]);
-
-  useEffect(() => {
-    const storedName = localStorage.getItem("user_name");
-    if (storedName) {
-      setUserName(storedName);
-    }
-  }, []);
-
-  const handleLogout = () => {
-    localStorage.removeItem("access_token");
-    localStorage.removeItem("user_name");
-    router.push("/");
-  };
   const [loading, setLoading] = useState<boolean>(true);
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
   const [isMobileFilterOpen, setIsMobileFilterOpen] = useState<boolean>(false);
@@ -86,6 +68,19 @@ export default function UserLabsPage() {
     price: true,
   });
 
+  useEffect(() => {
+    const storedName = localStorage.getItem("user_name");
+    if (storedName) {
+      setUserName(storedName);
+    }
+  }, []);
+
+  const handleLogout = () => {
+    localStorage.removeItem("access_token");
+    localStorage.removeItem("user_name");
+    router.push("/");
+  };
+
   // GỌI API LẤY DỮ LIỆU PHÒNG LAB TỪ ADMIN
   useEffect(() => {
     const fetchLabs = async () => {
@@ -99,7 +94,6 @@ export default function UserLabsPage() {
 
         const data = await response.json();
 
-        // Map dữ liệu chuẩn cho Phòng Lab
         const formattedLabs: LabItem[] = data.map((item: any) => ({
           id: item.id || item._id,
           name: item.name,
@@ -108,7 +102,7 @@ export default function UserLabsPage() {
           capacity: item.capacity || 0,
           pricePerHour: item.pricePerHour || item.price || 0,
           maintenanceMode: item.maintenanceMode || false,
-          isBooked: item.isBooked || false, // Lấy trạng thái Đã đặt từ Backend
+          isBooked: item.isBooked || false,
           image:
             item.imageUrl ||
             "https://images.unsplash.com/photo-1562774053-701939374585?auto=format&fit=crop&q=80&w=800",
@@ -131,7 +125,6 @@ export default function UserLabsPage() {
   ).filter(Boolean);
 
   const filteredLabs = labs.filter((lab) => {
-    //1. Tìm theo toà nhà hoặc tên phòng
     if (
       searchQuery &&
       !lab.name.toLowerCase().includes(searchQuery.toLowerCase()) &&
@@ -139,7 +132,6 @@ export default function UserLabsPage() {
     ) {
       return false;
     }
-    //2. Lọc theo danh mục nhanh
     if (activeBadge) {
       if (
         activeBadge === "🟢 Có thể vào ngay" &&
@@ -153,7 +145,6 @@ export default function UserLabsPage() {
       if (activeBadge === "💰 Giá tiết kiệm" && lab.pricePerHour > 60000)
         return false;
     }
-    //3.Lọc theo trạng thái ở Sidebar
     if (statusFilter.length > 0) {
       let currentStatus = "available";
       if (lab.maintenanceMode) currentStatus = "maintenance";
@@ -161,7 +152,6 @@ export default function UserLabsPage() {
 
       if (!statusFilter.includes(currentStatus)) return false;
     }
-    //4.Lọc theo sức chứa ở Sidebar
     if (capacityFilter) {
       if (capacityFilter === "small" && lab.capacity >= 20) return false;
       if (
@@ -171,11 +161,9 @@ export default function UserLabsPage() {
         return false;
       if (capacityFilter === "large" && lab.capacity <= 50) return false;
     }
-    //5.Lọc theo toà nhà ở Sidebar
     if (buildingFilter.length > 0 && !buildingFilter.includes(lab.building)) {
       return false;
     }
-    //6.Lọc theo chi phí sử dụng
     if (priceFilter.length > 0) {
       const isFree = lab.pricePerHour === 0;
       if (priceFilter.includes("free") && !isFree) return false;
@@ -184,6 +172,7 @@ export default function UserLabsPage() {
 
     return true;
   });
+
   const toggleSection = (section: string) => {
     setOpenSections((prev) => ({ ...prev, [section]: !prev[section] }));
   };
@@ -206,6 +195,7 @@ export default function UserLabsPage() {
     setBuildingFilter([]);
     setPriceFilter([]);
   };
+
   return (
     <div className="min-h-screen bg-slate-50 font-sans text-gray-900 selection:bg-blue-200">
       {/* ================= HEADER ================= */}
@@ -217,6 +207,8 @@ export default function UserLabsPage() {
           >
             <Hexagon className="w-8 h-8 fill-blue-600" /> BookLab247
           </Link>
+
+          {/* 🌟 NAVBAR ĐÃ ĐƯỢC ĐỒNG BỘ HIỂN THỊ ĐẦY ĐỦ LỊCH SỬ ĐẶT PHÒNG */}
           <nav className="hidden md:flex gap-8 text-sm font-bold text-gray-600">
             <Link href="/" className="hover:text-blue-600 transition-colors">
               Trang chủ
@@ -230,14 +222,20 @@ export default function UserLabsPage() {
             >
               Thiết bị
             </Link>
+            <Link
+              href="/dashboard/user/history"
+              className="hover:text-blue-600 transition-colors"
+            >
+              Lịch sử đặt phòng
+            </Link>
           </nav>
-          {/* CỤC HIỂN THỊ TÊN VÀ AVATAR GÓC PHẢI */}
+
           <div className="flex items-center gap-4 relative z-50">
             {userName ? (
               <div className="relative">
                 <button
                   onClick={() => setIsDropdownOpen(!isDropdownOpen)}
-                  className="flex items-center gap-2 px-4 py-2 bg-blue-50 text-blue-700 font-semibold rounded-full hover:bg-blue-100 transition-colors"
+                  className="flex items-center gap-2 px-4 py-2 bg-blue-50 text-blue-700 font-semibold rounded-full hover:bg-blue-100 transition-colors focus:outline-none"
                 >
                   <div className="w-7 h-7 bg-blue-600 text-white rounded-full flex items-center justify-center text-sm">
                     {userName.charAt(0).toUpperCase()}
@@ -248,7 +246,6 @@ export default function UserLabsPage() {
                   />
                 </button>
 
-                {/* MENU XỔ XUỐNG KHI CLICK VÀO TÊN */}
                 {isDropdownOpen && (
                   <div className="absolute right-0 mt-2 w-56 bg-white border border-gray-100 rounded-2xl shadow-xl overflow-hidden z-50">
                     <div className="p-2">
@@ -274,7 +271,6 @@ export default function UserLabsPage() {
                 )}
               </div>
             ) : (
-              // Nút dự phòng trường hợp lỡ mất đăng nhập
               <Link
                 href="/login"
                 className="px-5 py-2 text-sm font-bold bg-blue-600 text-white rounded-full hover:bg-blue-700 transition-all shadow-md"
@@ -288,7 +284,6 @@ export default function UserLabsPage() {
 
       {/* ================= MAIN CONTENT ================= */}
       <div className="p-4 md:p-6 lg:p-8">
-        {/* ================= DANH MỤC NHANH (QUICK BADGES) ================= */}
         <div className="max-w-7xl mx-auto mb-6 flex items-center gap-3 overflow-x-auto pb-2 scrollbar-hide">
           <span className="text-sm font-bold text-gray-500 whitespace-nowrap">
             Danh mục nhanh:
@@ -310,8 +305,9 @@ export default function UserLabsPage() {
             </button>
           ))}
         </div>
+
         <div className="max-w-7xl mx-auto flex flex-col lg:flex-row gap-8">
-          {/* ================= SIDEBAR FILTER CỦA PHÒNG ================= */}
+          {/* ================= SIDEBAR FILTER ================= */}
           {isMobileFilterOpen && (
             <div
               className="fixed inset-0 bg-black/50 z-40 lg:hidden"
@@ -330,7 +326,8 @@ export default function UserLabsPage() {
                 <div className="flex items-center gap-3">
                   <button
                     onClick={clearAllFilters}
-                    className="text-sm font-semibold text-blue-600 hover:text-blue-800">
+                    className="text-sm font-semibold text-blue-600 hover:text-blue-800"
+                  >
                     Xóa tất cả
                   </button>
                   <button
@@ -350,7 +347,7 @@ export default function UserLabsPage() {
                   >
                     Thời gian sử dụng
                     {openSections["time"] ? (
-                      <ChevronUp className="w-4 h-4" />
+                      <ChevronDown className="w-4 h-4 transform rotate-180" />
                     ) : (
                       <ChevronDown className="w-4 h-4" />
                     )}
@@ -370,7 +367,7 @@ export default function UserLabsPage() {
                   )}
                 </div>
                 <hr className="border-gray-100" />
-                {/* 2. Trạng thái phòng */}
+
                 <div>
                   <button
                     onClick={() => toggleSection("status")}
@@ -378,7 +375,7 @@ export default function UserLabsPage() {
                   >
                     Trạng thái phòng{" "}
                     {openSections["status"] ? (
-                      <ChevronUp className="w-4 h-4" />
+                      <ChevronDown className="w-4 h-4 transform rotate-180" />
                     ) : (
                       <ChevronDown className="w-4 h-4" />
                     )}
@@ -429,7 +426,6 @@ export default function UserLabsPage() {
                 </div>
                 <hr className="border-gray-100" />
 
-                {/* 3. Sức chứa quy mô */}
                 <div>
                   <button
                     onClick={() => toggleSection("capacity")}
@@ -437,7 +433,7 @@ export default function UserLabsPage() {
                   >
                     Sức chứa không gian{" "}
                     {openSections["capacity"] ? (
-                      <ChevronUp className="w-4 h-4" />
+                      <ChevronDown className="w-4 h-4 transform rotate-180" />
                     ) : (
                       <ChevronDown className="w-4 h-4" />
                     )}
@@ -497,7 +493,6 @@ export default function UserLabsPage() {
                 </div>
                 <hr className="border-gray-100" />
 
-                {/* 4. Tòa nhà (Tự động tăng giảm theo Data thực tế) */}
                 {uniqueBuildings.length > 0 && (
                   <>
                     <div>
@@ -507,7 +502,7 @@ export default function UserLabsPage() {
                       >
                         Vị trí Tòa nhà{" "}
                         {openSections["building"] ? (
-                          <ChevronUp className="w-4 h-4" />
+                          <ChevronDown className="w-4 h-4 transform rotate-180" />
                         ) : (
                           <ChevronDown className="w-4 h-4" />
                         )}
@@ -539,7 +534,6 @@ export default function UserLabsPage() {
                   </>
                 )}
 
-                {/* 5. Chi phí thuê phòng */}
                 <div>
                   <button
                     onClick={() => toggleSection("price")}
@@ -547,7 +541,7 @@ export default function UserLabsPage() {
                   >
                     Chi phí đặt lịch{" "}
                     {openSections["price"] ? (
-                      <ChevronUp className="w-4 h-4" />
+                      <ChevronDown className="w-4 h-4 transform rotate-180" />
                     ) : (
                       <ChevronDown className="w-4 h-4" />
                     )}
@@ -657,7 +651,6 @@ export default function UserLabsPage() {
                     key={lab.id}
                     className={`bg-white border border-gray-200 rounded-2xl overflow-hidden hover:shadow-xl hover:border-blue-200 transition-all duration-300 group ${viewMode === "list" ? "flex flex-col sm:flex-row" : "flex flex-col"}`}
                   >
-                    {/* Ảnh Phòng */}
                     <div
                       className={`relative overflow-hidden bg-gray-100 ${viewMode === "list" ? "sm:w-64 h-48 sm:h-auto shrink-0" : "h-52 w-full"}`}
                     >
@@ -683,7 +676,6 @@ export default function UserLabsPage() {
                       </div>
                     </div>
 
-                    {/* Thông tin Phòng */}
                     <div className="p-5 flex flex-col flex-1">
                       <div className="flex justify-between items-start mb-2">
                         <h3 className="text-xl font-black text-gray-900 group-hover:text-blue-600 transition-colors line-clamp-1">
@@ -713,7 +705,6 @@ export default function UserLabsPage() {
 
                       <div className="mt-auto pt-4 border-t border-gray-100 flex items-center justify-between">
                         <div>
-                          {/* GIÁ TIỀN TỪ ADMIN */}
                           <span className="text-xl font-black text-blue-600">
                             {lab.pricePerHour === 0
                               ? "Miễn phí"
@@ -729,8 +720,8 @@ export default function UserLabsPage() {
                           <button
                             disabled={lab.maintenanceMode || lab.isBooked}
                             onClick={() => {
-                              setSelectedRoomToBook(lab); // Truyền đúng data của phòng (biến lab) vào State
-                              setIsModalOpen(true); // Bật công tắc mở Modal
+                              setSelectedRoomToBook(lab);
+                              setIsModalOpen(true);
                             }}
                             className={`px-5 py-2.5 rounded-xl font-bold transition-colors ${
                               lab.maintenanceMode || lab.isBooked
@@ -759,6 +750,6 @@ export default function UserLabsPage() {
         onClose={() => setIsModalOpen(false)}
         room={selectedRoomToBook}
       />
-    </div> // Đây là thẻ đóng div cuối cùng của bạn
+    </div>
   );
 }
