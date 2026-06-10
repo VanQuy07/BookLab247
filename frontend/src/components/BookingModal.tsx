@@ -106,6 +106,18 @@ export default function BookingModal({
     if (hours <= 0) return alert("⛔ Giờ kết thúc phải sau giờ bắt đầu!");
     if (!formData.phone) return alert("⛔ Vui lòng nhập số điện thoại!");
 
+    // 2. CHỐT CHẶN QUÁ KHỨ: Lấy giờ hiện tại so sánh với giờ User chọn
+    const now = new Date();
+    const selectedStartDateTime = new Date(
+      `${formData.date}T${formData.startTime}`,
+    );
+
+    if (selectedStartDateTime < now) {
+      return alert(
+        "⛔ Không thể đặt phòng trong quá khứ! Vui lòng chọn giờ bắt đầu sau thời điểm hiện tại.",
+      );
+    }
+
     const borrowedEquipments = Object.entries(selectedEqs).map(
       ([id, data]) => ({
         id: id,
@@ -129,18 +141,22 @@ export default function BookingModal({
 
     try {
       const token = localStorage.getItem("access_token");
-      // Đảm bảo dòng fetch của bạn trong BookingModal sửa thành thế này:
-      const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/api/v1/bookings`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify(payload),
+
+      // CHỐT CHẶN: Ép buộc gửi đơn lên đúng Database Cloud của Manager
+      // const API_URL = "https://booklab247.onrender.com/api/v1";
+      // Tự động lấy link trên mạng nếu có, không thì rớt xuống localhost chạy dưới máy
+      const API_URL = process.env.NEXT_PUBLIC_API_URL
+        ? `${process.env.NEXT_PUBLIC_API_URL}/api/v1`
+        : "http://localhost:8000/api/v1";
+
+      const response = await fetch(`${API_URL}/bookings`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
         },
-      );
+        body: JSON.stringify(payload),
+      });
 
       if (!response.ok) throw new Error("Lỗi hệ thống, không thể đặt phòng!");
 
@@ -194,6 +210,7 @@ export default function BookingModal({
                 <input
                   type="date"
                   value={formData.date}
+                  min={new Date().toISOString().split("T")[0]} // Tự động lấy ngày hôm nay làm mốc nhỏ nhất
                   onChange={(e) =>
                     setFormData({ ...formData, date: e.target.value })
                   }
