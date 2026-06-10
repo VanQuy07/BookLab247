@@ -12,6 +12,7 @@ import {
   Search,
   ChevronDown,
   ChevronUp,
+  AlertCircle, // Thêm icon báo lỗi
 } from "lucide-react";
 
 interface BookingModalProps {
@@ -37,9 +38,13 @@ export default function BookingModal({
   const [selectedEqs, setSelectedEqs] = useState<Record<string, any>>({});
   const [eqSearchQuery, setEqSearchQuery] = useState("");
 
-  // ================= STATE MỚI CHO MINI TIMELINE =================
+  // ================= STATE MỚI CHO TIMELINE VÀ UI =================
   const [roomBookings, setRoomBookings] = useState<any[]>([]);
   const [showTimeline, setShowTimeline] = useState(false);
+  const [errorMsg, setErrorMsg] = useState(""); // Lưu thông báo lỗi
+  const [isSuccess, setIsSuccess] = useState(false); // Trạng thái đặt thành công
+  const [isSubmitting, setIsSubmitting] = useState(false); // Trạng thái đang gửi
+
   const API_URL = "https://booklab247.onrender.com/api/v1";
 
   useEffect(() => {
@@ -57,7 +62,6 @@ export default function BookingModal({
         .then((res) => res.json())
         .then((data) => {
           const allBookings = Array.isArray(data) ? data : data.data || [];
-          // Chỉ lấy đơn của phòng này và chưa bị hủy
           const filtered = allBookings.filter(
             (b: any) =>
               (b.room_id === room.id ||
@@ -69,11 +73,19 @@ export default function BookingModal({
         })
         .catch((err) => console.error("Lỗi tải lịch phòng:", err));
 
+      // Reset lại các trạng thái mỗi khi mở modal
       setSelectedEqs({});
       setEqSearchQuery("");
-      setShowTimeline(false); // Mặc định ẩn timeline cho gọn
+      setShowTimeline(false);
+      setErrorMsg("");
+      setIsSuccess(false);
     }
   }, [isOpen, room]);
+
+  // Ẩn lỗi khi người dùng sửa lại thông tin
+  useEffect(() => {
+    if (errorMsg) setErrorMsg("");
+  }, [formData, selectedEqs]);
 
   if (!isOpen || !room) return null;
 
@@ -83,7 +95,6 @@ export default function BookingModal({
     return h * 60 + m;
   };
 
-  // 2. THÊM HÀM NÀY ĐỂ DỊCH NGƯỢC TỪ PHÚT RA GIỜ (Ví dụ: 90 -> 01:30)
   const minsToTime = (mins: number) => {
     const h = Math.floor(mins / 60);
     const m = Math.floor(mins % 60);
@@ -139,17 +150,20 @@ export default function BookingModal({
   };
 
   const handleSubmit = async () => {
-    // 🛑 CHỐT CHẶN: Kiểm tra đăng nhập
+    setErrorMsg(""); // Xóa lỗi cũ
     const token = localStorage.getItem("access_token");
     if (!token) {
-      alert("⛔ Vui lòng đăng nhập để có thể đặt phòng!");
-      window.location.href = "/login";
+      setErrorMsg("Vui lòng đăng nhập để có thể đặt phòng!");
+      setTimeout(() => {
+        window.location.href = "/login";
+      }, 2000);
       return;
     }
 
     const hours = getDurationHours();
-    if (hours <= 0) return alert("⛔ Giờ kết thúc phải sau giờ bắt đầu!");
-    if (!formData.phone) return alert("⛔ Vui lòng nhập số điện thoại!");
+    if (hours <= 0) return setErrorMsg("Giờ kết thúc phải sau giờ bắt đầu!");
+    if (!formData.phone)
+      return setErrorMsg("Vui lòng nhập số điện thoại để chúng tôi liên hệ!");
 
     const now = new Date();
     const selectedStartDateTime = new Date(
@@ -157,8 +171,8 @@ export default function BookingModal({
     );
 
     if (selectedStartDateTime < now) {
-      return alert(
-        "⛔ Không thể đặt phòng trong quá khứ! Vui lòng chọn giờ lớn hơn hiện tại.",
+      return setErrorMsg(
+        "Không thể đặt phòng trong quá khứ! Vui lòng chọn giờ lớn hơn hiện tại.",
       );
     }
 
@@ -173,7 +187,7 @@ export default function BookingModal({
 
     const payload = {
       room_id: room.id || room._id,
-      customer_name: localStorage.getItem("user_name") || "Khách Hàng", // Tự lấy tên người dùng
+      customer_name: localStorage.getItem("user_name") || "Khách Hàng",
       phone: formData.phone,
       date: formData.date,
       start_time: formData.startTime,
@@ -184,6 +198,7 @@ export default function BookingModal({
     };
 
     try {
+      setIsSubmitting(true);
       const response = await fetch(`${API_URL}/bookings`, {
         method: "POST",
         headers: {
@@ -198,10 +213,12 @@ export default function BookingModal({
           "Khung giờ này đã có người đặt, vui lòng kiểm tra lại Lịch Trống!",
         );
 
-      alert("🎉 Đặt phòng thành công! Đơn của bạn đang chờ Admin duyệt.");
-      onClose();
+      // 🚀 Nếu thành công, chuyển sang màn hình Success
+      setIsSuccess(true);
     } catch (error: any) {
-      alert(`⛔ Thất bại: ${error.message}`);
+      setErrorMsg(error.message);
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -209,14 +226,11 @@ export default function BookingModal({
     (eq.name || "").toLowerCase().includes(eqSearchQuery.toLowerCase()),
   );
 
-  // ================= GIAO DIỆN MINI TIMELINE =================
-  // ================= GIAO DIỆN MINI TIMELINE (FULL 24H) =================
   const renderMiniTimeline = () => {
     const startHour = 0;
     const endHour = 24;
-    const totalMins = 24 * 60; // 1440 phút (Đủ 24 tiếng)
+    const totalMins = 24 * 60;
 
-    // Lọc ra các ca của ngày đang chọn
     const todaysBookings = roomBookings.filter((b) => b.date === formData.date);
 
     return (
@@ -225,14 +239,9 @@ export default function BookingModal({
           Tình trạng phòng ngày {formData.date.split("-").reverse().join("/")}
         </h4>
 
-        {/* Vùng cuộn ngang để timeline 24h không bị ép quá nhỏ */}
         <div className="w-full overflow-x-auto pb-4 scrollbar-hide">
           <div className="min-w-[800px]">
-            {" "}
-            {/* Đảm bảo chiều rộng đủ lớn để xem rõ 24 tiếng */}
-            {/* Thanh bar Timeline */}
             <div className="relative h-10 bg-gray-100 rounded-lg overflow-hidden flex border border-gray-200">
-              {/* Các vạch chia giờ (24 ô) */}
               {Array.from({ length: 24 }).map((_, i) => (
                 <div
                   key={i}
@@ -240,14 +249,12 @@ export default function BookingModal({
                 ></div>
               ))}
 
-              {/* Các khối đã đặt */}
               {todaysBookings.map((b) => {
                 const startTimeStr = b.start_time || b.startTime;
                 const bStartMins = timeToMins(startTimeStr);
                 const bDuration = b.duration_mins || b.durationMins || 0;
                 const bBuffer = b.buffer_mins || b.bufferMins || 15;
 
-                // Tính toán giờ kết thúc
                 const endTimeStr = minsToTime(bStartMins + bDuration);
 
                 const leftPct = (bStartMins / totalMins) * 100;
@@ -261,14 +268,12 @@ export default function BookingModal({
                       style={{ left: `${leftPct}%`, width: `${widthPct}%` }}
                       title={`Đã đặt: ${startTimeStr} - ${endTimeStr} (${bDuration} phút)`}
                     >
-                      {/* Ẩn chữ nếu khối quá hẹp (dưới 4% chiều rộng) */}
                       {widthPct > 4 && (
                         <span className="text-[10px] sm:text-xs font-black text-white whitespace-nowrap px-1 drop-shadow-md">
                           {startTimeStr} - {endTimeStr}
                         </span>
                       )}
                     </div>
-                    {/* Thời gian dọn dẹp */}
                     <div
                       className="absolute top-0 bottom-0 bg-amber-300/60 z-0"
                       style={{
@@ -281,7 +286,7 @@ export default function BookingModal({
                 );
               })}
             </div>
-            {/* Dòng hiển thị nhãn thời gian (00:00 -> 24:00) bên dưới thanh bar */}
+
             <div className="relative h-6 mt-1.5 text-[10px] text-gray-400 font-bold w-full">
               {Array.from({ length: 25 }).map((_, i) => (
                 <div
@@ -299,7 +304,6 @@ export default function BookingModal({
           </div>
         </div>
 
-        {/* Chú thích */}
         <div className="flex gap-4 mt-2 text-[11px] font-bold text-gray-500 justify-end">
           <span className="flex items-center gap-1.5">
             <div className="w-3 h-3 bg-gray-100 border border-gray-200 rounded-sm"></div>{" "}
@@ -317,6 +321,36 @@ export default function BookingModal({
     );
   };
 
+  // ================= GIAO DIỆN SUCCESS =================
+  if (isSuccess) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+        <div
+          className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden flex flex-col items-center p-8 text-center animate-in zoom-in-95"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="w-20 h-20 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mb-5 shadow-inner">
+            <CheckCircle2 className="w-10 h-10" />
+          </div>
+          <h3 className="text-2xl font-black text-gray-900 mb-2">
+            Đặt phòng thành công!
+          </h3>
+          <p className="text-sm text-gray-500 mb-8 leading-relaxed">
+            Yêu cầu của bạn đã được gửi hệ thống. Vui lòng chờ Admin phê duyệt
+            đơn nhé!
+          </p>
+          <button
+            onClick={onClose}
+            className="w-full py-3.5 bg-violet-600 hover:bg-violet-700 text-white font-black rounded-xl transition-all shadow-lg shadow-violet-600/30 active:scale-95"
+          >
+            Đóng cửa sổ
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // ================= GIAO DIỆN CHÍNH (ĐẶT PHÒNG) =================
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
       <div
@@ -349,7 +383,6 @@ export default function BookingModal({
                 <Calendar className="w-5 h-5 text-violet-500" /> Thời gian sử
                 dụng
               </h4>
-              {/* NÚT MỞ MINI TIMELINE */}
               <button
                 onClick={() => setShowTimeline(!showTimeline)}
                 className="text-xs font-bold text-violet-600 bg-violet-100 hover:bg-violet-200 px-3 py-1.5 rounded-lg flex items-center gap-1 transition-colors"
@@ -412,7 +445,6 @@ export default function BookingModal({
               </p>
             )}
 
-            {/* BẢNG TIMELINE XỔ XUỐNG */}
             {showTimeline && renderMiniTimeline()}
           </div>
 
@@ -545,34 +577,52 @@ export default function BookingModal({
           </div>
         </div>
 
-        <div className="bg-slate-50 p-5 border-t border-gray-200 flex flex-col md:flex-row items-center justify-between gap-4 shrink-0">
-          <div className="flex items-center gap-3 w-full md:w-auto bg-white px-4 py-2 rounded-xl border border-gray-200 shadow-sm">
-            <div className="w-10 h-10 bg-violet-100 text-violet-600 rounded-lg flex items-center justify-center">
-              <CreditCard className="w-5 h-5" />
+        {/* Khu vực chứa Lỗi và Footer */}
+        <div className="bg-slate-50 border-t border-gray-200 flex flex-col shrink-0">
+          {/* HIỂN THỊ LỖI MÀU ĐỎ NẾU CÓ */}
+          {errorMsg && (
+            <div className="bg-red-50 text-red-600 p-3 mx-6 mt-4 rounded-xl text-sm font-bold flex items-center gap-2 animate-in slide-in-from-top-2 border border-red-100">
+              <AlertCircle className="w-4 h-4 shrink-0" />
+              {errorMsg}
             </div>
-            <div>
-              <p className="text-[10px] font-black text-gray-400 uppercase tracking-wider">
-                Tổng tạm tính
-              </p>
-              <p className="text-xl font-black text-violet-600 leading-none mt-0.5">
-                {calculateEstimate().toLocaleString()}đ
-              </p>
-            </div>
-          </div>
+          )}
 
-          <div className="flex gap-3 w-full md:w-auto">
-            <button
-              onClick={onClose}
-              className="flex-1 md:flex-none px-6 py-2.5 font-bold text-gray-500 hover:bg-gray-200 rounded-xl transition-colors"
-            >
-              Hủy
-            </button>
-            <button
-              onClick={handleSubmit}
-              className="flex-1 md:flex-none px-8 py-2.5 bg-violet-700 hover:bg-violet-800 text-white font-black rounded-xl shadow-lg shadow-violet-600/30 transition-all active:scale-95 flex items-center justify-center gap-2"
-            >
-              <CheckCircle2 className="w-5 h-5" /> Gửi yêu cầu
-            </button>
+          <div className="p-5 flex flex-col md:flex-row items-center justify-between gap-4">
+            <div className="flex items-center gap-3 w-full md:w-auto bg-white px-4 py-2 rounded-xl border border-gray-200 shadow-sm">
+              <div className="w-10 h-10 bg-violet-100 text-violet-600 rounded-lg flex items-center justify-center">
+                <CreditCard className="w-5 h-5" />
+              </div>
+              <div>
+                <p className="text-[10px] font-black text-gray-400 uppercase tracking-wider">
+                  Tổng tạm tính
+                </p>
+                <p className="text-xl font-black text-violet-600 leading-none mt-0.5">
+                  {calculateEstimate().toLocaleString()}đ
+                </p>
+              </div>
+            </div>
+
+            <div className="flex gap-3 w-full md:w-auto">
+              <button
+                onClick={onClose}
+                className="flex-1 md:flex-none px-6 py-2.5 font-bold text-gray-500 hover:bg-gray-200 rounded-xl transition-colors"
+              >
+                Hủy
+              </button>
+              <button
+                onClick={handleSubmit}
+                disabled={isSubmitting}
+                className="flex-1 md:flex-none px-8 py-2.5 bg-violet-700 hover:bg-violet-800 disabled:opacity-70 disabled:cursor-not-allowed text-white font-black rounded-xl shadow-lg shadow-violet-600/30 transition-all active:scale-95 flex items-center justify-center gap-2"
+              >
+                {isSubmitting ? (
+                  <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                ) : (
+                  <>
+                    <CheckCircle2 className="w-5 h-5" /> Gửi yêu cầu
+                  </>
+                )}
+              </button>
+            </div>
           </div>
         </div>
       </div>
