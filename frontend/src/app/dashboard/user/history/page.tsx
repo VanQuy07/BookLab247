@@ -274,8 +274,14 @@ export default function UserBookingHistoryPage() {
     }
   };
 
-  const canCancel = (status: string) => {
-    return ["pending", "CHO_DUYET", "DA_DUYET", "DANG_MUON"].includes(status);
+  const canCancel = (booking: Booking) => {
+    const status = booking.status || "";
+    const cancellableStatuses = ["pending", "confirmed", "CHO_DUYET", "DA_DUYET", "DANG_MUON"];
+    if (!cancellableStatuses.includes(status)) return false;
+
+    const now = new Date();
+    const bookingDate = new Date(`${booking.date}T${booking.start_time}:00`);
+    return bookingDate > now;
   };
 
   const tabsForDisplay = TABS.map((tab) => {
@@ -624,7 +630,7 @@ export default function UserBookingHistoryPage() {
                             <Info className="w-4.5 h-4.5" />
                           </button>
 
-                          {canCancel(status) && (
+                          {canCancel(booking) && (
                             <button
                               onClick={() => handleCancel(booking)}
                               disabled={cancellingId === bookingId}
@@ -869,7 +875,7 @@ export default function UserBookingHistoryPage() {
                 >
                   Đóng
                 </button>
-                {canCancel(selectedBooking.status) && (
+                {canCancel(selectedBooking) && (
                   <button
                     onClick={() => {
                       const bk = selectedBooking;
