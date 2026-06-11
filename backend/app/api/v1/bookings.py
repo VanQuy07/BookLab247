@@ -56,9 +56,14 @@ def _get_room_info(room_id: str) -> dict:
     except Exception:
         room = None
     if room:
-        room["id"] = str(room["_id"])
-        room.pop("_id", None)
-    return room or {}
+        return {
+            "id": str(room["_id"]),
+            "name": room.get("name", "Phòng Lab"),
+            "building": room.get("building", ""),
+            "floor": room.get("floor", ""),
+            "type": room.get("type", ""),
+        }
+    return {}
 
 
 # ================== 1. TẠO ĐƠN ==================

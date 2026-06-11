@@ -78,7 +78,7 @@ const STATUS_MAP: Record<string, StatusConfig> = {
     bgColor: "bg-blue-50 border-blue-200",
     icon: Loader2,
   },
-  BI_TU_CHOI: {
+  DA_TU_CHOI: {
     text: "Bị từ chối",
     color: "text-red-600",
     bgColor: "bg-red-50 border-red-200",
@@ -104,7 +104,7 @@ const TABS: { id: FilterTab; label: string }[] = [
   { id: "DA_DUYET", label: "Đã duyệt" },
   { id: "DANG_MUON", label: "Đang mượn" },
   { id: "DA_XONG", label: "Đã xong" },
-  { id: "BI_TU_CHOI", label: "Bị từ chối" },
+  { id: "DA_TU_CHOI", label: "Bị từ chối" },
   { id: "DA_HUY", label: "Đã hủy" },
 ];
 
@@ -246,7 +246,7 @@ export default function UserBookingHistoryPage() {
       },
     ];
 
-    if (["rejected", "BI_TU_CHOI", "cancelled", "DA_HUY"].includes(status)) {
+    if (["rejected", "DA_TU_CHOI", "cancelled", "DA_HUY"].includes(status)) {
       steps.push({
         label: status === "cancelled" || status === "DA_HUY" ? "Đã hủy" : "Bị từ chối",
         done: true,
@@ -432,7 +432,7 @@ export default function UserBookingHistoryPage() {
                   );
                   const hasRejection = !!(
                     booking.rejection_reason &&
-                    ["rejected", "BI_TU_CHOI", "cancelled"].includes(
+                    ["rejected", "DA_TU_CHOI", "cancelled"].includes(
                       status.toUpperCase(),
                     )
                   );
@@ -453,8 +453,10 @@ export default function UserBookingHistoryPage() {
                           </h3>
                           <p className="text-xs text-gray-500 flex items-center gap-1 mt-0.5">
                             <MapPin className="w-3.5 h-3.5 shrink-0" />
-                            {booking.room?.building || "—"} -{" "}
-                            {booking.room?.floor || "—"}
+                            {booking.room?.name ? `${booking.room.name} — ` : ""}
+                            {booking.room?.building || "—"},{" "}
+                            {booking.room?.floor ? `Tầng ${booking.room.floor}` : "—"}
+                            {booking.room?.type ? ` • ${booking.room.type}` : ""}
                           </p>
                         </div>
                         <span
@@ -524,9 +526,9 @@ export default function UserBookingHistoryPage() {
                         <button
                           onClick={() =>
                             setExpandedTimeline(
-                              expandedTimeline === (booking.id || booking._id)
+                              expandedTimeline === (booking.id ?? booking._id ?? "")
                                 ? null
-                                : booking.id || booking._id,
+                                : booking.id ?? booking._id ?? "",
                             )
                           }
                           className="w-full flex items-center justify-between text-xs font-bold text-gray-400 uppercase mb-2 hover:text-violet-600 transition-colors"

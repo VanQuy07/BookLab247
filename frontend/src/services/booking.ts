@@ -6,6 +6,7 @@ export interface BookingRoom {
   name: string;
   building?: string;
   floor?: string;
+  type?: string;
 }
 
 export interface BookingEquipment {
@@ -38,6 +39,36 @@ export const getMyBookings = async (userId: string): Promise<Booking[]> => {
   const token = localStorage.getItem("access_token");
   const headers = { Authorization: `Bearer ${token || ""}` };
 
+  // Fetch rooms for populating room info
+  let roomsMap: Record<string, BookingRoom> = {};
+  try {
+    const roomsRes = await fetch(`${getApiBaseUrl()}/labs`);
+    if (roomsRes.ok) {
+      const rooms = await roomsRes.json();
+      if (Array.isArray(rooms)) {
+        rooms.forEach((r: any) => {
+          roomsMap[r.id || r._id] = {
+            id: r.id || r._id,
+            _id: r._id,
+            name: r.name || r.title || "Phòng Lab",
+            building: r.building || "",
+            floor: r.floor || "",
+            type: r.type || "",
+          };
+        });
+      }
+    }
+  } catch (e) {
+    console.warn("Không lấy được danh sách phòng:", e);
+  }
+
+  const populateRoom = (booking: Booking): Booking => {
+    if (roomsMap[booking.room_id]) {
+      return { ...booking, room: roomsMap[booking.room_id] };
+    }
+    return booking;
+  };
+
   // Ưu tiên: gọi endpoint /me (chỉ trả đơn của user này)
   const meRes = await fetch(
     `${getApiBaseUrl()}/bookings/me?user_id=${encodeURIComponent(userId)}`,
@@ -46,7 +77,8 @@ export const getMyBookings = async (userId: string): Promise<Booking[]> => {
 
   if (meRes.ok) {
     const data = await meRes.json();
-    return Array.isArray(data) ? data : [];
+    const bookings: Booking[] = Array.isArray(data) ? data : [];
+    return bookings.map(populateRoom);
   }
 
   // Fallback: endpoint /me chưa có (server cũ) → lấy tất cả rồi lọc local
@@ -59,11 +91,13 @@ export const getMyBookings = async (userId: string): Promise<Booking[]> => {
     const allData = await allRes.json();
     const allBookings: Booking[] = Array.isArray(allData) ? allData : [];
     const uid = userId.trim().toLowerCase();
-    return allBookings.filter((b) => {
-      const bUid = (b.user_id || "").trim().toLowerCase();
-      const bCname = (b.customer_name || "").trim().toLowerCase();
-      return bUid === uid || bCname === uid || b.user_id === userId || b.customer_name === userId;
-    });
+    return allBookings
+      .filter((b) => {
+        const bUid = (b.user_id || "").trim().toLowerCase();
+        const bCname = (b.customer_name || "").trim().toLowerCase();
+        return bUid === uid || bCname === uid || b.user_id === userId || b.customer_name === userId;
+      })
+      .map(populateRoom);
   }
 
   const data = await meRes.json().catch(() => ({}));
