@@ -21,6 +21,7 @@ import {
   ChevronDown,
   User,
   LogOut,
+  Bell,
 } from "lucide-react";
 
 // Định nghĩa Type an toàn cho dữ liệu tĩnh
@@ -36,16 +37,88 @@ interface ReviewItem {
   content: string;
 }
 
+interface BookingItem {
+  id: string;
+  room_id: string;
+  customer_name: string;
+  phone: string;
+  date: string;
+  start_time: string;
+  duration_mins: number;
+  buffer_mins: number;
+  note: string;
+  equipments: string[];
+  start_time_mins: number;
+  end_time_with_buffer_mins: number;
+  status: string;
+}
+
 export default function LandingPage() {
   const router = useRouter();
   const [userName, setUserName] = useState<string | null>(null);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+
+  const [upcomingBooking, setUpcomingBooking] = useState<{
+    room: string;
+    time: string;
+  } | null>(null);
 
   // Lấy tên từ localStorage khi trang vừa load xong
   useEffect(() => {
     const storedName = localStorage.getItem("user_name");
     if (storedName) {
       setUserName(storedName);
+
+      //Gọi backend kiểm tra lịch
+      const fetchUpcomingBooking = async () => {
+        try {
+          const [resBookings, resLabs] = await Promise.all([
+            fetch("https://booklab247.onrender.com/api/v1/bookings"),
+            fetch("https://booklab247.onrender.com/api/v1/labs")
+          ]);
+          
+          if (!resBookings.ok || !resLabs.ok) return;
+          const bookings: BookingItem[] = await resBookings.json();
+          const labs = await resLabs.json();
+          const userBookings = bookings.filter(
+            (b: BookingItem) =>
+              b.customer_name == storedName && b.status !== "cancelled",
+          );
+          const now = new Date();
+          const upcoming = userBookings.filter((b: BookingItem) => {
+            const bookingDateTime = new Date(`${b.date}T${b.start_time}`);
+            return bookingDateTime > now;
+          });
+          upcoming.sort((a: BookingItem, b: BookingItem) => {
+            return (
+              new Date(`${a.date}T${a.start_time}`).getTime() -
+              new Date(`${b.date}T${b.start_time}`).getTime()
+            );
+          });
+          //Nếu có lịch sắp tới -> Đẩy lên giao diện
+          if (upcoming.length > 0) {
+            const nextBooking = upcoming[0];
+            const todayStr = now.toISOString().split("T")[0];
+            const dateDisplay =
+              nextBooking.date === todayStr
+                ? "hôm nay"
+                : `ngày ${nextBooking.date.split("-").reverse().join("/")}`;
+            const roomInfo = labs.find(
+              (l: any) => (l.id || l._id) === nextBooking.room_id,
+            );
+            const actualRoomName = roomInfo ? roomInfo.name : "Phòng Lab";
+            setUpcomingBooking({
+              room: actualRoomName,
+              time: `${nextBooking.start_time} ${dateDisplay}`,
+            });
+          } else {
+            setUpcomingBooking(null);
+          }
+        } catch (error) {
+          console.error("Lỗi khi kiểm tra lịch nhắc nhở:", error);
+        }
+      };
+      fetchUpcomingBooking();
     }
   }, []);
 
@@ -204,7 +277,19 @@ export default function LandingPage() {
           </div>
         </div>
       </header>
-
+      {/* {upcomingBooking && (
+        <div className="w-full bg-red-600 text-white px-4 py-3 text-center text-sm font-bold shadow-md relative z-40 animate-in slide-in-from-top flex items-center justify-center gap-2">
+          <Bell className="w-4 h-4 animate-bounce" />
+          Đừng quên: Bạn có lịch sử dụng {upcomingBooking.room} lúc{" "}
+          {upcomingBooking.time}!
+          <Link
+            href="/dashboard/user/history"
+            className="ml-2 underline hover:text-red-200"
+          >
+            Bấm để xem
+          </Link>
+        </div>
+      )} */}
       <main>
         {/* 2. HERO SECTION */}
         <section className="relative overflow-hidden pt-20 pb-28">
@@ -215,10 +300,27 @@ export default function LandingPage() {
               transition={{ duration: 0.8 }}
               className="text-center max-w-4xl mx-auto"
             >
-              <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-blue-50 text-blue-700 font-semibold text-sm mb-6 border border-blue-100">
-                <Zap className="w-4 h-4" /> Nền tảng Quản lý Phòng Thực Hành Thế
-                Hệ Mới
-              </div>
+              {/* === THẺ NHẮC NHỞ LỊCH THÔNG MINH === */}
+              {upcomingBooking ? (
+                <Link
+                  href="/dashboard/user/history"
+                  className="inline-flex items-center gap-3 px-6 py-3 rounded-full bg-gradient-to-r from-orange-500 to-red-500 text-white font-black text-sm md:text-base mb-8 shadow-lg shadow-red-500/40 hover:scale-105 hover:shadow-xl transition-all duration-300 ring-4 ring-red-500/20"
+                >
+                  <div className="relative flex h-3 w-3">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-3 w-3 bg-white"></span>
+                  </div>
+                  LỊCH SẮP TỚI: Bạn có hẹn tại {upcomingBooking.room} lúc{" "}
+                  {upcomingBooking.time}. VÀO XEM!
+                </Link>
+              ) : (
+                <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-blue-50 text-blue-700 font-semibold text-sm mb-6 border border-blue-100">
+                  <Zap className="w-4 h-4" /> Nền tảng Quản lý Phòng Thực Hành
+                  Thế Hệ Mới
+                </div>
+              )}
+
+              {/* ================================== */}
               <h1 className="text-5xl md:text-7xl font-black text-gray-900 leading-[1.1] mb-8 tracking-tight">
                 Chuyển Đổi Số Không Gian <br className="hidden md:block" />
                 <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-cyan-500">
