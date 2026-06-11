@@ -18,6 +18,8 @@ import {
   Info,
   Loader2,
   RefreshCw,
+  GitBranch,
+  ChevronDown,
 } from "lucide-react";
 import { getMyBookings, cancelMyBooking, Booking } from "../../../../services/booking";
 
@@ -74,7 +76,7 @@ const STATUS_MAP: Record<string, StatusConfig> = {
     text: "Đang mượn",
     color: "text-blue-600",
     bgColor: "bg-blue-50 border-blue-200",
-    icon: Clock,
+    icon: Loader2,
   },
   BI_TU_CHOI: {
     text: "Bị từ chối",
@@ -135,6 +137,7 @@ export default function UserBookingHistoryPage() {
     null,
   );
   const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null);
+  const [expandedTimeline, setExpandedTimeline] = useState<string | null>(null);
 
   const getUserId = useCallback((): string => {
     // Ưu tiên user_id từ localStorage (nếu có)
@@ -210,6 +213,65 @@ export default function UserBookingHistoryPage() {
         icon: Info,
       }
     );
+  };
+
+  const getTimeline = (booking: Booking) => {
+    const status = booking.status || "";
+    const steps = [
+      {
+        label: "Đã gửi yêu cầu",
+        done: true,
+        active: ["pending", "CHO_DUYET", "confirmed"].includes(status),
+        time: booking.created_at,
+        icon: GitBranch,
+      },
+      {
+        label: "Đã duyệt",
+        done: ["confirmed", "DA_DUYET", "DANG_MUON", "DA_XONG", "DA_HUY", "cancelled", "DA_HUY"].includes(status),
+        active: ["confirmed", "DA_DUYET"].includes(status),
+        time: booking.status === "confirmed" || status === "DA_DUYET" ? booking.updated_at : undefined,
+        icon: CheckCircle2,
+      },
+      {
+        label: "Đang mượn",
+        done: ["DANG_MUON", "DA_XONG"].includes(status),
+        active: status === "DANG_MUON",
+        icon: Loader2,
+      },
+      {
+        label: "Hoàn tất",
+        done: status === "DA_XONG",
+        active: status === "DA_XONG",
+        icon: CheckCircle2,
+      },
+    ];
+
+    if (["rejected", "BI_TU_CHOI", "cancelled", "DA_HUY"].includes(status)) {
+      steps.push({
+        label: status === "cancelled" || status === "DA_HUY" ? "Đã hủy" : "Bị từ chối",
+        done: true,
+        active: false,
+        time: booking.updated_at,
+        icon: XCircle,
+      });
+    }
+
+    return steps;
+  };
+
+  const formatTime = (iso: string | undefined) => {
+    if (!iso) return "—";
+    try {
+      return new Date(iso).toLocaleString("vi-VN", {
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+    } catch {
+      return "—";
+    }
   };
 
   const canCancel = (status: string) => {
@@ -457,6 +519,89 @@ export default function UserBookingHistoryPage() {
                         </div>
                       )}
 
+                      {/* TIMELINE THEO DÕI */}
+                      <div className="mb-3">
+                        <button
+                          onClick={() =>
+                            setExpandedTimeline(
+                              expandedTimeline === (booking.id || booking._id)
+                                ? null
+                                : booking.id || booking._id,
+                            )
+                          }
+                          className="w-full flex items-center justify-between text-xs font-bold text-gray-400 uppercase mb-2 hover:text-violet-600 transition-colors"
+                        >
+                          <span>Theo dõi trạng thái</span>
+                          <ChevronDown
+                            className={`w-4 h-4 transition-transform duration-200 ${
+                              expandedTimeline === (booking.id || booking._id)
+                                ? "rotate-180"
+                                : ""
+                            }`}
+                          />
+                        </button>
+                        <AnimatePresence>
+                          {expandedTimeline === (booking.id || booking._id) && (
+                            <motion.div
+                              initial={{ height: 0, opacity: 0 }}
+                              animate={{ height: "auto", opacity: 1 }}
+                              exit={{ height: 0, opacity: 0 }}
+                              transition={{ duration: 0.2 }}
+                              className="overflow-hidden"
+                            >
+                              <div className="space-y-2 pt-1">
+                                {getTimeline(booking).map((step, idx) => {
+                                  const Icon = step.icon;
+                                  const isLast = idx === getTimeline(booking).length - 1;
+                                  return (
+                                    <div key={idx} className="flex items-start gap-2.5">
+                                      <div className="flex flex-col items-center">
+                                        <div
+                                          className={`w-6 h-6 rounded-full flex items-center justify-center border-2 shrink-0 ${
+                                            step.active
+                                              ? "bg-emerald-600 border-emerald-600 text-white shadow-md shadow-emerald-300"
+                                              : step.done
+                                                ? "bg-emerald-500 border-emerald-500 text-white"
+                                                : "bg-white border-gray-200 text-gray-300"
+                                          }`}
+                                        >
+                                          <Icon className="w-3 h-3" />
+                                        </div>
+                                        {!isLast && (
+                                          <div
+                                            className={`w-0.5 flex-1 my-0.5 ${
+                                              step.done ? "bg-emerald-400" : "bg-gray-200"
+                                            }`}
+                                          />
+                                        )}
+                                      </div>
+                                      <div className="min-w-0 pb-1">
+                                        <p
+                                          className={`text-xs font-bold leading-tight ${
+                                            step.active
+                                              ? "text-emerald-700"
+                                              : step.done
+                                                ? "text-emerald-700"
+                                                : "text-gray-400"
+                                          }`}
+                                        >
+                                          {step.label}
+                                        </p>
+                                        {step.time && (
+                                          <p className="text-xs text-gray-400 mt-0.5">
+                                            {formatTime(step.time as unknown as string)}
+                                          </p>
+                                        )}
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
+                      </div>
+
                       {/* BOTTOM ROW: Mục đích + Actions */}
                       <div className="mt-auto pt-3.5 border-t border-gray-100 flex items-center justify-between gap-2">
                         <div className="min-w-0">
@@ -643,6 +788,61 @@ export default function UserBookingHistoryPage() {
                     </p>
                   </div>
                 )}
+
+                {/* TIMELINE THEO DÕI */}
+                <div>
+                  <p className="text-xs font-bold text-gray-400 uppercase mb-3">
+                    Theo dõi trạng thái
+                  </p>
+                  <div className="space-y-3">
+                    {getTimeline(selectedBooking).map((step, idx) => {
+                      const Icon = step.icon;
+                      const isLast = idx === getTimeline(selectedBooking).length - 1;
+                      return (
+                        <div key={idx} className="flex items-start gap-3">
+                          <div className="flex flex-col items-center">
+                            <div
+                              className={`w-7 h-7 rounded-full flex items-center justify-center border-2 shrink-0 ${
+                                step.active
+                                  ? "bg-violet-600 border-violet-600 text-white shadow-md shadow-violet-300"
+                                  : step.done
+                                    ? "bg-emerald-500 border-emerald-500 text-white"
+                                    : "bg-white border-gray-200 text-gray-300"
+                              }`}
+                            >
+                              <Icon className="w-3.5 h-3.5" />
+                            </div>
+                            {!isLast && (
+                              <div
+                                className={`w-0.5 flex-1 my-0.5 min-h-[20px] ${
+                                  step.done ? "bg-emerald-400" : "bg-gray-200"
+                                }`}
+                              />
+                            )}
+                          </div>
+                          <div className="min-w-0 pt-0.5">
+                            <p
+                              className={`text-sm font-bold leading-tight ${
+                                step.active
+                                  ? "text-violet-700"
+                                  : step.done
+                                    ? "text-emerald-700"
+                                    : "text-gray-400"
+                              }`}
+                            >
+                              {step.label}
+                            </p>
+                            {step.time && (
+                              <p className="text-xs text-gray-400 mt-0.5">
+                                {formatTime(step.time as unknown as string)}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
 
                 {/* Thời gian tạo */}
                 <div>

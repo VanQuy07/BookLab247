@@ -95,7 +95,9 @@ async def create_booking(booking: BookingCreate):
 
     result = await db["bookings"].insert_one(new_booking_data)
     created = await db["bookings"].find_one({"_id": result.inserted_id})
-    return _serialize_booking(created)
+    created = _serialize_booking(created)
+    created["room"] = _get_room_info(booking.room_id)
+    return created
 
 
 # ================== 2. LẤY TẤT CẢ (ADMIN) ==================
@@ -123,8 +125,9 @@ async def get_my_bookings(
     if not user_id or not user_id.strip():
         raise HTTPException(status_code=400, detail="Thiếu user_id")
 
+    uid = user_id.strip()
     bookings_cursor = db["bookings"].find(
-        {"user_id": user_id.strip()}
+        {"$or": [{"user_id": uid}, {"customer_name": uid}]}
     ).sort("created_at", -1)
     bookings_list = await bookings_cursor.to_list(length=500)
     results = []
@@ -171,7 +174,9 @@ async def update_booking_status(
         )
 
     updated = await db["bookings"].find_one({"_id": ObjectId(booking_id)})
-    return _serialize_booking(updated)
+    updated = _serialize_booking(updated)
+    updated["room"] = _get_room_info(updated.get("room_id", ""))
+    return updated
 
 
 # ================== 5. USER TỰ HỦY ĐƠN ==================
@@ -214,4 +219,6 @@ async def cancel_booking(
     )
 
     updated = await db["bookings"].find_one({"_id": ObjectId(booking_id)})
-    return _serialize_booking(updated)
+    updated = _serialize_booking(updated)
+    updated["room"] = _get_room_info(updated.get("room_id", ""))
+    return updated

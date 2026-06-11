@@ -50,7 +50,7 @@ export const getMyBookings = async (userId: string): Promise<Booking[]> => {
   }
 
   // Fallback: endpoint /me chưa có (server cũ) → lấy tất cả rồi lọc local
-  if (meRes.status === 404) {
+  if (meRes.status === 404 || meRes.status === 405) {
     const allRes = await fetch(`${getApiBaseUrl()}/bookings`, { headers });
     if (!allRes.ok) {
       const data = await allRes.json().catch(() => ({}));
@@ -58,12 +58,12 @@ export const getMyBookings = async (userId: string): Promise<Booking[]> => {
     }
     const allData = await allRes.json();
     const allBookings: Booking[] = Array.isArray(allData) ? allData : [];
-    return allBookings.filter(
-      (b) =>
-        b.user_id === userId ||
-        b.customer_name === userId ||
-        (b.customer_name || "").toLowerCase() === userId.toLowerCase(),
-    );
+    const uid = userId.trim().toLowerCase();
+    return allBookings.filter((b) => {
+      const bUid = (b.user_id || "").trim().toLowerCase();
+      const bCname = (b.customer_name || "").trim().toLowerCase();
+      return bUid === uid || bCname === uid || b.user_id === userId || b.customer_name === userId;
+    });
   }
 
   const data = await meRes.json().catch(() => ({}));
@@ -75,21 +75,38 @@ export const cancelMyBooking = async (
   cancelReason?: string,
 ): Promise<Booking> => {
   const token = localStorage.getItem("access_token");
+  const headers = {
+    Authorization: `Bearer ${token || ""}`,
+    "Content-Type": "application/json",
+  };
   const body = cancelReason ? JSON.stringify({ cancel_reason: cancelReason }) : "{}";
-  const response = await fetch(
+
+  // Ưu tiên: endpoint /cancel (server mới)
+  const res = await fetch(
     `${getApiBaseUrl()}/bookings/${bookingId}/cancel`,
-    {
-      method: "PATCH",
-      headers: {
-        Authorization: `Bearer ${token || ""}`,
-        "Content-Type": "application/json",
-      },
-      body,
-    },
+    { method: "PATCH", headers, body },
   );
-  if (!response.ok) {
-    const data = await response.json().catch(() => ({}));
+
+  // Fallback: server cũ chưa có /cancel → dùng /status thành "cancelled"
+  if (res.status === 404 || res.status === 405) {
+    const fallbackRes = await fetch(
+      `${getApiBaseUrl()}/bookings/${bookingId}/status`,
+      {
+        method: "PATCH",
+        headers,
+        body: JSON.stringify({ status: "cancelled" }),
+      },
+    );
+    if (!fallbackRes.ok) {
+      const data = await fallbackRes.json().catch(() => ({}));
+      throw new Error(data.detail || "Không thể hủy đơn đặt phòng");
+    }
+    return fallbackRes.json();
+  }
+
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
     throw new Error(data.detail || "Không thể hủy đơn đặt phòng");
   }
-  return response.json();
+  return res.json();
 };
