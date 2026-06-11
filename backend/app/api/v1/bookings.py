@@ -65,21 +65,43 @@ async def create_booking(booking: BookingCreate):
 # ================== 2. API LẤY LỊCH SỬ ĐƠN ==================
 @router.get("")
 async def get_bookings():
-    # 1. Kéo toàn bộ danh sách đơn từ MongoDB
-    bookings_cursor = db["bookings"].find().sort("date", -1) # Sắp xếp ngày mới nhất lên đầu
-    bookings_list = await bookings_cursor.to_list(length=100) # Lấy tạm 100 đơn
+    bookings_cursor = db["bookings"].find().sort("date", -1)
+    bookings_list = await bookings_cursor.to_list(length=100)
     
-    # 2. Xử lý ObjectId của MongoDB thành string để Frontend đọc được
+    # --- ĐOẠN THÊM MỚI 1: Lấy ngày hiện tại và danh sách ca đã duyệt ổn định ---
+    today_str = datetime.now().strftime("%Y-%m-%d")
+    confirmed_bookings = [b for b in bookings_list if b.get("status") in ["confirmed", "checked-in"]]
+
     for booking in bookings_list:
         booking["id"] = str(booking["_id"])
         del booking["_id"]
         
-    # 3. Trả về đúng định dạng mảng (Array) mà Frontend đang chờ
+        # --- ĐOẠN THÊM MỚI 2: Tính toán thuộc tính động trước khi trả về ---
+        booking["is_urgent"] = (booking.get("date") == today_str) # Đơn khẩn trong ngày
+        booking["is_conflict"] = False
+        booking["conflict_with"] = ""
+        
+        if booking.get("status") == "pending":
+            b_start = booking.get("start_time_mins", 0)
+            b_end = booking.get("end_time_with_buffer_mins", 0)
+            
+            # Quét đối chiếu với các đơn đã duyệt xem có bị đè khung giờ không
+            for cb in confirmed_bookings:
+                if cb.get("room_id") == booking.get("room_id") and cb.get("date") == booking.get("date"):
+                    cb_start = cb.get("start_time_mins", 0)
+                    cb_end = cb.get("end_time_with_buffer_mins", 0)
+                    
+                    if b_start < cb_end and b_end > cb_start:
+                        booking["is_conflict"] = True
+                        booking["conflict_with"] = cb.get("customer_name", "Khách ẩn danh")
+                        break
+                        
     return bookings_list
 
 # ================== 3. API DUYỆT / TỪ CHỐI ĐƠN ==================
 class BookingStatusUpdate(BaseModel):
     status: str  # Frontend sẽ gửi lên "confirmed" (Duyệt) hoặc "cancelled" (Từ chối)
+    cancel_reason: str = ""
 
 @router.patch("/{booking_id}/status")
 async def update_booking_status(booking_id: str, status_update: BookingStatusUpdate):
@@ -88,12 +110,22 @@ async def update_booking_status(booking_id: str, status_update: BookingStatusUpd
         raise HTTPException(status_code=400, detail="ID đơn hàng không hợp lệ")
 
     # Cập nhật trạng thái mới vào Database
+    # result = await db["bookings"].update_one(
+    #     {"_id": ObjectId(booking_id)},
+    #     {"$set": {"status": status_update.status}}
+    # )
+
+    # if result.matched_count == 0:
+    #     raise HTTPException(status_code=404, detail="Không tìm thấy đơn đặt phòng này trong Database")
+
+    # return {"message": f"Đã cập nhật trạng thái thành: {status_update.status}"}
+    
+    update_data = {"status": status_update.status}
+    
+    if status_update.status == "cancelled" and status_update.cancel_reason:
+        update_data["cancel_reason"] = status_update.cancel_reason
+
     result = await db["bookings"].update_one(
         {"_id": ObjectId(booking_id)},
-        {"$set": {"status": status_update.status}}
+        {"$set": update_data} 
     )
-
-    if result.matched_count == 0:
-        raise HTTPException(status_code=404, detail="Không tìm thấy đơn đặt phòng này trong Database")
-
-    return {"message": f"Đã cập nhật trạng thái thành: {status_update.status}"}
