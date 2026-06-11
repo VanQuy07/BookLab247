@@ -18,6 +18,8 @@ import {
   ChevronDown,
   History,
   ClipboardList,
+  Lock,
+  ArrowLeft,
 } from "lucide-react";
 import {
   BookingItem,
@@ -116,9 +118,19 @@ export default function UserBookingHistoryPage() {
   const [userName, setUserName] = useState<string | null>(null);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [isLoggedIn, setIsLoggedIn] = useState(true);
 
   useEffect(() => {
+    const token = localStorage.getItem("access_token");
     const storedName = localStorage.getItem("user_name");
+
+    if (!token) {
+      setIsLoggedIn(false);
+      setLoading(false);
+      return;
+    }
+
+    setIsLoggedIn(true);
     if (storedName) setUserName(storedName);
     fetchMyBookingsData();
   }, []);
@@ -130,6 +142,7 @@ export default function UserBookingHistoryPage() {
       setBookings(data);
     } catch (error) {
       console.error("Lỗi khi tải lịch sử:", error);
+      setIsLoggedIn(false);
     } finally {
       setLoading(false);
     }
@@ -237,12 +250,41 @@ export default function UserBookingHistoryPage() {
 
       <div className="max-w-5xl mx-auto p-4 md:p-8">
         <div className="mb-8">
+          <button
+            onClick={() => router.back()}
+            className="flex items-center gap-2 text-gray-500 hover:text-blue-600 font-bold mb-4 transition-colors w-fit group outline-none"
+          >
+            <ArrowLeft className="w-5 h-5 group-hover:-translate-x-1 transition-transform" />
+            Quay lại
+          </button>
           <h1 className="text-3xl font-black text-gray-900">Lịch sử mượn phòng & thiết bị</h1>
           <p className="text-gray-500 mt-2">
             Theo dõi trạng thái yêu cầu, lý do từ chối và tiến trình mượn trả.
           </p>
         </div>
 
+        {loading ? (
+          <div className="flex justify-center py-20">
+            <div className="w-10 h-10 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin" />
+          </div>
+        ) : !isLoggedIn ? (
+          <div className="bg-white border border-gray-200 rounded-3xl p-12 text-center flex flex-col items-center justify-center max-w-md mx-auto shadow-sm">
+            <div className="w-16 h-16 bg-amber-50 text-amber-500 rounded-full flex items-center justify-center mb-4">
+              <Lock className="w-8 h-8" />
+            </div>
+            <h3 className="text-xl font-bold text-gray-900 mb-2">Yêu cầu đăng nhập</h3>
+            <p className="text-gray-500 text-sm mb-6 leading-relaxed">
+              Vui lòng đăng nhập tài khoản sinh viên để xem lịch sử các phòng bạn đã đặt.
+            </p>
+            <button
+              onClick={() => (window.location.href = "/login")}
+              className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-black text-sm rounded-xl transition-all shadow-lg shadow-blue-600/20 active:scale-95"
+            >
+              Đăng nhập ngay
+            </button>
+          </div>
+        ) : (
+          <>
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-8">
           {[
             { label: "Chờ duyệt", value: stats.pending, color: "text-amber-600 bg-amber-50 border-amber-100" },
@@ -316,11 +358,7 @@ export default function UserBookingHistoryPage() {
           ))}
         </div>
 
-        {loading ? (
-          <div className="flex justify-center py-20">
-            <div className="w-10 h-10 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin" />
-          </div>
-        ) : filteredBookings.length === 0 ? (
+        {filteredBookings.length === 0 ? (
           <div className="bg-white border border-gray-200 rounded-3xl p-12 text-center flex flex-col items-center justify-center">
             <Calendar className="w-16 h-16 text-gray-300 mb-4" />
             <h3 className="text-xl font-bold text-gray-900 mb-1">Không có đơn nào</h3>
@@ -457,6 +495,8 @@ export default function UserBookingHistoryPage() {
               })}
             </AnimatePresence>
           </div>
+        )}
+          </>
         )}
       </div>
     </div>

@@ -3,8 +3,18 @@
 import React, { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Mail, Lock, ArrowRight, Hexagon, Eye, EyeOff } from "lucide-react";
+import {
+  Mail,
+  Lock,
+  ArrowRight,
+  Hexagon,
+  Eye,
+  EyeOff,
+  CheckCircle2,
+  AlertTriangle,
+} from "lucide-react";
 import { GoogleOAuthProvider, GoogleLogin } from "@react-oauth/google";
+import { motion, AnimatePresence } from "framer-motion";
 
 // CLIENT ID CỦA BẠN (BookLab247)
 const GOOGLE_CLIENT_ID =
@@ -17,13 +27,32 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
-
   const [showPassword, setShowPassword] = useState(false);
 
   const getApiBaseUrl = () =>
     typeof window !== "undefined" && window.location.hostname === "localhost"
       ? "http://localhost:8000/api/v1"
       : "https://booklab247.onrender.com/api/v1";
+
+  const [toast, setToast] = useState<{
+    show: boolean;
+    message: string;
+    type: "success" | "error";
+  }>({
+    show: false,
+    message: "",
+    type: "success",
+  });
+
+  const showToast = (
+    message: string,
+    type: "success" | "error" = "success",
+  ) => {
+    setToast({ show: true, message, type });
+    if (type === "error") {
+      setTimeout(() => setToast((prev) => ({ ...prev, show: false })), 3000);
+    }
+  };
 
   // 1. Luồng đăng nhập bằng Email/Pass thông thường
   const handleLogin = async (e: React.FormEvent) => {
@@ -51,16 +80,31 @@ export default function LoginPage() {
       localStorage.setItem("user_name", data.user_name);
       localStorage.setItem("api_base_url", getApiBaseUrl());
 
+      // 🚀 ĐỌC ĐƯỜNG DẪN CŨ NẾU USER ĐANG ĐẶT PHÒNG DỞ
+      const redirectUrl = localStorage.getItem("redirect_after_login");
+
       if (data.role === "ADMIN") {
-        router.push("/admin");
+        showToast("Đăng nhập thành công! Đang chuyển hướng...", "success");
+        setTimeout(() => router.push("/admin"), 1500);
       } else if (data.role === "MANAGER") {
-        router.push("/manager");
+        showToast("Đăng nhập thành công! Đang chuyển hướng...", "success");
+        setTimeout(() => router.push("/manager"), 1500);
       } else {
-        router.push("/");
+        // Xử lý riêng cho Sinh viên / User
+        if (redirectUrl) {
+          localStorage.removeItem("redirect_after_login"); // Xóa đi sau khi dùng
+          showToast(
+            "Đăng nhập thành công! Đang khôi phục đơn đặt phòng...",
+            "success",
+          );
+          setTimeout(() => router.push(redirectUrl), 1500);
+        } else {
+          showToast("Đăng nhập thành công! Đang chuyển hướng...", "success");
+          setTimeout(() => router.push("/"), 1500);
+        }
       }
     } catch (err: any) {
       setError(err.message || "Email hoặc mật khẩu không chính xác!");
-    } finally {
       setIsLoading(false);
     }
   };
@@ -87,27 +131,69 @@ export default function LoginPage() {
       }
 
       localStorage.setItem("access_token", data.access_token);
+      localStorage.setItem("user_name", data.user_name || "Người dùng Google");
       localStorage.setItem("api_base_url", getApiBaseUrl());
 
-      // Chuyển hướng thông minh dựa vào quyền
-      if (data.role === "ADMIN") {
-        router.push("/admin");
-      } else if (data.role === "MANAGER") {
-        router.push("/manager");
+      // 🚀 ĐỌC ĐƯỜNG DẪN CŨ NẾU USER ĐANG ĐẶT PHÒNG DỞ
+      const redirectUrl = localStorage.getItem("redirect_after_login");
+
+      if (data.role === "ADMIN" || data.role === "MANAGER") {
+        showToast("Đăng nhập thành công! Đang chuyển hướng...", "success");
+        setTimeout(() => {
+          router.push(data.role === "ADMIN" ? "/admin" : "/manager");
+        }, 1500);
+      } else if (redirectUrl) {
+        // Ưu tiên khôi phục form đặt phòng nếu họ đang làm dở
+        localStorage.removeItem("redirect_after_login");
+        showToast(
+          "Đăng nhập thành công! Đang khôi phục đơn đặt phòng...",
+          "success",
+        );
+        setTimeout(() => router.push(redirectUrl), 1500);
       } else {
-        router.push("/");
+        // Tài khoản User Google mới -> Báo cập nhật thông tin
+        showToast(
+          "Kết nối thành công! Vui lòng cập nhật hồ sơ cá nhân.",
+          "success",
+        );
+        setTimeout(() => {
+          router.push("/dashboard/user/profile");
+        }, 1500);
       }
     } catch (err: any) {
       setError(err.message || "Đăng nhập bằng Google thất bại!");
-    } finally {
+      showToast(err.message || "Đăng nhập bằng Google thất bại!", "error");
       setIsLoading(false);
     }
   };
 
   return (
     <GoogleOAuthProvider clientId={GOOGLE_CLIENT_ID}>
-      <div className="min-h-screen flex items-center justify-center bg-[#f8fafc] p-4">
-        <div className="max-w-[1000px] w-full bg-white rounded-3xl shadow-xl overflow-hidden flex flex-col md:flex-row">
+      <div className="min-h-screen flex items-center justify-center bg-[#f8fafc] p-4 relative overflow-hidden">
+        {/* ================= THÔNG BÁO NỔI (TOAST MESSAGE) ================= */}
+        <AnimatePresence>
+          {toast.show && (
+            <motion.div
+              initial={{ opacity: 0, y: -50, scale: 0.9 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -20, scale: 0.9 }}
+              className={`fixed top-8 right-8 z-[9999] flex items-center gap-3 px-6 py-4 rounded-2xl shadow-2xl border ${
+                toast.type === "success"
+                  ? "bg-emerald-50 border-emerald-200 text-emerald-800"
+                  : "bg-red-50 border-red-200 text-red-800"
+              }`}
+            >
+              {toast.type === "success" ? (
+                <CheckCircle2 className="w-6 h-6 text-emerald-600" />
+              ) : (
+                <AlertTriangle className="w-6 h-6 text-red-600" />
+              )}
+              <span className="font-bold text-sm">{toast.message}</span>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        <div className="max-w-[1000px] w-full bg-white rounded-3xl shadow-xl overflow-hidden flex flex-col md:flex-row z-10">
           {/* Cột trái: Form Đăng nhập */}
           <div className="w-full md:w-1/2 p-8 md:p-12 lg:p-16 flex flex-col justify-center relative">
             <div className="mb-10">
@@ -207,16 +293,21 @@ export default function LoginPage() {
 
               <button
                 type="submit"
-                disabled={isLoading}
+                disabled={isLoading || toast.show}
                 className={`w-full py-3.5 px-4 mt-2 flex items-center justify-center gap-2 rounded-xl text-white font-bold shadow-lg shadow-blue-600/20 transition-all active:scale-[0.98]
-                  ${isLoading ? "bg-blue-400 cursor-not-allowed" : "bg-blue-600 hover:bg-blue-700 hover:shadow-blue-600/30"}`}
+                  ${isLoading || toast.show ? "bg-blue-400 cursor-not-allowed" : "bg-blue-600 hover:bg-blue-700 hover:shadow-blue-600/30"}`}
               >
-                {isLoading ? "Đang xác thực..." : "Đăng nhập hệ thống"}
-                {!isLoading && <ArrowRight className="w-5 h-5" />}
+                {isLoading
+                  ? "Đang xác thực..."
+                  : toast.show
+                    ? "Thành công!"
+                    : "Đăng nhập hệ thống"}
+                {!isLoading && !toast.show && (
+                  <ArrowRight className="w-5 h-5" />
+                )}
               </button>
             </form>
 
-            {/* KHU VỰC ĐĂNG NHẬP GOOGLE */}
             <div className="mt-8 flex items-center gap-4">
               <div className="h-px bg-gray-200 flex-1"></div>
               <span className="text-sm font-medium text-gray-400 whitespace-nowrap">
@@ -253,7 +344,6 @@ export default function LoginPage() {
           {/* Cột phải: Banner Hình ảnh */}
           <div className="hidden md:block w-1/2 bg-blue-600 relative overflow-hidden">
             <div className="absolute inset-0 bg-gradient-to-br from-blue-600/90 to-blue-900/90 mix-blend-multiply z-10"></div>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src="https://images.unsplash.com/photo-1581091226825-a6a2a5aee158?auto=format&fit=crop&q=80&w=1200"
               alt="Laboratory background"
