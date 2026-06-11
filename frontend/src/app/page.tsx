@@ -304,7 +304,7 @@ export default function LandingPage() {
               {upcomingBooking ? (
                 <Link
                   href="/dashboard/user/history"
-                  className="inline-flex items-center gap-3 px-6 py-3 rounded-full bg-gradient-to-r from-orange-500 to-red-500 text-white font-black text-sm md:text-base mb-8 shadow-lg shadow-red-500/40 hover:scale-105 hover:shadow-xl transition-all duration-300 ring-4 ring-red-500/20"
+                  className="inline-flex items-center gap-3 px-6 py-3 rounded-full bg-gradient-to-r from-orange-500 to-red-500 text-white font-black text-sm md:text-base mb-8 shadow-lg shadow-red-500/40 hover:scale-105 hover:shadow-xl transition-all duration-300 ring-4 ring-red-500/20 animate-pulse"
                 >
                   <div className="relative flex h-3 w-3">
                     <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span>
