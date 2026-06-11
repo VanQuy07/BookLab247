@@ -66,6 +66,70 @@ def _get_room_info(room_id: str) -> dict:
     return {}
 
 
+def _auto_update_booking_statuses():
+    """Tự động chuyển trạng thái đơn đặt phòng theo thời gian."""
+    now = datetime.now(timezone.utc)
+    updated_count = 0
+
+    # Chuyển DA_DUYET -> DANG_MUON (đến giờ bắt đầu)
+    pending_to_active = db["bookings"].find({
+        "status": "DA_DUYET",
+    })
+    for booking in pending_to_active:
+        booking_datetime = _parse_booking_datetime(booking.get("date", ""), booking.get("start_time", ""))
+        if booking_datetime and now >= booking_datetime:
+            db["bookings"].update_one(
+                {"_id": booking["_id"]},
+                {"$set": {"status": "DANG_MUON", "updated_at": now}}
+            )
+            updated_count += 1
+
+    # Chuyển DANG_MUON -> DA_XONG (hết giờ mượn)
+    active_to_done = db["bookings"].find({
+        "status": "DANG_MUON",
+    })
+    for booking in active_to_done:
+        end_time = _get_end_time(
+            booking.get("start_time", ""),
+            booking.get("duration_mins", 0),
+            booking.get("buffer_mins", 0)
+        )
+        end_datetime = _parse_booking_datetime(booking.get("date", ""), end_time)
+        if end_datetime and now >= end_datetime:
+            db["bookings"].update_one(
+                {"_id": booking["_id"]},
+                {"$set": {"status": "DA_XONG", "updated_at": now}}
+            )
+            updated_count += 1
+
+    return updated_count
+
+
+def _parse_booking_datetime(date_str: str, time_str: str) -> datetime | None:
+    """Parse ngày + giờ thành datetime timezone-aware."""
+    if not date_str or not time_str:
+        return None
+    try:
+        dt = datetime.strptime(f"{date_str} {time_str}", "%Y-%m-%d %H:%M")
+        return dt.replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None
+
+
+def _get_end_time(start_time: str, duration_mins: int, buffer_mins: int = 0) -> str:
+    """Tính giờ kết thúc (bao gồm buffer)."""
+    if not start_time:
+        return "00:00"
+    try:
+        h, m = map(int, start_time.split(":"))
+        total_mins = h * 60 + m + duration_mins + buffer_mins
+        end_h = (total_mins // 60) % 24
+        end_m = total_mins % 60
+        return f"{end_h:02d}:{end_m:02d}"
+    except ValueError:
+        return "00:00"
+
+
 # ================== 1. TẠO ĐƠN ==================
 @router.post("")
 async def create_booking(booking: BookingCreate):
@@ -110,6 +174,8 @@ async def create_booking(booking: BookingCreate):
 async def get_bookings(
     authorization: str | None = Header(default=None),
 ):
+    _auto_update_booking_statuses()
+
     bookings_cursor = db["bookings"].find().sort("created_at", -1)
     bookings_list = await bookings_cursor.to_list(length=500)
     results = []
@@ -129,6 +195,8 @@ async def get_my_bookings(
 ):
     if not user_id or not user_id.strip():
         raise HTTPException(status_code=400, detail="Thiếu user_id")
+
+    _auto_update_booking_statuses()
 
     uid = user_id.strip()
     bookings_cursor = db["bookings"].find(
