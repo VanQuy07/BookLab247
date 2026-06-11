@@ -28,7 +28,7 @@ import {
   FilterX,
 } from "lucide-react";
 import Link from "next/link";
-import { clear } from "node:console";
+
 
 // ================= TYPES =================
 interface LabItem {
@@ -87,7 +87,7 @@ export default function UserLabsPage() {
   });
 
   // GỌI API LẤY DỮ LIỆU PHÒNG LAB TỪ ADMIN
-  useEffect(() => {
+   useEffect(() => {
     const fetchLabs = async () => {
       try {
         setLoading(true);

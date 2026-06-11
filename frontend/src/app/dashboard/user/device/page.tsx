@@ -38,6 +38,7 @@ interface DeviceItem {
   // Bổ sung các biến quan trọng từ nhánh của bạn
   totalQuantity: number;
   managementType: string;
+  roomName: string;
 }
 
 // Định nghĩa kiểu dữ liệu trả về từ API Backend
@@ -53,7 +54,8 @@ interface ApiEquipment {
   status: string;
   imageUrl: string;
   price?: number;
-  pricePerHour?: number; // Cấu trúc giá chuẩn
+  pricePerHour?: number;
+  location?: string; // Cấu trúc giá chuẩn
 }
 
 type ViewMode = "grid" | "list";
@@ -100,7 +102,6 @@ export default function UserDevicesPage() {
   useEffect(() => {
     const fetchDevicesFromAdmin = async () => {
       try {
-        setLoading(true);
         // SỬA LỖI: Trả lại đúng đường dẫn API equipments thay vì labs của nhánh master
         const response = await fetch(
           "https://booklab247.onrender.com/api/v1/equipments",
@@ -111,7 +112,6 @@ export default function UserDevicesPage() {
         }
 
         const data: ApiEquipment[] = await response.json();
-
         // Ánh xạ (Map) dữ liệu từ Backend sang Frontend UI
         const formattedDevices: DeviceItem[] = data.map((item) => {
           // Tính toán số lượng tồn kho thực tế
@@ -129,6 +129,7 @@ export default function UserDevicesPage() {
             deviceStatus = "out_of_stock";
 
           return {
+            roomName: item.location || "Trong kho",
             id: item.id || item._id || "",
             name: item.name,
             category: item.category || "Chưa phân loại",
@@ -142,9 +143,7 @@ export default function UserDevicesPage() {
               item.imageUrl ||
               "https://images.unsplash.com/photo-1581092335397-9583eb92d232?auto=format&fit=crop&q=80&w=800",
             specs:
-              item.managementType === "serial"
-                ? [`Serial: ${item.serialNumber || "N/A"}`]
-                : ["Quản lý theo số lượng"],
+                ["Quản lý theo số lượng"],
             rating: 5.0, // Mặc định 5 sao
           };
         });
@@ -688,23 +687,19 @@ export default function UserDevicesPage() {
 
                       {/* KHÔI PHỤC LOGIC HIỂN THỊ CÒN LẠI / ĐƠN CHIẾC TỪ HEAD */}
                       <div className="flex items-center gap-3 text-sm text-gray-600 mb-4 mt-3">
-                        {device.managementType === "pool" ? (
-                          <span
-                            className={`flex items-center gap-1.5 font-bold px-2.5 py-1 rounded-md border ${device.quantity > 0 ? "bg-blue-50 border-blue-100 text-blue-700" : "bg-red-50 border-red-100 text-red-600"}`}
-                          >
-                            <Package className="w-4 h-4" /> Còn lại:
-                            {device.quantity} / {device.totalQuantity} cái
-                          </span>
-                        ) : (
-                          <span className="flex items-center gap-1.5 font-bold px-2.5 py-1 rounded-md border bg-gray-50 border-gray-200 text-gray-700">
-                            <Package className="w-4 h-4" /> Phân loại: Đơn chiếc
-                            (Serial)
-                          </span>
-                        )}
+                        <span className={`flex items-center gap-1.5 font-bold px-2.5 py-1 rounded-md border ${device.quantity > 0 ? "bg-blue-50 border-blue-100 text-blue-700" : "bg-red-50 border-red-100 text-red-600"}`}>
+                          <Package className="w-4 h-4" /> Còn lại: {device.quantity} / {device.totalQuantity} cái
+                        </span>
                       </div>
 
                       <div className="text-xs text-gray-500 line-clamp-1 mb-4">
                         {device.specs.join(" • ")}
+  
+                        {/* Thẻ hiển thị vị trí phòng - Đã xóa mb-4 dư thừa */}
+                        <div className="mt-2 text-xs font-medium text-gray-500 bg-gray-50 px-2 py-1 rounded border border-gray-100 flex items-center gap-1 w-fit">
+                          <span className="text-gray-400">Vị trí:</span>
+                          <span className="text-gray-800 font-semibold">{device.roomName}</span>
+                        </div>
                       </div>
                       <div className="mt-auto pt-4 border-t border-gray-100 flex items-center justify-between">
                         <div>

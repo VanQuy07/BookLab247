@@ -119,6 +119,16 @@ const INITIAL_BOOKINGS: BookingItem[] = [
   },
 ];
 
+const SectionHeader = ({ title, description, action }: { title: string, description: string, action?: React.ReactNode }) => (
+  <div className="flex justify-between items-end mb-6">
+    <div>
+      <h2 className="text-2xl font-black text-gray-900 tracking-tight">{title}</h2>
+      <p className="text-gray-500 font-medium text-sm mt-1">{description}</p>
+    </div>
+    {action && <div>{action}</div>}
+  </div>
+);
+
 export default function ManagerDashboardPage() {
   const router = useRouter();
   const [activeMenu, setActiveMenu] = useState<MenuTab>("timeline");
@@ -167,7 +177,9 @@ export default function ManagerDashboardPage() {
     reason: string;
   }>({ isOpen: false, type: "room", itemId: "", itemName: "", reason: "" });
 
+  //const API_URL = `${process.env.NEXT_PUBLIC_API_URL}/api/v1`;
   const API_URL = "https://booklab247.onrender.com/api/v1";
+
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 60000);
@@ -298,7 +310,7 @@ const startObj = new Date(
 
     return roomTotal + eqTotal;
   };
-  
+
 
   const updateEqQuantity = (eqId: string, delta: number) => {
     const currentEqs = { ...quickBookData.equipments };
@@ -469,6 +481,14 @@ const startObj = new Date(
 
   // ================= GIAO DIỆN LABS & EQUIPMENTS =================
   const renderLabsTable = () => (
+    <>
+    <div className="flex justify-between items-end mb-6">
+        <div>
+          <h2 className="text-2xl font-black text-gray-900 tracking-tight">Quản lý Phòng Lab</h2>
+          <p className="text-gray-500 font-medium text-sm mt-1">Kiểm soát trạng thái phòng Lab của hệ thống.</p>
+        </div>
+        <button className="bg-emerald-600 text-white px-4 py-2 rounded-xl font-bold text-sm hover:bg-emerald-700 transition-all shadow-md">+ Thêm Phòng</button>
+      </div>
     <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden animate-in fade-in duration-300">
       <div className="overflow-x-auto">
         <table className="w-full text-left border-collapse">
@@ -555,9 +575,19 @@ const startObj = new Date(
         </table>
       </div>
     </div>
+  </>
   );
 
   const renderEquipmentsTable = () => (
+    <>
+    
+    <div className="flex justify-between items-end mb-6">
+      <div>
+        <h2 className="text-2xl font-black text-gray-900 tracking-tight">Quản lý Thiết bị</h2>
+        <p className="text-gray-500 font-medium text-sm mt-1">Kiểm soát trạng thái Thiết bị của hệ thống.</p>
+      </div>
+      <button className="bg-emerald-600 text-white px-4 py-2 rounded-xl font-bold text-sm hover:bg-emerald-700 transition-all shadow-md">+ Thêm Phòng</button>
+    </div>
     <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden animate-in fade-in duration-300">
       <div className="overflow-x-auto">
         <table className="w-full text-left border-collapse">
@@ -608,15 +638,9 @@ const startObj = new Date(
                   </td>
 
                   <td className="p-4">
-                    {eq.managementType === "pool" ? (
-                      <span className="inline-flex items-center gap-1.5 bg-blue-50 text-blue-700 px-3 py-1 rounded-full text-xs font-bold border border-blue-100">
-                        Còn: {availableQty}/{eq.totalQuantity}
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center gap-1.5 bg-gray-100 text-gray-700 px-3 py-1 rounded-full text-xs font-bold border border-gray-200">
-                        Đơn chiếc (Serial)
-                      </span>
-                    )}
+                    <span className="inline-flex items-center gap-1.5 bg-blue-50 text-blue-700 px-3 py-1 rounded-full text-xs font-bold border border-blue-100">
+                      Còn: {availableQty}/{eq.totalQuantity}
+                    </span>
                   </td>
 
                   <td className="p-4">
@@ -669,6 +693,7 @@ const startObj = new Date(
         </table>
       </div>
     </div>
+    </>
   );
 
   const renderDashboard = () => (
