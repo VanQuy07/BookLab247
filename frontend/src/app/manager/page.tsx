@@ -317,8 +317,8 @@ export default function ManagerDashboardPage() {
   };
 
   const minsToTime = (mins: number) => {
-    const h = Math.floor(mins / 60);
-    const m = mins % 60;
+    const h = Math.floor(mins / 60) % 24;
+    const m = Math.floor(mins % 60);
     return `${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}`;
   };
 
