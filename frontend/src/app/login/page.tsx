@@ -14,7 +14,7 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import { GoogleOAuthProvider, GoogleLogin } from "@react-oauth/google";
-import { motion, AnimatePresence } from "framer-motion"; // Import thêm hiệu ứng
+import { motion, AnimatePresence } from "framer-motion";
 
 // CLIENT ID CỦA BẠN (BookLab247)
 const GOOGLE_CLIENT_ID =
@@ -45,7 +45,6 @@ export default function LoginPage() {
     type: "success" | "error" = "success",
   ) => {
     setToast({ show: true, message, type });
-    // Tự động tắt sau 3 giây nếu là lỗi
     if (type === "error") {
       setTimeout(() => setToast((prev) => ({ ...prev, show: false })), 3000);
     }
@@ -76,19 +75,29 @@ export default function LoginPage() {
       localStorage.setItem("access_token", data.access_token);
       localStorage.setItem("user_name", data.user_name);
 
-      // Hiện thông báo xịn sò
-      showToast("Đăng nhập thành công! Đang chuyển hướng...", "success");
+      // 🚀 ĐỌC ĐƯỜNG DẪN CŨ NẾU USER ĐANG ĐẶT PHÒNG DỞ
+      const redirectUrl = localStorage.getItem("redirect_after_login");
 
-      // Đợi 1.5 giây để user đọc thông báo rồi mới chuyển trang
-      setTimeout(() => {
-        if (data.role === "ADMIN") {
-          router.push("/admin");
-        } else if (data.role === "MANAGER") {
-          router.push("/manager");
+      if (data.role === "ADMIN") {
+        showToast("Đăng nhập thành công! Đang chuyển hướng...", "success");
+        setTimeout(() => router.push("/admin"), 1500);
+      } else if (data.role === "MANAGER") {
+        showToast("Đăng nhập thành công! Đang chuyển hướng...", "success");
+        setTimeout(() => router.push("/manager"), 1500);
+      } else {
+        // Xử lý riêng cho Sinh viên / User
+        if (redirectUrl) {
+          localStorage.removeItem("redirect_after_login"); // Xóa đi sau khi dùng
+          showToast(
+            "Đăng nhập thành công! Đang khôi phục đơn đặt phòng...",
+            "success",
+          );
+          setTimeout(() => router.push(redirectUrl), 1500);
         } else {
-          router.push("/");
+          showToast("Đăng nhập thành công! Đang chuyển hướng...", "success");
+          setTimeout(() => router.push("/"), 1500);
         }
-      }, 1500);
+      }
     } catch (err: any) {
       setError(err.message || "Email hoặc mật khẩu không chính xác!");
       setIsLoading(false);
@@ -119,11 +128,22 @@ export default function LoginPage() {
       localStorage.setItem("access_token", data.access_token);
       localStorage.setItem("user_name", data.user_name || "Người dùng Google");
 
+      // 🚀 ĐỌC ĐƯỜNG DẪN CŨ NẾU USER ĐANG ĐẶT PHÒNG DỞ
+      const redirectUrl = localStorage.getItem("redirect_after_login");
+
       if (data.role === "ADMIN" || data.role === "MANAGER") {
         showToast("Đăng nhập thành công! Đang chuyển hướng...", "success");
         setTimeout(() => {
           router.push(data.role === "ADMIN" ? "/admin" : "/manager");
         }, 1500);
+      } else if (redirectUrl) {
+        // Ưu tiên khôi phục form đặt phòng nếu họ đang làm dở
+        localStorage.removeItem("redirect_after_login");
+        showToast(
+          "Đăng nhập thành công! Đang khôi phục đơn đặt phòng...",
+          "success",
+        );
+        setTimeout(() => router.push(redirectUrl), 1500);
       } else {
         // Tài khoản User Google mới -> Báo cập nhật thông tin
         showToast(

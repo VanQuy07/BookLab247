@@ -12,7 +12,7 @@ import {
   Search,
   ChevronDown,
   ChevronUp,
-  AlertCircle, // Thêm icon báo lỗi
+  AlertCircle,
 } from "lucide-react";
 
 interface BookingModalProps {
@@ -26,9 +26,11 @@ export default function BookingModal({
   onClose,
   room,
 }: BookingModalProps) {
+  // 🚀 ĐÃ NÂNG CẤP: Tách riêng Ngày bắt đầu và Ngày kết thúc
   const [formData, setFormData] = useState({
-    date: new Date().toISOString().split("T")[0],
+    startDate: new Date().toISOString().split("T")[0],
     startTime: "07:30",
+    endDate: new Date().toISOString().split("T")[0],
     endTime: "09:30",
     phone: "",
     note: "",
@@ -38,18 +40,16 @@ export default function BookingModal({
   const [selectedEqs, setSelectedEqs] = useState<Record<string, any>>({});
   const [eqSearchQuery, setEqSearchQuery] = useState("");
 
-  // ================= STATE MỚI CHO TIMELINE VÀ UI =================
   const [roomBookings, setRoomBookings] = useState<any[]>([]);
   const [showTimeline, setShowTimeline] = useState(false);
-  const [errorMsg, setErrorMsg] = useState(""); // Lưu thông báo lỗi
-  const [isSuccess, setIsSuccess] = useState(false); // Trạng thái đặt thành công
-  const [isSubmitting, setIsSubmitting] = useState(false); // Trạng thái đang gửi
+  const [errorMsg, setErrorMsg] = useState("");
+  const [isSuccess, setIsSuccess] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const API_URL = "https://booklab247.onrender.com/api/v1";
 
   useEffect(() => {
     if (isOpen && room) {
-      // 1. Tải thiết bị
       fetch(`${API_URL}/equipments`)
         .then((res) => res.json())
         .then((data) => {
@@ -57,7 +57,6 @@ export default function BookingModal({
         })
         .catch((err) => console.error("Lỗi tải thiết bị:", err));
 
-      // 2. Tải danh sách đơn đặt phòng để vẽ Timeline
       fetch(`${API_URL}/bookings`)
         .then((res) => res.json())
         .then((data) => {
@@ -73,8 +72,31 @@ export default function BookingModal({
         })
         .catch((err) => console.error("Lỗi tải lịch phòng:", err));
 
-      // Reset lại các trạng thái mỗi khi mở modal
-      setSelectedEqs({});
+      const draftStr = localStorage.getItem("booking_draft");
+      if (draftStr) {
+        try {
+          const draft = JSON.parse(draftStr);
+          if (
+            draft.room &&
+            (draft.room.id === room.id || draft.room._id === room._id)
+          ) {
+            if (draft.formData) setFormData(draft.formData);
+            if (draft.selectedEqs) setSelectedEqs(draft.selectedEqs);
+          }
+          localStorage.removeItem("booking_draft");
+        } catch (e) {}
+      } else {
+        setSelectedEqs({});
+        setFormData({
+          startDate: new Date().toISOString().split("T")[0],
+          startTime: "07:30",
+          endDate: new Date().toISOString().split("T")[0],
+          endTime: "09:30",
+          phone: "",
+          note: "",
+        });
+      }
+
       setEqSearchQuery("");
       setShowTimeline(false);
       setErrorMsg("");
@@ -82,7 +104,6 @@ export default function BookingModal({
     }
   }, [isOpen, room]);
 
-  // Ẩn lỗi khi người dùng sửa lại thông tin
   useEffect(() => {
     if (errorMsg) setErrorMsg("");
   }, [formData, selectedEqs]);
@@ -101,9 +122,10 @@ export default function BookingModal({
     return `${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}`;
   };
 
+  // 🚀 ĐÃ NÂNG CẤP: Tính tổng thời gian dựa trên cả Ngày và Giờ
   const getDurationHours = () => {
-    const start = new Date(`${formData.date}T${formData.startTime}`);
-    const end = new Date(`${formData.date}T${formData.endTime}`);
+    const start = new Date(`${formData.startDate}T${formData.startTime}`);
+    const end = new Date(`${formData.endDate}T${formData.endTime}`);
     const diffMins = (end.getTime() - start.getTime()) / 60000;
     return diffMins > 0 ? diffMins / 60 : 0;
   };
@@ -150,24 +172,30 @@ export default function BookingModal({
   };
 
   const handleSubmit = async () => {
-    setErrorMsg(""); // Xóa lỗi cũ
+    setErrorMsg("");
     const token = localStorage.getItem("access_token");
+
     if (!token) {
-      setErrorMsg("Vui lòng đăng nhập để có thể đặt phòng!");
+      setErrorMsg("Vui lòng đăng nhập để tiếp tục đặt phòng!");
+      const draftData = { room, formData, selectedEqs };
+      localStorage.setItem("booking_draft", JSON.stringify(draftData));
+      localStorage.setItem("redirect_after_login", window.location.pathname);
       setTimeout(() => {
         window.location.href = "/login";
-      }, 2000);
+      }, 1500);
       return;
     }
 
     const hours = getDurationHours();
-    if (hours <= 0) return setErrorMsg("Giờ kết thúc phải sau giờ bắt đầu!");
+    if (hours <= 0)
+      return setErrorMsg("Thời gian kết thúc phải sau thời gian bắt đầu!");
+    if (hours < 0.5) return setErrorMsg("Thời gian mượn tối thiểu là 30 phút!");
     if (!formData.phone)
       return setErrorMsg("Vui lòng nhập số điện thoại để chúng tôi liên hệ!");
 
     const now = new Date();
     const selectedStartDateTime = new Date(
-      `${formData.date}T${formData.startTime}`,
+      `${formData.startDate}T${formData.startTime}`,
     );
 
     if (selectedStartDateTime < now) {
@@ -178,7 +206,7 @@ export default function BookingModal({
 
     const borrowedEquipments = Object.entries(selectedEqs).map(
       ([id, data]) => ({
-        id: id,
+        id,
         name: data.name,
         quantity: data.quantity,
         price: data.price,
@@ -189,9 +217,9 @@ export default function BookingModal({
       room_id: room.id || room._id,
       customer_name: localStorage.getItem("user_name") || "Khách Hàng",
       phone: formData.phone,
-      date: formData.date,
+      date: formData.startDate, // Backend giữ nguyên field date là ngày bắt đầu
       start_time: formData.startTime,
-      duration_mins: hours * 60,
+      duration_mins: hours * 60, // Phút tự động tính xuyên ngày
       buffer_mins: 15,
       note: formData.note,
       equipments: borrowedEquipments,
@@ -212,8 +240,6 @@ export default function BookingModal({
         throw new Error(
           "Khung giờ này đã có người đặt, vui lòng kiểm tra lại Lịch Trống!",
         );
-
-      // 🚀 Nếu thành công, chuyển sang màn hình Success
       setIsSuccess(true);
     } catch (error: any) {
       setErrorMsg(error.message);
@@ -230,13 +256,16 @@ export default function BookingModal({
     const startHour = 0;
     const endHour = 24;
     const totalMins = 24 * 60;
-
-    const todaysBookings = roomBookings.filter((b) => b.date === formData.date);
+    // Timeline sẽ hiển thị lịch của Ngày Bắt Đầu
+    const todaysBookings = roomBookings.filter(
+      (b) => b.date === formData.startDate,
+    );
 
     return (
       <div className="mt-4 p-4 bg-white border border-violet-100 rounded-xl shadow-inner animate-in slide-in-from-top-2">
         <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-4">
-          Tình trạng phòng ngày {formData.date.split("-").reverse().join("/")}
+          Tình trạng phòng ngày{" "}
+          {formData.startDate.split("-").reverse().join("/")}
         </h4>
 
         <div className="w-full overflow-x-auto pb-4 scrollbar-hide">
@@ -321,7 +350,6 @@ export default function BookingModal({
     );
   };
 
-  // ================= GIAO DIỆN SUCCESS =================
   if (isSuccess) {
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
@@ -350,7 +378,6 @@ export default function BookingModal({
     );
   }
 
-  // ================= GIAO DIỆN CHÍNH (ĐẶT PHÒNG) =================
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
       <div
@@ -396,52 +423,73 @@ export default function BookingModal({
               </button>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div>
-                <label className="block text-sm font-bold text-gray-700 mb-1.5">
-                  Ngày đặt *
-                </label>
-                <input
-                  type="date"
-                  value={formData.date}
-                  min={new Date().toISOString().split("T")[0]}
-                  onChange={(e) =>
-                    setFormData({ ...formData, date: e.target.value })
-                  }
-                  className="w-full px-4 py-2.5 bg-white border border-gray-200 rounded-xl outline-none focus:border-violet-500"
-                />
+            {/* 🚀 ĐÃ NÂNG CẤP: Lưới 2x2 cho Ngày và Giờ */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="flex gap-2">
+                <div className="flex-1">
+                  <label className="block text-xs font-bold text-gray-700 mb-1.5 uppercase tracking-wide">
+                    Từ Ngày *
+                  </label>
+                  <input
+                    type="date"
+                    value={formData.startDate}
+                    min={new Date().toISOString().split("T")[0]}
+                    onChange={(e) =>
+                      setFormData({ ...formData, startDate: e.target.value })
+                    }
+                    className="w-full px-3 py-2 bg-white border border-gray-200 rounded-xl outline-none focus:border-violet-500 text-sm"
+                  />
+                </div>
+                <div className="w-28">
+                  <label className="block text-xs font-bold text-gray-700 mb-1.5 uppercase tracking-wide">
+                    Từ Giờ *
+                  </label>
+                  <input
+                    type="time"
+                    value={formData.startTime}
+                    onChange={(e) =>
+                      setFormData({ ...formData, startTime: e.target.value })
+                    }
+                    className="w-full px-2 py-2 bg-white border border-gray-200 rounded-xl outline-none focus:border-violet-500 text-sm"
+                  />
+                </div>
               </div>
-              <div>
-                <label className="block text-sm font-bold text-gray-700 mb-1.5">
-                  Từ giờ *
-                </label>
-                <input
-                  type="time"
-                  value={formData.startTime}
-                  onChange={(e) =>
-                    setFormData({ ...formData, startTime: e.target.value })
-                  }
-                  className="w-full px-4 py-2.5 bg-white border border-gray-200 rounded-xl outline-none focus:border-violet-500"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-bold text-gray-700 mb-1.5">
-                  Đến giờ *
-                </label>
-                <input
-                  type="time"
-                  value={formData.endTime}
-                  onChange={(e) =>
-                    setFormData({ ...formData, endTime: e.target.value })
-                  }
-                  className="w-full px-4 py-2.5 bg-white border border-gray-200 rounded-xl outline-none focus:border-violet-500"
-                />
+
+              <div className="flex gap-2">
+                <div className="flex-1">
+                  <label className="block text-xs font-bold text-gray-700 mb-1.5 uppercase tracking-wide">
+                    Đến Ngày *
+                  </label>
+                  <input
+                    type="date"
+                    value={formData.endDate}
+                    min={formData.startDate}
+                    onChange={(e) =>
+                      setFormData({ ...formData, endDate: e.target.value })
+                    }
+                    className="w-full px-3 py-2 bg-white border border-gray-200 rounded-xl outline-none focus:border-violet-500 text-sm"
+                  />
+                </div>
+                <div className="w-28">
+                  <label className="block text-xs font-bold text-gray-700 mb-1.5 uppercase tracking-wide">
+                    Đến Giờ *
+                  </label>
+                  <input
+                    type="time"
+                    value={formData.endTime}
+                    onChange={(e) =>
+                      setFormData({ ...formData, endTime: e.target.value })
+                    }
+                    className="w-full px-2 py-2 bg-white border border-gray-200 rounded-xl outline-none focus:border-violet-500 text-sm"
+                  />
+                </div>
               </div>
             </div>
+
             {getDurationHours() > 0 && (
               <p className="text-xs font-bold text-violet-600 mt-3 flex items-center gap-1">
                 <Info className="w-4 h-4" /> Tổng thời lượng:{" "}
-                {getDurationHours()} giờ
+                {getDurationHours().toFixed(1)} giờ
               </p>
             )}
 
@@ -577,9 +625,7 @@ export default function BookingModal({
           </div>
         </div>
 
-        {/* Khu vực chứa Lỗi và Footer */}
         <div className="bg-slate-50 border-t border-gray-200 flex flex-col shrink-0">
-          {/* HIỂN THỊ LỖI MÀU ĐỎ NẾU CÓ */}
           {errorMsg && (
             <div className="bg-red-50 text-red-600 p-3 mx-6 mt-4 rounded-xl text-sm font-bold flex items-center gap-2 animate-in slide-in-from-top-2 border border-red-100">
               <AlertCircle className="w-4 h-4 shrink-0" />

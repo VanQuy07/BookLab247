@@ -75,6 +75,23 @@ export default function UserLabsPage() {
     }
   }, []);
 
+  // 🚀 TỰ ĐỘNG BẬT BẢNG ĐẶT PHÒNG NẾU PHÁT HIỆN CÓ BẢN NHÁP (SAU KHI LOGIN)
+  useEffect(() => {
+    const draftStr = localStorage.getItem("booking_draft");
+    if (draftStr) {
+      try {
+        const draft = JSON.parse(draftStr);
+        if (draft.room) {
+          // Gắn data phòng vào và tự động mở Modal
+          setSelectedRoomToBook(draft.room);
+          setIsModalOpen(true);
+        }
+      } catch (e) {
+        console.error("Lỗi tự động mở draft:", e);
+      }
+    }
+  }, []);
+
   const handleLogout = () => {
     localStorage.removeItem("access_token");
     localStorage.removeItem("user_name");
