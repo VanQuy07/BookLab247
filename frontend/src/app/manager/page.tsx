@@ -146,6 +146,32 @@ export default function ManagerDashboardPage() {
   const [equipments, setEquipments] = useState<EquipmentItem[]>([]);
   const [buildingFilter, setBuildingFilter] = useState<string>("all");
   const [roomSearchQuery, setRoomSearchQuery] = useState("");
+  // ================= STATES CHO THÔNG BÁO GIAO DIỆN (TOAST & MODAL) =================
+  const [toast, setToast] = useState<{
+    show: boolean;
+    message: string;
+    type: "success" | "error";
+  }>({
+    show: false,
+    message: "",
+    type: "success",
+  });
+  const [confirmCancel, setConfirmCancel] = useState<{
+    isOpen: boolean;
+    bookingId: string;
+  }>({
+    isOpen: false,
+    bookingId: "",
+  });
+
+  // Hàm gọi thông báo nổi (tự tắt sau 3 giây)
+  const showToast = (
+    message: string,
+    type: "success" | "error" = "success",
+  ) => {
+    setToast({ show: true, message, type });
+    setTimeout(() => setToast((prev) => ({ ...prev, show: false })), 3000);
+  };
 
   // ================= STATES QUICK BOOK & VIEW BOOKING =================
   const [showQuickBook, setShowQuickBook] = useState(false);
@@ -195,7 +221,48 @@ export default function ManagerDashboardPage() {
   const loadData = async () => {
     setLoading(true);
     const token = localStorage.getItem("access_token");
+    const API_URL = "https://booklab247.onrender.com/api/v1"; // Giữ nguyên link Cloud chạy đúng của bạn
 
+    // ==========================================
+    // 1. LUỒNG TẢI LỊCH ĐẶT PHÒNG (BOOKINGS) -> ĐÃ BỔ SUNG
+    // ==========================================
+    try {
+      const bkRes = await fetch(`${API_URL}/bookings`, {
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      if (bkRes.ok) {
+        const bkData = await bkRes.json();
+        const rawBookings = Array.isArray(bkData) ? bkData : bkData.data || [];
+
+        const formattedBookings = rawBookings.map((b: any) => ({
+          id: b.id || b._id,
+          roomId: b.room_id || b.roomId,
+          customerName:
+            b.customer_name || b.customerName || "Khách chưa rõ tên",
+          phone: b.phone || "",
+          status: b.status || "pending",
+          date: b.date || "",
+          startTime: b.start_time || b.startTime || "00:00",
+          durationMins: Number(b.duration_mins || b.durationMins || 0),
+          bufferMins: Number(b.buffer_mins || b.bufferMins || 15),
+          note: b.note || "",
+          equipments: b.equipments || [],
+        }));
+        setBookings(formattedBookings);
+      } else {
+        setBookings([]);
+      }
+    } catch (error) {
+      console.error("Lỗi khi tải Đơn đặt phòng:", error);
+      setBookings([]);
+    }
+
+    // ==========================================
+    // 2. LUỒNG TẢI PHÒNG LAB (Giữ nguyên của bạn)
+    // ==========================================
     try {
       const roomsRes = await fetch(`${API_URL}/labs`, {
         headers: {
@@ -227,6 +294,9 @@ export default function ManagerDashboardPage() {
       setRooms([]);
     }
 
+    // ==========================================
+    // 3. LUỒNG TẢI THIẾT BỊ (Giữ nguyên của bạn)
+    // ==========================================
     try {
       const eqRes = await fetch(`${API_URL}/equipments`, {
         headers: {
@@ -260,8 +330,8 @@ export default function ManagerDashboardPage() {
   };
 
   const minsToTime = (mins: number) => {
-    const h = Math.floor(mins / 60);
-    const m = mins % 60;
+    const h = Math.floor(mins / 60) % 24;
+    const m = Math.floor(mins % 60);
     return `${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}`;
   };
 
@@ -282,7 +352,7 @@ export default function ManagerDashboardPage() {
       };
     setQuickBookData({ ...quickBookData, equipments: currentEqs });
   };
-  
+
   const calculateTotalCost = () => {
 const startObj = new Date(
       `${quickBookData.startDate}T${quickBookData.startTime}`
@@ -335,9 +405,11 @@ const startObj = new Date(
 
     const durationMins =
       (endDateTime.getTime() - startDateTime.getTime()) / 60000;
-    
+
     if (durationMins <= 30)
-      return alert("⛔ LỖI:\nThời gian đặt phòng tối thiểu phải từ 30 phút trở lên!");
+      return alert(
+        "⛔ LỖI:\nThời gian đặt phòng tối thiểu phải từ 30 phút trở lên!",
+      );
 
     const now = new Date();
     if (startDateTime < now) {
@@ -458,15 +530,77 @@ const startObj = new Date(
     }
   };
 
+  // ================= XỬ LÝ DUYỆT / TỪ CHỐI ĐƠN =================
+  // ================= XỬ LÝ DUYỆT / TỪ CHỐI ĐƠN =================
+  const handleUpdateStatus = (bookingId: string, newStatus: string) => {
+    // Nếu bấm từ chối, mở bảng Xác nhận đẹp thay vì dùng window.confirm
+    if (newStatus === "cancelled") {
+      setConfirmCancel({ isOpen: true, bookingId });
+      return;
+    }
+    // Nếu duyệt, gọi thẳng hàm xử lý
+    executeUpdateStatus(bookingId, newStatus);
+  };
+
+  const executeUpdateStatus = async (bookingId: string, newStatus: string) => {
+    try {
+      const token = localStorage.getItem("access_token");
+      const API_URL = "https://booklab247.onrender.com/api/v1";
+
+      const response = await fetch(`${API_URL}/bookings/${bookingId}/status`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ status: newStatus }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.detail || `Lỗi HTTP ${response.status}`);
+      }
+
+      // Cập nhật lại UI ngay lập tức
+      setBookings((prevBookings) =>
+        prevBookings.map((b) =>
+          b.id === bookingId ? { ...b, status: newStatus } : b,
+        ),
+      );
+
+      // Hiển thị thông báo nổi xịn sò
+      showToast(
+        newStatus === "confirmed"
+          ? "Đã duyệt đơn thành công!"
+          : "Đã từ chối đơn hàng.",
+        "success",
+      );
+    } catch (error: any) {
+      showToast(`Lỗi chi tiết: ${error.message}`, "error");
+    }
+  };
+
   // ================= XỬ LÝ BÁO CÁO BẢO TRÌ =================
   const handleReportSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!reportModal.reason.trim()) return alert("Vui lòng nhập lý do!");
 
     if (reportModal.type === "room") {
-      setRooms(rooms.map(r => (r.id === reportModal.itemId || r._id === reportModal.itemId) ? { ...r, maintenanceMode: true } : r));
+      setRooms(
+        rooms.map((r) =>
+          r.id === reportModal.itemId || r._id === reportModal.itemId
+            ? { ...r, maintenanceMode: true }
+            : r,
+        ),
+      );
     } else {
-      setEquipments(equipments.map(eq => (eq.id === reportModal.itemId || eq._id === reportModal.itemId) ? { ...eq, status: 'maintenance' } : eq));
+      setEquipments(
+        equipments.map((eq) =>
+          eq.id === reportModal.itemId || eq._id === reportModal.itemId
+            ? { ...eq, status: "maintenance" }
+            : eq,
+        ),
+      );
     }
 
     alert(`✅ Đã gửi báo cáo bảo trì cho: ${reportModal.itemName}`);
@@ -500,7 +634,9 @@ const startObj = new Date(
               </th>
               <th className="p-4 font-bold text-gray-600">Sức chứa</th>
               <th className="p-4 font-bold text-gray-600">Trạng thái</th>
-              <th className="p-4 font-bold text-gray-600 text-center">Thao tác</th>
+              <th className="p-4 font-bold text-gray-600 text-center">
+                Thao tác
+              </th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
@@ -549,9 +685,19 @@ const startObj = new Date(
                   {room.maintenanceMode ? (
                     <button
                       onClick={() => {
-                        if (confirm(`Xác nhận hoàn tất bảo trì phòng ${room.name || room.title}?`)) {
+                        if (
+                          confirm(
+                            `Xác nhận hoàn tất bảo trì phòng ${room.name || room.title}?`,
+                          )
+                        ) {
                           const currentRoomId = room.id || room._id;
-                          setRooms(rooms.map(r => ((r.id || r._id) === currentRoomId) ? { ...r, maintenanceMode: false } : r));
+                          setRooms(
+                            rooms.map((r) =>
+                              (r.id || r._id) === currentRoomId
+                                ? { ...r, maintenanceMode: false }
+                                : r,
+                            ),
+                          );
                         }
                       }}
                       className="p-2 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
@@ -561,7 +707,15 @@ const startObj = new Date(
                     </button>
                   ) : (
                     <button
-                      onClick={() => setReportModal({ isOpen: true, type: 'room', itemId: room.id || room._id || '', itemName: room.title || room.name || '', reason: '' })}
+                      onClick={() =>
+                        setReportModal({
+                          isOpen: true,
+                          type: "room",
+                          itemId: room.id || room._id || "",
+                          itemName: room.title || room.name || "",
+                          reason: "",
+                        })
+                      }
                       className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
                       title="Báo cáo bảo trì/sửa chữa"
                     >
@@ -598,7 +752,9 @@ const startObj = new Date(
               <th className="p-4 font-bold text-gray-600">Số lượng (Kho)</th>
               <th className="p-4 font-bold text-gray-600">Trạng thái</th>
               <th className="p-4 font-bold text-gray-600">Vị trí phòng</th>
-              <th className="p-4 font-bold text-gray-600 text-center">Thao tác</th>
+              <th className="p-4 font-bold text-gray-600 text-center">
+                Thao tác
+              </th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
@@ -666,9 +822,19 @@ const startObj = new Date(
                     {eq.status === "maintenance" ? (
                       <button
                         onClick={() => {
-                          if (confirm(`Xác nhận hoàn tất sửa chữa thiết bị ${eq.name}?`)) {
+                          if (
+                            confirm(
+                              `Xác nhận hoàn tất sửa chữa thiết bị ${eq.name}?`,
+                            )
+                          ) {
                             const currentEqId = eq.id || eq._id;
-                            setEquipments(equipments.map(e => ((e.id || e._id) === currentEqId) ? { ...e, status: 'available' } : e));
+                            setEquipments(
+                              equipments.map((e) =>
+                                (e.id || e._id) === currentEqId
+                                  ? { ...e, status: "available" }
+                                  : e,
+                              ),
+                            );
                           }
                         }}
                         className="p-2 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
@@ -678,7 +844,15 @@ const startObj = new Date(
                       </button>
                     ) : (
                       <button
-                        onClick={() => setReportModal({ isOpen: true, type: 'equipment', itemId: eq.id || eq._id || '', itemName: eq.name, reason: '' })}
+                        onClick={() =>
+                          setReportModal({
+                            isOpen: true,
+                            type: "equipment",
+                            itemId: eq.id || eq._id || "",
+                            itemName: eq.name,
+                            reason: "",
+                          })
+                        }
                         className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
                         title="Báo cáo bảo trì/sửa chữa"
                       >
@@ -696,11 +870,248 @@ const startObj = new Date(
     </>
   );
 
-  const renderDashboard = () => (
-    <div className="p-6 bg-white rounded-2xl border border-gray-100 text-center py-20 text-gray-400">
-      Giao diện Giám sát vận hành
-    </div>
-  );
+  const renderDashboard = () => {
+    // 1. TÍNH TOÁN CÁC CHỈ SỐ THỐNG KÊ
+    const usedRoomsCount = rooms.filter((l) => l.isBooked).length;
+    const maintenanceRoomsCount = rooms.filter((l) => l.maintenanceMode).length;
+    const maintenanceEqsCount = equipments.filter(
+      (e) => e.status === "maintenance",
+    ).length;
+    const totalMaintenance = maintenanceRoomsCount + maintenanceEqsCount;
+    const itemsOut = equipments.reduce(
+      (sum, eq) => sum + (eq.inUseQuantity || 0),
+      0,
+    );
+
+    // 2. HÀM TÌM TÊN PHÒNG CHO ĐƠN ĐẶT
+    const getRoomName = (bookingRoomId: string) => {
+      if (!bookingRoomId) return "Phòng chưa xác định";
+      const cleanBookingId = String(bookingRoomId).trim();
+      const foundRoom = rooms.find(
+        (r) => String(r.id || r._id).trim() === cleanBookingId,
+      );
+      return foundRoom
+        ? foundRoom.title || foundRoom.name
+        : "Phòng chưa xác định";
+    };
+
+    // 3. LỌC ĐƠN HÀNG CHỜ DUYỆT VÀ CA HÔM NAY
+    const pendingBookings = bookings.filter((b) => b.status === "pending");
+    const pendingCount = pendingBookings.length;
+
+    const todayStr = new Date().toISOString().split("T")[0];
+    const upcomingBookings = bookings
+      .filter(
+        (b) =>
+          (b.date === todayStr || !b.date) &&
+          (b.status === "confirmed" || b.status === "checked-in"),
+      )
+      .sort((a, b) => timeToMins(a.startTime) - timeToMins(b.startTime));
+
+    return (
+      <div className="space-y-6 pb-10">
+        {/* THANH TOP BAR */}
+        <div className="flex flex-col xl:flex-row justify-between items-start xl:items-end gap-4 bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
+          <div>
+            <h2 className="text-2xl font-black text-gray-900">
+              Giám sát Trực tiếp
+            </h2>
+            <p className="text-gray-500 text-sm mt-1">
+              Cập nhật trạng thái phòng và thiết bị realtime.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-3 w-full xl:w-auto">
+            <button className="flex-1 sm:flex-none flex items-center justify-center gap-2 bg-slate-900 text-white px-4 py-2.5 rounded-xl text-sm font-bold shadow-md hover:bg-black transition-colors">
+              <QrCode className="w-4 h-4" /> Quét mã QR
+            </button>
+            <div className="flex bg-gray-100 p-1 rounded-xl border border-gray-200 w-full sm:w-auto items-center overflow-x-auto scrollbar-hide">
+              {[
+                { id: "today", label: "Hôm nay" },
+                { id: "yesterday", label: "Hôm qua" },
+                { id: "7days", label: "7 Ngày" },
+              ].map((f) => (
+                <button
+                  key={f.id}
+                  onClick={() => {
+                    setTimeFilter(f.id as TimeFilter);
+                    setCustomDate("");
+                  }}
+                  className={`px-4 py-1.5 text-sm font-bold rounded-lg whitespace-nowrap transition-all ${timeFilter === f.id && !customDate ? "bg-white text-emerald-600 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}
+                >
+                  {f.label}
+                </button>
+              ))}
+              <div className="h-4 w-px bg-gray-300 mx-2"></div>
+              <input
+                type="date"
+                value={customDate}
+                onChange={(e) => {
+                  setCustomDate(e.target.value);
+                  setTimeFilter("custom");
+                }}
+                className={`px-3 py-1 text-sm font-bold rounded-lg bg-transparent outline-none cursor-pointer ${customDate ? "text-emerald-600 bg-white shadow-sm" : "text-gray-500"}`}
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* THỐNG KÊ TỔNG QUAN */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 animate-in fade-in duration-300">
+          <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
+            <p className="text-xs font-bold text-gray-500 mb-1">ĐANG SỬ DỤNG</p>
+            <h3 className="text-2xl font-black text-emerald-600">
+              {usedRoomsCount}/{rooms.length}{" "}
+              <span className="text-sm font-medium text-gray-400">Phòng</span>
+            </h3>
+          </div>
+          <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
+            <p className="text-xs font-bold text-gray-500 mb-1">CHỜ DUYỆT</p>
+            <h3 className="text-2xl font-black text-amber-500">
+              {pendingCount}{" "}
+              <span className="text-sm font-medium text-gray-400">Đơn</span>
+            </h3>
+          </div>
+          <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
+            <p className="text-xs font-bold text-gray-500 mb-1">
+              THIẾT BỊ RỜI KHO
+            </p>
+            <h3 className="text-2xl font-black text-blue-600">
+              {itemsOut}{" "}
+              <span className="text-sm font-medium text-gray-400">Món</span>
+            </h3>
+          </div>
+          <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
+            <p className="text-xs font-bold text-gray-500 mb-1">
+              BẢO TRÌ ĐỘT XUẤT
+            </p>
+            <h3 className="text-2xl font-black text-red-500">
+              {totalMaintenance}{" "}
+              <span className="text-sm font-medium text-gray-400">Sự cố</span>
+            </h3>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 animate-in fade-in duration-300">
+          {/* CỘT 1: LỊCH CA HÔM NAY */}
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm flex flex-col h-[350px]">
+            <div className="p-4 border-b border-gray-100">
+              <h3 className="font-bold text-gray-900 flex items-center gap-2">
+                <Clock className="w-5 h-5 text-emerald-500" /> Các ca hoạt động
+                hôm nay
+              </h3>
+            </div>
+            <div className="p-4 overflow-y-auto space-y-3">
+              {upcomingBookings.length === 0 ? (
+                <div className="text-center text-sm text-gray-500 py-10">
+                  Không có lịch học nào hôm nay.
+                </div>
+              ) : (
+                upcomingBookings.map((booking) => {
+                  const roomName = getRoomName(booking.roomId);
+                  return (
+                    <div
+                      key={booking.id}
+                      className="bg-slate-50 border border-slate-200 p-3 rounded-xl flex justify-between items-center cursor-pointer hover:bg-slate-100 transition-colors"
+                      onClick={() => setSelectedBooking(booking)}
+                    >
+                      <div>
+                        <p className="font-bold text-gray-900 text-sm">
+                          {booking.customerName}
+                        </p>
+                        <p className="text-xs text-gray-500 mt-0.5">
+                          Phòng:{" "}
+                          <span className="font-bold text-gray-700">
+                            {roomName}
+                          </span>
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <span className="font-black text-emerald-600 bg-emerald-50 px-2 py-1 rounded-lg text-sm shadow-sm">
+                          {booking.startTime}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+
+          {/* CỘT 2: ĐƠN CHỜ DUYỆT KHẨN */}
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm flex flex-col h-[350px]">
+            <div className="p-4 border-b border-gray-100">
+              <h3 className="font-bold text-gray-900 flex items-center gap-2">
+                <AlertTriangle className="w-5 h-5 text-amber-500" /> Đơn chờ
+                duyệt khẩn
+              </h3>
+            </div>
+            <div className="p-4 overflow-y-auto space-y-3">
+              {pendingBookings.length === 0 ? (
+                <div className="text-center text-sm text-gray-500 py-10">
+                  Không có đơn chờ duyệt.
+                </div>
+              ) : (
+                pendingBookings.map((booking) => {
+                  const roomName = getRoomName(booking.roomId);
+                  return (
+                    <div
+                      key={booking.id}
+                      className="bg-amber-50 border border-amber-100 p-3 rounded-xl flex flex-col gap-3"
+                    >
+                      <div
+                        className="flex justify-between items-start cursor-pointer hover:opacity-80"
+                        onClick={() => setSelectedBooking(booking)}
+                      >
+                        <div>
+                          <p className="font-bold text-gray-900 text-sm">
+                            {booking.customerName}
+                          </p>
+                          <p className="text-xs text-gray-500 mt-0.5">
+                            {booking.date} |{" "}
+                            <span className="font-bold text-amber-600">
+                              {booking.startTime}
+                            </span>{" "}
+                            ({booking.durationMins}p)
+                          </p>
+                          <p className="text-xs text-gray-500 mt-0.5">
+                            Phòng:{" "}
+                            <span className="font-bold text-gray-700">
+                              {roomName}
+                            </span>
+                          </p>
+                        </div>
+                        <span className="bg-amber-100 text-amber-700 text-[10px] px-2 py-1 rounded-md font-bold uppercase tracking-wider">
+                          Chờ duyệt
+                        </span>
+                      </div>
+                      <div className="flex gap-2 mt-1">
+                        <button
+                          onClick={() =>
+                            handleUpdateStatus(booking.id, "confirmed")
+                          }
+                          className="flex-1 bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-bold py-2 rounded-lg transition-colors shadow-sm"
+                        >
+                          Duyệt đơn
+                        </button>
+                        <button
+                          onClick={() =>
+                            handleUpdateStatus(booking.id, "cancelled")
+                          }
+                          className="flex-1 bg-white hover:bg-red-50 text-red-500 border border-red-200 text-xs font-bold py-2 rounded-lg transition-colors shadow-sm"
+                        >
+                          Từ chối
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
   const renderReports = () => (
     <div className="p-6 bg-white rounded-2xl border border-gray-100 text-center py-20 text-gray-400">
       Giao diện Báo cáo sự cố
@@ -713,28 +1124,26 @@ const startObj = new Date(
   );
 
   // ================= GIAO DIỆN TIMELINE EXCEL XUYÊN NGÀY =================
+  // ================= GIAO DIỆN TIMELINE XUYÊN NGÀY (FULL 24H) =================
   const renderTimeline = () => {
-    const startHour = 7;
-    const endHour = 21;
-    const totalMins = (endHour - startHour + 1) * 60; // Khung nhìn 840 phút
-
-    const timeHeaders: string[] = [];
-    for (let i = startHour; i <= endHour; i++)
-      timeHeaders.push(`${i.toString().padStart(2, "0")}:00`);
+    const startHour = 0;
+    const endHour = 24;
+    const totalMins = 24 * 60; // Khung nhìn 1440 phút (Đủ 24 tiếng)
 
     // Tạo Timestamp cho ngày đang chọn để bắt khoảng thời gian xem (View Port)
-    const viewStartMs = new Date(`${selectedDate}T07:00`).getTime();
-    const viewEndMs = new Date(`${selectedDate}T21:00`).getTime();
+    const viewStartMs = new Date(`${selectedDate}T00:00:00`).getTime();
+    const viewEndMs = viewStartMs + 24 * 60 * 60 * 1000;
 
     const uniqueBuildings = Array.from(
       new Set(rooms.map((r) => r.building || "Khác")),
     ).filter(Boolean);
 
-    // CHỈ hiển thị những phòng có lịch đặt GIAO NHAU với NGÀY ĐANG CHỌN
+    // CHỈ hiển thị những phòng có lịch đặt GIAO NHAU với NGÀY ĐANG CHỌN
     const filteredRooms = rooms.filter((room) => {
       const roomIdStr = room.id || room._id || "";
       const hasBooking = bookings.some((b) => {
         if (b.roomId !== roomIdStr) return false;
+        if (b.status === "cancelled") return false; // Không hiển thị ca đã từ chối/hủy
         const existDate = b.date || selectedDate;
         const bStartMs = new Date(`${existDate}T${b.startTime}`).getTime();
         const bEndMsWithBuffer =
@@ -769,17 +1178,12 @@ const startObj = new Date(
     let currentLinePct: number | null = null;
 
     // Chỉ vẽ thanh đỏ Real-time nếu ngày đang xem là Hôm Nay
-    if (
-      selectedDate === new Date().toISOString().split("T")[0] &&
-      currentHour >= startHour &&
-      currentHour <= endHour
-    ) {
-      currentLinePct =
-        (((currentHour - startHour) * 60 + currentMin) / totalMins) * 100;
+    if (selectedDate === new Date().toISOString().split("T")[0]) {
+      currentLinePct = ((currentHour * 60 + currentMin) / totalMins) * 100;
     }
 
     return (
-      <div className="space-y-6 flex flex-col h-[calc(100vh-6rem)] relative">
+      <div className="space-y-6 flex flex-col h-[calc(100vh-6rem)] relative animate-in fade-in duration-300">
         <div className="flex flex-col xl:flex-row justify-between items-start xl:items-end gap-4 shrink-0">
           <div>
             <h2 className="text-2xl font-black text-gray-900">
@@ -854,7 +1258,8 @@ const startObj = new Date(
 
         {/* LƯỚI TIMELINE */}
         <div className="flex-1 bg-white border border-gray-200 rounded-2xl overflow-auto relative shadow-sm">
-          <div className="min-w-[1200px] h-full flex flex-col relative">
+          {/* Mở rộng chiều ngang min-w để 24 tiếng không bị ép dính vào nhau */}
+          <div className="min-w-[1600px] h-full flex flex-col relative">
             {currentLinePct !== null && (
               <div
                 className="absolute top-0 bottom-0 w-[2px] bg-red-500 z-40 pointer-events-none"
@@ -871,16 +1276,21 @@ const startObj = new Date(
                 Không gian phòng Lab
               </div>
               <div className="flex-1 relative flex">
-                {timeHeaders.map((time, idx) => (
+                {/* Vẽ 24 mốc giờ */}
+                {Array.from({ length: 24 }).map((_, idx) => (
                   <div
                     key={idx}
-                    className="flex-1 border-r border-gray-100 p-3 text-xs font-bold text-gray-400 text-center relative"
+                    className="flex-1 border-r border-gray-100 p-3 text-xs font-bold text-gray-400 relative box-border"
                   >
                     <span className="absolute -left-3 top-3 bg-slate-50 px-1">
-                      {time}
+                      {idx.toString().padStart(2, "0")}:00
                     </span>
                   </div>
                 ))}
+                {/* Mốc 24:00 ở viền cuối cùng */}
+                <span className="absolute right-0 top-3 bg-slate-50 px-1 text-xs font-bold text-gray-400 translate-x-1/2">
+                  24:00
+                </span>
               </div>
             </div>
 
@@ -895,9 +1305,9 @@ const startObj = new Date(
               filteredRooms.map((room) => {
                 const roomIdStr = room.id || room._id || "";
 
-                // Chỉ lấy các booking GIAO NHAU với Ngày đang hiển thị (View Port)
                 const roomBookings = bookings.filter((b) => {
                   if (b.roomId !== roomIdStr) return false;
+                  if (b.status === "cancelled") return false;
                   const existDate = b.date || selectedDate;
                   const bStartMs = new Date(
                     `${existDate}T${b.startTime}`,
@@ -928,7 +1338,7 @@ const startObj = new Date(
 
                     <div className="flex-1 relative bg-white">
                       <div className="absolute inset-0 flex pointer-events-none">
-                        {timeHeaders.map((_, idx) => (
+                        {Array.from({ length: 24 }).map((_, idx) => (
                           <div
                             key={idx}
                             className="flex-1 border-r border-gray-100/60 border-dashed"
@@ -945,7 +1355,6 @@ const startObj = new Date(
                         const bBufferEndMs =
                           bEndMs + booking.bufferMins * 60000;
 
-                        // Tính toán độ rộng block dựa trên điểm giao cắt với Khung hiển thị (View Port)
                         const visibleStartMs = Math.max(bStartMs, viewStartMs);
                         const visibleEndMs = Math.min(bEndMs, viewEndMs);
 
@@ -956,14 +1365,17 @@ const startObj = new Date(
 
                         if (visibleStartMs < visibleEndMs) {
                           leftPct =
-                            ((visibleStartMs - viewStartMs) / 60000 / totalMins) *
+                            ((visibleStartMs - viewStartMs) /
+                              60000 /
+                              totalMins) *
                             100;
                           widthPct =
-                            ((visibleEndMs - visibleStartMs) / 60000 / totalMins) *
+                            ((visibleEndMs - visibleStartMs) /
+                              60000 /
+                              totalMins) *
                             100;
                         }
 
-                        // Tính toán Buffer dọn dẹp
                         const visibleBufferStartMs = Math.max(
                           bEndMs,
                           viewStartMs,
@@ -995,7 +1407,9 @@ const startObj = new Date(
                           <React.Fragment key={booking.id}>
                             {widthPct > 0 && (
                               <div
-                                className={`absolute top-2 bottom-2 ${getStatusColor(booking.status)} border rounded-xl px-3 py-1 overflow-hidden z-10 flex flex-col justify-center cursor-pointer hover:brightness-110 transition-all`}
+                                className={`absolute top-2 bottom-2 ${getStatusColor(
+                                  booking.status,
+                                )} border rounded-xl px-3 py-1 overflow-hidden z-10 flex flex-col justify-center cursor-pointer hover:brightness-110 transition-all shadow-sm`}
                                 style={{
                                   left: `${leftPct}%`,
                                   width: `${widthPct}%`,
@@ -1576,28 +1990,141 @@ const startObj = new Date(
         {/* === MODAL BÁO CÁO BẢO TRÌ (ĐÃ CHUYỂN RA NGOÀI VÀ SẼ HIỂN THỊ Ở MỌI TAB) === */}
         <AnimatePresence>
           {reportModal.isOpen && (
-             <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm z-[999]">
-                <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col">
-                  <div className="bg-red-600 p-5 flex justify-between items-center text-white shrink-0">
-                    <h3 className="font-black text-xl flex items-center gap-2"><Wrench className="w-5 h-5" /> Báo Cáo Sửa Chữa</h3>
-                    <button type="button" onClick={() => setReportModal({ ...reportModal, isOpen: false })} className="hover:bg-red-700 p-1 rounded-full"><X className="w-6 h-6" /></button>
+            <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm z-[999]">
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col"
+              >
+                <div className="bg-red-600 p-5 flex justify-between items-center text-white shrink-0">
+                  <h3 className="font-black text-xl flex items-center gap-2">
+                    <Wrench className="w-5 h-5" /> Báo Cáo Sửa Chữa
+                  </h3>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setReportModal({ ...reportModal, isOpen: false })
+                    }
+                    className="hover:bg-red-700 p-1 rounded-full"
+                  >
+                    <X className="w-6 h-6" />
+                  </button>
+                </div>
+                <form onSubmit={handleReportSubmit} className="p-6 space-y-4">
+                  <div className="bg-red-50 p-3 rounded-lg border border-red-100">
+                    <p className="text-sm text-red-800 font-bold">
+                      Đối tượng: {reportModal.itemName}
+                    </p>
+                    <p className="text-xs text-red-600 mt-1">
+                      Hệ thống sẽ chuyển trạng thái của đối tượng này sang Bảo
+                      trì/Sửa chữa.
+                    </p>
                   </div>
-                  <form onSubmit={handleReportSubmit} className="p-6 space-y-4">
-                    <div className="bg-red-50 p-3 rounded-lg border border-red-100">
-                       <p className="text-sm text-red-800 font-bold">Đối tượng: {reportModal.itemName}</p>
-                       <p className="text-xs text-red-600 mt-1">Hệ thống sẽ chuyển trạng thái của đối tượng này sang Bảo trì/Sửa chữa.</p>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-bold text-gray-700 mb-2">Mô tả tình trạng hỏng hóc *</label>
-                      <textarea required value={reportModal.reason} onChange={e => setReportModal({...reportModal, reason: e.target.value})} rows={4} className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-red-500 resize-none" placeholder="Ví dụ: Điều hòa không mát, máy chiếu mờ..."></textarea>
-                    </div>
-                    <div className="pt-2 flex justify-end gap-3">
-                       <button type="button" onClick={() => setReportModal({ ...reportModal, isOpen: false })} className="px-5 py-2.5 font-bold text-gray-500 hover:bg-gray-100 rounded-xl transition-colors">Hủy</button>
-                       <button type="submit" className="px-6 py-2.5 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl shadow-md transition-all active:scale-95">Xác nhận Báo hỏng</button>
-                    </div>
-                  </form>
-                </motion.div>
-             </div>
+                  <div>
+                    <label className="block text-sm font-bold text-gray-700 mb-2">
+                      Mô tả tình trạng hỏng hóc *
+                    </label>
+                    <textarea
+                      required
+                      value={reportModal.reason}
+                      onChange={(e) =>
+                        setReportModal({
+                          ...reportModal,
+                          reason: e.target.value,
+                        })
+                      }
+                      rows={4}
+                      className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-red-500 resize-none"
+                      placeholder="Ví dụ: Điều hòa không mát, máy chiếu mờ..."
+                    ></textarea>
+                  </div>
+                  <div className="pt-2 flex justify-end gap-3">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setReportModal({ ...reportModal, isOpen: false })
+                      }
+                      className="px-5 py-2.5 font-bold text-gray-500 hover:bg-gray-100 rounded-xl transition-colors"
+                    >
+                      Hủy
+                    </button>
+                    <button
+                      type="submit"
+                      className="px-6 py-2.5 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl shadow-md transition-all active:scale-95"
+                    >
+                      Xác nhận Báo hỏng
+                    </button>
+                  </div>
+                </form>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+        {/* ================= GIAO DIỆN XÁC NHẬN TỪ CHỐI ĐƠN ================= */}
+        <AnimatePresence>
+          {confirmCancel.isOpen && (
+            <div className="fixed inset-0 bg-black/60 z-[9999] flex items-center justify-center p-4 backdrop-blur-sm">
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden p-6 text-center"
+              >
+                <div className="w-16 h-16 bg-red-100 text-red-500 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <AlertTriangle className="w-8 h-8" />
+                </div>
+                <h3 className="text-xl font-black text-gray-900 mb-2">
+                  Xác nhận từ chối
+                </h3>
+                <p className="text-sm text-gray-500 mb-6">
+                  Bạn có chắc chắn muốn từ chối và hủy đơn đặt phòng này không?
+                  Hành động này không thể hoàn tác.
+                </p>
+                <div className="flex gap-3">
+                  <button
+                    onClick={() =>
+                      setConfirmCancel({ isOpen: false, bookingId: "" })
+                    }
+                    className="flex-1 px-4 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold rounded-xl transition-colors"
+                  >
+                    Quay lại
+                  </button>
+                  <button
+                    onClick={() => {
+                      executeUpdateStatus(confirmCancel.bookingId, "cancelled");
+                      setConfirmCancel({ isOpen: false, bookingId: "" });
+                    }}
+                    className="flex-1 px-4 py-2.5 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl transition-colors shadow-md"
+                  >
+                    Từ chối đơn
+                  </button>
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+
+        {/* ================= THÔNG BÁO NỔI (TOAST MESSAGE) ================= */}
+        <AnimatePresence>
+          {toast.show && (
+            <motion.div
+              initial={{ opacity: 0, y: 50, scale: 0.9 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 20, scale: 0.9 }}
+              className={`fixed bottom-8 right-8 z-[9999] flex items-center gap-3 px-6 py-4 rounded-2xl shadow-2xl border ${
+                toast.type === "success"
+                  ? "bg-emerald-50 border-emerald-200 text-emerald-800"
+                  : "bg-red-50 border-red-200 text-red-800"
+              }`}
+            >
+              {toast.type === "success" ? (
+                <CheckCircle2 className="w-6 h-6 text-emerald-600" />
+              ) : (
+                <AlertTriangle className="w-6 h-6 text-red-600" />
+              )}
+              <span className="font-bold text-sm">{toast.message}</span>
+            </motion.div>
           )}
         </AnimatePresence>
       </main>

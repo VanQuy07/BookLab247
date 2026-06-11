@@ -2,6 +2,7 @@ import os
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel
 from app.core.database import db
+from bson import ObjectId
 
 router = APIRouter()
 
@@ -75,3 +76,24 @@ async def get_bookings():
         
     # 3. Trả về đúng định dạng mảng (Array) mà Frontend đang chờ
     return bookings_list
+
+# ================== 3. API DUYỆT / TỪ CHỐI ĐƠN ==================
+class BookingStatusUpdate(BaseModel):
+    status: str  # Frontend sẽ gửi lên "confirmed" (Duyệt) hoặc "cancelled" (Từ chối)
+
+@router.patch("/{booking_id}/status")
+async def update_booking_status(booking_id: str, status_update: BookingStatusUpdate):
+    # Kiểm tra ID có hợp lệ với MongoDB không
+    if not ObjectId.is_valid(booking_id):
+        raise HTTPException(status_code=400, detail="ID đơn hàng không hợp lệ")
+
+    # Cập nhật trạng thái mới vào Database
+    result = await db["bookings"].update_one(
+        {"_id": ObjectId(booking_id)},
+        {"$set": {"status": status_update.status}}
+    )
+
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Không tìm thấy đơn đặt phòng này trong Database")
+
+    return {"message": f"Đã cập nhật trạng thái thành: {status_update.status}"}

@@ -188,7 +188,6 @@ export default function UserDevicesPage() {
         !device.category.toLowerCase().includes("điện")
       )
         return false;
-      
     }
 
     if (statusFilter.length > 0 && !statusFilter.includes(device.status))
