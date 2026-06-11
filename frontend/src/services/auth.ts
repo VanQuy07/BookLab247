@@ -1,8 +1,10 @@
-const API_URL = "http://localhost:8000/api/v1/auth";
+import { getApiBaseUrl } from "./api-client";
+
+const getAuthUrl = () => `${getApiBaseUrl()}/auth`;
 
 export const authService = {
   getAllUsers: async (): Promise<any[]> => {
-    const response = await fetch(`${API_URL}/users`);
+    const response = await fetch(`${getAuthUrl()}/users`);
     if (!response.ok) throw new Error("Lỗi khi tải danh sách người dùng");
     return response.json();
   },
