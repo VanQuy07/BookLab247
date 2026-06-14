@@ -28,6 +28,7 @@ class BookingCreate(BaseModel):
 
 class BookingStatusUpdate(BaseModel):
     status: str
+    payment_status: str | None = None
 
 
 class BookingCancelRequest(BaseModel):
@@ -298,6 +299,9 @@ async def update_booking_status(
     }
     if new_status == "rejected":
         update_data["rejection_reason"] = status_update.status
+
+    if status_update.payment_status:
+        update_data["payment_status"] = status_update.payment_status
 
     result = await db["bookings"].update_one(
         {"_id": ObjectId(booking_id)},
