@@ -102,7 +102,6 @@ export default function UserDevicesPage() {
   useEffect(() => {
     const fetchDevicesFromAdmin = async () => {
       try {
-        // SỬA LỖI: Trả lại đúng đường dẫn API equipments thay vì labs của nhánh master
         const response = await fetch(
           "https://booklab247.onrender.com/api/v1/equipments",
         );

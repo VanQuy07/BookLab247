@@ -146,7 +146,8 @@ export default function ManagerDashboardPage() {
   const [currentTime, setCurrentTime] = useState(new Date());
 
   const [rooms, setRooms] = useState<ManagerRoom[]>([]);
-  const [bookings, setBookings] = useState<BookingItem[]>(INITIAL_BOOKINGS);
+  //const [bookings, setBookings] = useState<BookingItem[]>(INITIAL_BOOKINGS);
+  const [bookings, setBookings] = useState<BookingItem[]>([]);
   const [equipments, setEquipments] = useState<EquipmentItem[]>([]);
   const [buildingFilter, setBuildingFilter] = useState<string>("all");
   const [roomSearchQuery, setRoomSearchQuery] = useState("");
@@ -208,7 +209,9 @@ export default function ManagerDashboardPage() {
   }>({ isOpen: false, type: "room", itemId: "", itemName: "", reason: "" });
 
   //const API_URL = `${process.env.NEXT_PUBLIC_API_URL}/api/v1`;
-  const API_URL = "https://booklab247.onrender.com/api/v1";
+  //const API_URL = //"https://booklab247.onrender.com/api/v1";
+  const API_URL = "http://127.0.0.1:8000/api/v1";
+  
 
 
   useEffect(() => {
@@ -226,6 +229,7 @@ export default function ManagerDashboardPage() {
     setLoading(true);
     const token = localStorage.getItem("access_token");
     const API_URL = "https://booklab247.onrender.com/api/v1"; // Giữ nguyên link Cloud chạy đúng của bạn
+
 
     // ==========================================
     // 1. LUỒNG TẢI LỊCH ĐẶT PHÒNG (BOOKINGS) -> ĐÃ BỔ SUNG
@@ -553,7 +557,8 @@ const startObj = new Date(
   const executeUpdateStatus = async (bookingId: string, newStatus: string) => {
     try {
       const token = localStorage.getItem("access_token");
-      const API_URL = "https://booklab247.onrender.com/api/v1";
+      //const API_URL = "https://booklab247.onrender.com/api/v1";
+      const API_URL = "http://localhost:8000/api/v1";
 
       const response = await fetch(`${API_URL}/bookings/${bookingId}/status`, {
         method: "PATCH",

@@ -14,6 +14,7 @@ import {
   ChevronUp,
   AlertCircle,
 } from "lucide-react";
+import { getApiBaseUrl } from "../services/api-client";
 
 interface BookingModalProps {
   isOpen: boolean;
@@ -46,7 +47,8 @@ export default function BookingModal({
   const [isSuccess, setIsSuccess] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const API_URL = "https://booklab247.onrender.com/api/v1";
+  //const API_URL = getApiBaseUrl();
+  const API_URL = "http://127.0.0.1:8000/api/v1";
 
   useEffect(() => {
     if (isOpen && room) {
@@ -216,10 +218,15 @@ export default function BookingModal({
     const payload = {
       room_id: room.id || room._id,
       customer_name: localStorage.getItem("user_name") || "Khách Hàng",
+      user_id:
+        localStorage.getItem("user_id") ||
+        localStorage.getItem("userId") ||
+        localStorage.getItem("user_name") ||
+        "",
       phone: formData.phone,
-      date: formData.startDate, // Backend giữ nguyên field date là ngày bắt đầu
+      date: formData.startDate,
       start_time: formData.startTime,
-      duration_mins: hours * 60, // Phút tự động tính xuyên ngày
+      duration_mins: hours * 60,
       buffer_mins: 15,
       note: formData.note,
       equipments: borrowedEquipments,

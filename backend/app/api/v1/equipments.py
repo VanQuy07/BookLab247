@@ -37,7 +37,7 @@ async def get_all_equipments():
         room_id = doc.get("roomId")
         if room_id and ObjectId.is_valid(room_id):
             # Tìm tên phòng tương ứng trong collection "rooms"
-            room = await db["rooms"].find_one({"_id": ObjectId(room_id)})
+            room = await db["labs"].find_one({"_id": ObjectId(room_id)})
             if room:
                 # Ưu tiên lấy 'name', nếu không có thì lấy 'title'
                 doc["location"] = room.get("name") or room.get("title") or "Phòng không tên"

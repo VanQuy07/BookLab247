@@ -125,6 +125,7 @@ export default function AdvancedAdminDashboard() {
     inUseEquipments: 0,
     userRolesData: [] as any[],
     equipmentStatusData: [] as any[],
+    popular_labs_data: [] as any[],
   });
 
   // ================= STATES DỮ LIỆU CÁC TAB KHÁC =================
@@ -201,48 +202,67 @@ export default function AdvancedAdminDashboard() {
     fetchData();
   }, [activeMenu]);
            
+  // const fetchData = async () => {
+  //   setLoading(true);
+  //   try {
+  //     if (activeMenu === "dashboard") {
+  //       // [SỬA LỖI]: Bắt buộc phải kéo dữ liệu cho Dashboard thay vì return
+  //       const [usersRes, labsRes, eqRes] = await Promise.all([
+  //         fetch(`${API_URL}/auth/users`),
+  //         fetch(`${API_URL}/labs`),
+  //         fetch(`${API_URL}/equipments`),
+  //       ]);
+
+  //       const users = await usersRes.json();
+  //       const labs = await labsRes.json();
+  //       const eqs = await eqRes.json();
+
+  //       // Tính toán số liệu thống kê thật để gán vào Dashboard
+  //       setDashboardStats({
+  //         totalUsers: users.length || 0,
+  //         totalLabs: labs.length || 0,
+  //         totalEquipments: eqs.reduce(
+  //           (sum: number, eq: any) => sum + eq.totalQuantity,
+  //           0,
+  //         ),
+  //         inUseEquipments: eqs.reduce(
+  //           (sum: number, eq: any) => sum + eq.inUseQuantity,
+  //           0,
+  //         ),
+  //         userRolesData: [
+  //           {
+  //             name: "STUDENT",
+  //             value: users.filter((u: any) => u.role === "STUDENT").length,
+  //           },
+  //           {
+  //             name: "MANAGER",
+  //             value: users.filter((u: any) => u.role === "MANAGER").length,
+  //           },
+  //           {
+  //             name: "ADMIN",
+  //             value: users.filter((u: any) => u.role === "ADMIN").length,
+  //           },
+  //         ],
+  //         equipmentStatusData: [], // Giữ nguyên mảng rỗng tạm thời
+  //       });
+  //     } else if (activeMenu === "rooms") {
+
   const fetchData = async () => {
     setLoading(true);
     try {
       if (activeMenu === "dashboard") {
-        // [SỬA LỖI]: Bắt buộc phải kéo dữ liệu cho Dashboard thay vì return
-        const [usersRes, labsRes, eqRes] = await Promise.all([
-          fetch(`${API_URL}/auth/users`),
-          fetch(`${API_URL}/labs`),
-          fetch(`${API_URL}/equipments`),
-        ]);
+        //const res = await fetch(`${API_URL}/dashboard/stats`);
+        const res = await fetch(`${API_URL}/dashboard/stats?time_range=${timeFilter}`);
+        const data = await res.json();
 
-        const users = await usersRes.json();
-        const labs = await labsRes.json();
-        const eqs = await eqRes.json();
-
-        // Tính toán số liệu thống kê thật để gán vào Dashboard
         setDashboardStats({
-          totalUsers: users.length || 0,
-          totalLabs: labs.length || 0,
-          totalEquipments: eqs.reduce(
-            (sum: number, eq: any) => sum + eq.totalQuantity,
-            0,
-          ),
-          inUseEquipments: eqs.reduce(
-            (sum: number, eq: any) => sum + eq.inUseQuantity,
-            0,
-          ),
-          userRolesData: [
-            {
-              name: "STUDENT",
-              value: users.filter((u: any) => u.role === "STUDENT").length,
-            },
-            {
-              name: "MANAGER",
-              value: users.filter((u: any) => u.role === "MANAGER").length,
-            },
-            {
-              name: "ADMIN",
-              value: users.filter((u: any) => u.role === "ADMIN").length,
-            },
-          ],
-          equipmentStatusData: [], // Giữ nguyên mảng rỗng tạm thời
+          totalUsers: data.total_users || 0,
+          totalLabs: data.total_labs || 0,
+          totalEquipments: data.total_equipments || 0,
+          inUseEquipments: data.in_use_equipments || 0,
+          userRolesData: data.user_roles_data || [],
+          equipmentStatusData: data.equipment_status_data || [],
+          popular_labs_data: data.popular_labs_data || [],
         });
       } else if (activeMenu === "rooms") {
         const res = await fetch(`${API_URL}/labs`);
@@ -1093,27 +1113,42 @@ export default function AdvancedAdminDashboard() {
                     }}
                   />
                   <Bar
+                  //   dataKey="value"
+                  //   name="Số lượng"
+                  //   fill="#3b82f6"
+                  //   radius={[6, 6, 0, 0]}
+                  //   barSize={40}
+                  // >
+                  //   {currentData.peakHours.map((entry, index) => (
+                  //     <Cell
+                  //       key={`cell-${index}`}
+                  //       fill={
+                  //         index ===
+                  //         currentData.peakHours.reduce(
+                  //           (maxIdx, current, idx, arr) =>
+                  //             current.bookings > arr[maxIdx].bookings
+                  //               ? idx
+                  //               : maxIdx,
+                  //           0,
+                  //         )
+                  //           ? "#2563eb"
+                  //           : "#93c5fd"
+                  //       }
+                  //     />
+                  //   ))}
+                  //</BarChart></Bar>
+    
                     dataKey="value"
                     name="Số lượng"
                     fill="#3b82f6"
                     radius={[6, 6, 0, 0]}
                     barSize={40}
                   >
-                    {currentData.peakHours.map((entry, index) => (
+                    {/* Đổi từ peakHours sang equipmentStatusData */}
+                    {dashboardStats.equipmentStatusData.map((entry, index) => (
                       <Cell
                         key={`cell-${index}`}
-                        fill={
-                          index ===
-                          currentData.peakHours.reduce(
-                            (maxIdx, current, idx, arr) =>
-                              current.bookings > arr[maxIdx].bookings
-                                ? idx
-                                : maxIdx,
-                            0,
-                          )
-                            ? "#2563eb"
-                            : "#93c5fd"
-                        }
+                        fill={index === 0 ? "#3b82f6" : "#f59e0b"} // Xanh cho Sẵn sàng, Vàng cho Đang mượn
                       />
                     ))}
                   </Bar>
@@ -1140,7 +1175,7 @@ export default function AdvancedAdminDashboard() {
             <div className="h-72 w-full flex items-center justify-center">
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
-                  <Pie
+                  {/* <Pie
                     data={dashboardStats.userRolesData}
                     cx="50%"
                     cy="45%"
@@ -1155,6 +1190,21 @@ export default function AdvancedAdminDashboard() {
                         fill={COLORS[index % COLORS.length]}
                         stroke="none"
                       />
+                    ))}
+                  </Pie> */}
+
+                  <Pie
+                    data={dashboardStats.popular_labs_data}
+                    cx="50%"
+                    cy="45%"
+                    innerRadius={60}
+                    outerRadius={90}
+                    paddingAngle={5}
+                    dataKey="value"
+                  >
+                    {/* Đổi từ popularRooms sang userRolesData */}
+                    {dashboardStats.popular_labs_data.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                     ))}
                   </Pie>
                   <RechartsTooltip
