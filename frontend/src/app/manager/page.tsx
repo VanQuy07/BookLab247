@@ -25,6 +25,10 @@ import {
   Wrench,
   DoorOpen,
   Banknote,
+  CalendarRange,
+  Lock,
+  SkipForward,
+  Edit
 } from "lucide-react";
 
 import { labService } from "../../services/lab";
@@ -78,9 +82,24 @@ interface BookingItem {
   equipments?: BorrowedEquipment[];
   date?: string;
 }
+interface FixedBookingRule {
+  id: string;
+  roomId: string;
+  title: string; 
+  startDate: string; 
+  endDate: string;   
+  daysOfWeek: number[]; 
+  startTime: string; 
+  endTime: string;   
+  status: "active" | "suspended" | "expired";
+  note?: string;
+  equipments?: BorrowedEquipment[];
+  exceptionDates?: string[];
+}
 
 type MenuTab =
   | "dashboard"
+  |  "master-schedule"
   | "labs"
   | "equipments"
   | "timeline"
@@ -183,6 +202,161 @@ export default function ManagerDashboardPage() {
     null,
   );
 
+  // ================= STATES THỜI KHÓA BIỂU CỐ ĐỊNH =================
+  const [fixedBookings, setFixedBookings] = useState<FixedBookingRule[]>([]);
+  const [showFixedModal, setShowFixedModal] = useState(false);
+  const [fixedStep, setFixedStep] = useState<"input" | "resolve">("input");
+ const [conflictList, setConflictList] = useState<BookingItem[]>([]);
+  const [gridRoomFilter, setGridRoomFilter] = useState<string>("");
+  const [editingRuleId, setEditingRuleId] = useState<string | null>(null); 
+
+  const [fixedForm, setFixedForm] = useState<Omit<FixedBookingRule, 'id' | 'status'>>({
+    roomId: "",
+    title: "",
+    startDate: selectedDate,
+    endDate: "",
+    daysOfWeek: [],
+    startTime: "07:00",
+    endTime: "11:30",
+    note: "",
+  });
+
+  // HÀM KIỂM TRA TRÙNG LỊCH (CONFLICT CHECKER)
+  const handleCheckFixedConflicts = (e: React.FormEvent) => {
+    e.preventDefault();
+    const { roomId, startDate, endDate, daysOfWeek, startTime, endTime } = fixedForm;
+    if (!roomId || daysOfWeek.length === 0 || !startDate || !endDate) return alert("Vui lòng điền đủ thông tin (Phòng, Ngày, Thứ)!");
+    if (timeToMins(endTime) <= timeToMins(startTime)) return alert("Giờ kết thúc phải lớn hơn giờ bắt đầu!");
+
+    const startMs = new Date(startDate + "T00:00:00").getTime();
+    const endMs = new Date(endDate + "T00:00:00").getTime();
+    const newStartMins = timeToMins(startTime);
+    const newEndMins = timeToMins(endTime);
+
+    // 1. Tạo danh sách các ngày thực tế sẽ diễn ra lịch cố định
+    const generatedDates: string[] = [];
+    for (let curr = startMs; curr <= endMs; curr += 86400000) {
+      const d = new Date(curr);
+      if (daysOfWeek.includes(d.getDay())) {
+        generatedDates.push(d.toISOString().split("T")[0]);
+      }
+    }
+
+    // 2. Quét toàn bộ booking lẻ hiện tại xem có vướng vào các ngày và giờ đó không
+    const overlappingBookings = bookings.filter(b => {
+      if (b.roomId !== roomId || b.status === "cancelled" || b.status === "rejected") return false;
+      const bDate = b.date || selectedDate;
+      if (!generatedDates.includes(bDate)) return false;
+
+      const bStartMins = timeToMins(b.startTime);
+      const bEndMins = bStartMins + b.durationMins + b.bufferMins;
+      return newStartMins < bEndMins && newEndMins > bStartMins;
+    });
+
+    setConflictList(overlappingBookings);
+    setFixedStep("resolve");
+  };
+
+  // HÀM CHỐT TẠO / CẬP NHẬT LỊCH CỐ ĐỊNH
+  // HÀM CHỐT TẠO / CẬP NHẬT LỊCH CỐ ĐỊNH LÊN DATABASE
+  const handleCreateFixedRule = async (mode: "skip" | "override") => {
+    let exceptions = editingRuleId ? fixedBookings.find(r => r.id === editingRuleId)?.exceptionDates || [] : [];
+
+    if (conflictList.length > 0) {
+      if (mode === "skip") {
+        // Yêu cầu 1: Bỏ qua các ngày bị trùng -> Lấy các ngày bị trùng nhét thẳng vào mảng exceptionDates (Ngoại lệ)
+        const conflictingDates = conflictList.map(c => c.date || "").filter(d => d !== "");
+        exceptions = Array.from(new Set([...exceptions, ...conflictingDates])); // Lọc trùng lặp
+        showToast(`Đã tự động bỏ qua ${conflictingDates.length} ngày bị trùng lịch.`, "success");
+      } else if (mode === "override") {
+        // Ghi đè: Gọi API hủy các đơn lẻ
+        const conflictIds = conflictList.map(c => c.id);
+        try {
+          await Promise.all(conflictIds.map(id => 
+            fetch(`https://booklab247.onrender.com/api/v1/bookings/${id}/status`, {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("access_token")}` },
+              body: JSON.stringify({ status: "cancelled" })
+            })
+          ));
+          setBookings(prev => prev.map(b => conflictIds.includes(b.id) ? { ...b, status: "cancelled", note: "Hủy tự động" } : b));
+          showToast(`Đã ghi đè (Hủy) ${conflictIds.length} đơn đặt lẻ!`, "success");
+        } catch(e) {}
+      }
+    }
+
+    // Gói dữ liệu gửi lên Database
+    const payload = {
+      room_id: fixedForm.roomId,
+      title: fixedForm.title,
+      start_date: fixedForm.startDate,
+      end_date: fixedForm.endDate,
+      days_of_week: fixedForm.daysOfWeek,
+      start_time: fixedForm.startTime,
+      end_time: fixedForm.endTime,
+      note: fixedForm.note || "",
+      exception_dates: exceptions,
+      status: "active"
+    };
+
+    try {
+      if (editingRuleId) {
+        await fetch(`https://booklab247.onrender.com/api/v1/bookings/fixed/${editingRuleId}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("access_token")}` },
+          body: JSON.stringify(payload)
+        });
+        setEditingRuleId(null);
+        showToast("Cập nhật Lịch cố định thành công!", "success");
+      } else {
+        await fetch(`https://booklab247.onrender.com/api/v1/bookings/fixed`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("access_token")}` },
+          body: JSON.stringify(payload)
+        });
+        showToast("Tạo Chuỗi Thời khóa biểu thành công!", "success");
+      }
+      setShowFixedModal(false);
+      loadData(); // Gọi lại loadData để cập nhật UI đồng bộ với Server
+    } catch(e) {
+      showToast("Lỗi khi lưu lịch cố định", "error");
+    }
+  };
+
+
+  // HÀM TÙY CHỈNH: HỦY 1 NGÀY BẤT KỲ TRONG CHUỖI LỊCH CỐ ĐỊNH
+  // HÀM TÙY CHỈNH: HỦY 1 NGÀY BẤT KỲ TRONG CHUỖI LỊCH CỐ ĐỊNH (UPDATE LÊN DATABASE)
+  const handleCancelFixedDate = async (ruleId: string, dateToCancel: string) => {
+    if (confirm(`Bạn có chắc chắn muốn HỦY lịch cố định của ngày ${dateToCancel.split('-').reverse().join('/')} không?\nLưu ý: Chỉ hủy riêng ngày này, các ngày khác trong chuỗi vẫn giữ nguyên.`)) {
+      const rule = fixedBookings.find(r => r.id === ruleId);
+      if (rule) {
+        const currentExceptions = rule.exceptionDates || [];
+        if (!currentExceptions.includes(dateToCancel)) {
+          const newExceptions = [...currentExceptions, dateToCancel];
+          try {
+            await fetch(`https://booklab247.onrender.com/api/v1/bookings/fixed/${ruleId}`, {
+              method: "PUT",
+              headers: { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("access_token")}` },
+              body: JSON.stringify({
+                room_id: rule.roomId,
+                title: rule.title,
+                start_date: rule.startDate,
+                end_date: rule.endDate,
+                days_of_week: rule.daysOfWeek,
+                start_time: rule.startTime,
+                end_time: rule.endTime,
+                exception_dates: newExceptions,
+                status: rule.status
+              })
+            });
+            loadData();
+            showToast(`Đã hủy lịch cố định ngày ${dateToCancel}`, "success");
+          } catch(e) {}
+        }
+      }
+    }
+  };
+
   // ================= STATES MAINTENANCE REPORT =================
   const [reportModal, setReportModal] = useState<{
     isOpen: boolean;
@@ -282,7 +456,34 @@ export default function ManagerDashboardPage() {
     }
 
     // ==========================================
-    // 3. LUỒNG TẢI THIẾT BỊ (Giữ nguyên của bạn)
+    // 2,5. LUỒNG TẢI LỊCH CỐ ĐỊNH TỪ DATABASE
+    // ==========================================
+    try {
+      const fixedRes = await fetch(`${API_URL}/bookings/fixed`, {
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }
+      });
+      if (fixedRes.ok) {
+        const fixedData = await fixedRes.json();
+        setFixedBookings(fixedData.map((fb: any) => ({
+          id: fb.id,
+          roomId: fb.room_id,
+          title: fb.title,
+          startDate: fb.start_date,
+          endDate: fb.end_date,
+          daysOfWeek: fb.days_of_week,
+          startTime: fb.start_time,
+          endTime: fb.end_time,
+          status: fb.status,
+          note: fb.note,
+          exceptionDates: fb.exception_dates || []
+        })));
+      }
+    } catch (err) {
+      console.error("Lỗi tải lịch cố định:", err);
+    }
+
+    // ==========================================
+    // 3. LUỒNG TẢI THIẾT BỊ 
     // ==========================================
     try {
       const eqRes = await fetch(`${API_URL}/equipments`, {
@@ -1094,8 +1295,244 @@ export default function ManagerDashboardPage() {
     </div>
   );
 
+  // ================= GIAO DIỆN MASTER SCHEDULE (THỜI KHÓA BIỂU) =================
+  const renderMasterSchedule = () => {
+    const WEEK_DAYS = [{id:1, label:"Thứ 2"}, {id:2, label:"Thứ 3"}, {id:3, label:"Thứ 4"}, {id:4, label:"Thứ 5"}, {id:5, label:"Thứ 6"}, {id:6, label:"Thứ 7"}, {id:0, label:"Chủ Nhật"}];
+
+    return (
+      <div className="space-y-6 animate-in fade-in duration-300">
+        <div className="flex justify-between items-end bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
+          <div>
+            <h2 className="text-2xl font-black text-gray-900">Thời Khóa Biểu (Cố Định)</h2>
+            <p className="text-gray-500 text-sm mt-1">Quản lý các lớp học/sự kiện lặp lại hàng tuần.</p>
+          </div>
+          <button onClick={() => { 
+            setFixedForm({
+              roomId: "", title: "", startDate: selectedDate, endDate: "", daysOfWeek: [], startTime: "07:00", endTime: "11:30", note: ""
+            });
+            setEditingRuleId(null);
+            setFixedStep("input"); 
+            setShowFixedModal(true); 
+          }} className="px-5 py-2.5 bg-purple-600 hover:bg-purple-700 text-white font-bold rounded-xl text-sm flex items-center gap-2 shadow-md">
+            <Plus className="w-4 h-4" /> Tạo Lịch Cố Định
+          </button>
+        </div>
+
+        {/* DANH SÁCH QUY TẮC */}
+        <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
+          <table className="w-full text-left">
+            <thead className="bg-gray-50 border-b border-gray-200">
+              <tr>
+                <th className="p-4 font-bold text-gray-600 text-sm">Lớp / Sự kiện</th>
+                <th className="p-4 font-bold text-gray-600 text-sm">Phòng Lab</th>
+                <th className="p-4 font-bold text-gray-600 text-sm">Lịch học</th>
+                <th className="p-4 font-bold text-gray-600 text-sm">Thời hạn</th>
+                <th className="p-4 font-bold text-gray-600 text-sm text-center">Trạng thái</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {fixedBookings.length === 0 ? (
+                <tr><td colSpan={5} className="p-8 text-center text-gray-400">Chưa có lịch cố định nào được tạo.</td></tr>
+              ) : (
+                fixedBookings.map(rule => {
+                  const rName = rooms.find(r => (r.id || r._id) === rule.roomId)?.title || "Chưa rõ"; // FIX TÊN PHÒNG Ở ĐÂY
+                  const daysStr = rule.daysOfWeek.map(d => d === 0 ? "CN" : `T${d+1}`).join(", ");
+                  return (
+                    <tr key={rule.id} className="hover:bg-gray-50">
+                      <td className="p-4 font-black text-gray-900 flex items-center gap-2"><Lock className="w-4 h-4 text-purple-600"/> {rule.title}</td>
+                      <td className="p-4 font-bold text-gray-700">{rName}</td>
+                      <td className="p-4"><span className="bg-purple-50 text-purple-700 px-2 py-1 rounded-md text-xs font-bold mr-2">{daysStr}</span> {rule.startTime} - {rule.endTime}</td>
+                      <td className="p-4 text-sm text-gray-500">{rule.startDate.split('-').reverse().join('/')} đến {rule.endDate.split('-').reverse().join('/')}</td>
+                      <td className="p-4 text-center flex justify-center items-center gap-2">
+                        <span className={`px-2 py-1 rounded-md text-xs font-bold ${rule.status === 'active' ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-500'}`}>
+                          {rule.status === 'active' ? "Đang chạy" : "Tạm dừng"}
+                        </span>
+                        
+                        {/* NÚT CHỈNH SỬA */}
+                        <button 
+                          onClick={() => {
+                            setFixedForm({
+                              roomId: rule.roomId, title: rule.title, startDate: rule.startDate, endDate: rule.endDate,
+                              daysOfWeek: rule.daysOfWeek, startTime: rule.startTime, endTime: rule.endTime, note: rule.note || ""
+                            });
+                            setEditingRuleId(rule.id);
+                            setFixedStep("input");
+                            setShowFixedModal(true);
+                          }}
+                          className="p-1.5 text-blue-500 hover:bg-blue-50 rounded-lg transition-colors" title="Chỉnh sửa chuỗi lịch"
+                        >
+                          <Edit className="w-4 h-4" />
+                        </button>
+
+                        {/* NÚT XÓA DATABASE */}
+                        <button 
+                          onClick={async () => {
+                            if(confirm("Bạn có chắc chắn muốn xóa TOÀN BỘ chuỗi lịch cố định này khỏi hệ thống?")) {
+                              try {
+                                await fetch(`https://booklab247.onrender.com/api/v1/bookings/fixed/${rule.id}`, {
+                                  method: "DELETE",
+                                  headers: { Authorization: `Bearer ${localStorage.getItem("access_token")}` }
+                                });
+                                loadData();
+                                showToast("Đã xóa chuỗi lịch cố định!", "success");
+                              } catch(e) {}
+                            }
+                          }}
+                          className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition-colors" title="Xóa toàn bộ chuỗi"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </td>
+                    </tr>
+                  )
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {/* CHẾ ĐỘ XEM DẠNG LƯỚI TUẦN (WEEKLY GRID) */}
+        <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-5">
+          <div className="flex justify-between items-center mb-4">
+             <h3 className="font-bold text-gray-900">Xem dạng Lưới Tuần (Weekly Grid)</h3>
+             <select value={gridRoomFilter} onChange={e => setGridRoomFilter(e.target.value)} className="px-3 py-1.5 border border-gray-200 rounded-lg text-sm font-bold bg-gray-50 outline-none">
+                <option value="">-- Chọn phòng xem lịch --</option>
+                {rooms.map(r => <option key={r.id||r._id} value={r.id||r._id}>{r.name||r.title}</option>)}
+             </select>
+          </div>
+          {gridRoomFilter ? (
+            <div className="grid grid-cols-7 gap-3">
+              {WEEK_DAYS.map(day => (
+                <div key={day.id} className="border border-gray-200 rounded-xl overflow-hidden bg-gray-50">
+                   <div className="bg-slate-200 p-2 text-center text-sm font-black text-gray-700 border-b border-gray-200">{day.label}</div>
+                   <div className="p-2 space-y-2 min-h-[150px]">
+                      {fixedBookings.filter(fb => fb.roomId === gridRoomFilter && fb.status === 'active' && fb.daysOfWeek.includes(day.id)).map(fb => (
+                        <div key={fb.id} className="bg-purple-100 border border-purple-200 rounded-lg p-2 text-xs">
+                          <p className="font-black text-purple-900 truncate">{fb.title}</p>
+                          <p className="text-purple-700 font-bold mt-1">{fb.startTime} - {fb.endTime}</p>
+                        </div>
+                      ))}
+                   </div>
+                </div>
+              ))}
+            </div>
+          ) : <p className="text-sm text-gray-400 text-center py-6">Vui lòng chọn phòng để xem lưới lịch.</p>}
+        </div>
+
+        {/* MODAL TẠO LỊCH CỐ ĐỊNH & CONFLICT RESOLUTION */}
+        <AnimatePresence>
+          {showFixedModal && (
+            <div className="fixed inset-0 bg-black/60 z-[999] flex items-center justify-center p-4">
+              <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col">
+                <div className="bg-purple-700 p-5 flex justify-between items-center text-white shrink-0">
+                  <h3 className="font-black text-xl flex items-center gap-2"><CalendarRange className="w-5 h-5"/> Tạo Lịch Cố Định</h3>
+                  <button onClick={() => setShowFixedModal(false)} className="hover:bg-purple-800 p-1 rounded-full"><X className="w-6 h-6" /></button>
+                </div>
+                
+                {fixedStep === "input" ? (
+                  <form onSubmit={handleCheckFixedConflicts} className="p-6 space-y-5">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-bold text-gray-700 mb-1">Tên Lớp / Sự kiện *</label>
+                        <input type="text" required placeholder="VD: Thực hành Mạng máy tính" value={fixedForm.title} onChange={e => setFixedForm({...fixedForm, title: e.target.value})} className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl outline-none" />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-bold text-gray-700 mb-1">Chọn Phòng Lab *</label>
+                        <select required value={fixedForm.roomId} onChange={e => setFixedForm({...fixedForm, roomId: e.target.value})} className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl font-bold outline-none">
+                          <option value="" disabled>-- Chọn phòng --</option>
+                          {rooms.map(r => <option key={r.id||r._id} value={r.id||r._id}>{r.name||r.title}</option>)}
+                        </select>
+                      </div>
+                    </div>
+
+                    <div>
+                      <div className="flex justify-between items-end mb-2">
+                         <label className="block text-sm font-bold text-gray-700">Tần suất (Lặp lại vào) *</label>
+                         <button type="button" onClick={() => setFixedForm({...fixedForm, daysOfWeek: [1,2,3,4,5,6,0]})} className="text-xs font-bold text-purple-600 hover:underline">
+                           Chọn tất cả (Hàng ngày)
+                         </button>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {WEEK_DAYS.map(d => (
+                          <label key={d.id} className={`px-4 py-2 border rounded-xl cursor-pointer font-bold text-sm transition-colors ${fixedForm.daysOfWeek.includes(d.id) ? 'bg-purple-100 border-purple-500 text-purple-700' : 'bg-white hover:bg-gray-50 text-gray-600'}`}>
+                            <input type="checkbox" className="hidden" checked={fixedForm.daysOfWeek.includes(d.id)} onChange={(e) => {
+                              const newDays = e.target.checked ? [...fixedForm.daysOfWeek, d.id] : fixedForm.daysOfWeek.filter(x => x !== d.id);
+                              setFixedForm({...fixedForm, daysOfWeek: newDays});
+                            }} /> {d.label}
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4 bg-purple-50 p-4 rounded-xl border border-purple-100">
+                      <div>
+                         <label className="block text-xs font-bold text-purple-900 mb-1 uppercase">Bắt đầu chuỗi từ</label>
+                         <input type="date" required value={fixedForm.startDate} onChange={e => setFixedForm({...fixedForm, startDate: e.target.value})} className="w-full px-3 py-2 bg-white rounded-lg outline-none" />
+                      </div>
+                      <div>
+                         <label className="block text-xs font-bold text-purple-900 mb-1 uppercase">Kết thúc chuỗi ngày</label>
+                         <input type="date" required value={fixedForm.endDate} onChange={e => setFixedForm({...fixedForm, endDate: e.target.value})} className="w-full px-3 py-2 bg-white rounded-lg outline-none" />
+                      </div>
+                      <div>
+                         <label className="block text-xs font-bold text-purple-900 mb-1 uppercase">Giờ vào lớp</label>
+                         <input type="time" required value={fixedForm.startTime} onChange={e => setFixedForm({...fixedForm, startTime: e.target.value})} className="w-full px-3 py-2 bg-white rounded-lg outline-none" />
+                      </div>
+                      <div>
+                         <label className="block text-xs font-bold text-purple-900 mb-1 uppercase">Giờ tan lớp</label>
+                         <input type="time" required value={fixedForm.endTime} onChange={e => setFixedForm({...fixedForm, endTime: e.target.value})} className="w-full px-3 py-2 bg-white rounded-lg outline-none" />
+                      </div>
+                    </div>
+
+                    <div className="flex justify-end gap-3 pt-2">
+                       <button type="button" onClick={() => setShowFixedModal(false)} className="px-6 py-2.5 text-gray-500 font-bold hover:bg-gray-100 rounded-xl">Hủy</button>
+                       <button type="submit" className="px-6 py-2.5 bg-purple-600 hover:bg-purple-700 text-white font-bold rounded-xl shadow-md">Kiểm tra Khả dụng</button>
+                    </div>
+                  </form>
+                ) : (
+                  <div className="p-6 flex flex-col items-center text-center">
+                    {conflictList.length === 0 ? (
+                      <>
+                        <div className="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mb-4"><CheckCircle2 className="w-8 h-8"/></div>
+                        <h3 className="text-xl font-black text-gray-900 mb-2">Không phát hiện trùng lịch!</h3>
+                        <p className="text-sm text-gray-500 mb-6">Chuỗi thời gian bạn chọn hoàn toàn trống. Bạn có thể tạo lịch ngay.</p>
+                        <div className="w-full flex gap-3">
+                          <button onClick={() => setFixedStep("input")} className="flex-1 py-3 bg-gray-100 font-bold rounded-xl">Quay lại</button>
+                          <button onClick={() => handleCreateFixedRule('skip')} className="flex-1 py-3 bg-emerald-600 text-white font-bold rounded-xl shadow-md">Hoàn tất Tạo Lịch</button>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div className="w-16 h-16 bg-red-100 text-red-600 rounded-full flex items-center justify-center mb-4"><AlertTriangle className="w-8 h-8"/></div>
+                        <h3 className="text-xl font-black text-gray-900 mb-2">Phát hiện Trùng Lịch!</h3>
+                        <p className="text-sm text-gray-500 mb-4">Hệ thống tìm thấy <b>{conflictList.length}</b> đơn đặt phòng lẻ đã tồn tại trong chuỗi thời gian bạn cấu hình.</p>
+                        
+                        <div className="w-full bg-red-50 border border-red-100 rounded-xl max-h-40 overflow-y-auto p-2 mb-6 space-y-2 text-left">
+                          {conflictList.map(c => (
+                            <div key={c.id} className="bg-white p-2 rounded-lg text-xs shadow-sm flex justify-between">
+                              <span><b>{c.customerName}</b> ({c.startTime} - {c.durationMins}p)</span>
+                              <span className="text-red-500 font-bold">{c.date?.split('-').reverse().join('/')}</span>
+                            </div>
+                          ))}
+                        </div>
+
+                        <div className="w-full flex gap-3">
+                          <button onClick={() => setFixedStep("input")} className="w-1/4 py-3 bg-gray-100 font-bold rounded-xl text-sm">Sửa lại</button>
+                          <button onClick={() => handleCreateFixedRule('skip')} className="flex-1 py-3 bg-blue-600 text-white font-bold rounded-xl shadow-md flex items-center justify-center gap-2 text-sm"><SkipForward className="w-4 h-4"/> Bỏ qua & Tạo</button>
+                          <button onClick={() => handleCreateFixedRule('override')} className="flex-1 py-3 bg-red-600 text-white font-bold rounded-xl shadow-md text-sm">Ghi đè (Hủy đơn cũ)</button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+      </div>
+    );
+  };
+
   // ================= GIAO DIỆN TIMELINE EXCEL XUYÊN NGÀY =================
-  // ================= GIAO DIỆN TIMELINE XUYÊN NGÀY (FULL 24H) =================
   const renderTimeline = () => {
     const startHour = 0;
     const endHour = 24;
@@ -1109,28 +1546,34 @@ export default function ManagerDashboardPage() {
       new Set(rooms.map((r) => r.building || "Khác")),
     ).filter(Boolean);
 
-    // CHỈ hiển thị những phòng có lịch đặt GIAO NHAU với NGÀY ĐANG CHỌN
+    // CHỈ hiển thị những phòng có lịch đặt lẻ HOẶC lịch cố định trong ngày đang chọn
     const filteredRooms = rooms.filter((room) => {
       const roomIdStr = room.id || room._id || "";
-      const hasBooking = bookings.some((b) => {
-        if (b.roomId !== roomIdStr) return false;
-        if (b.status === "cancelled") return false; // Không hiển thị ca đã từ chối/hủy
+      
+      // 1. Kiểm tra Lịch đặt lẻ
+      const hasNormalBooking = bookings.some((b) => {
+        if (b.roomId !== roomIdStr || b.status === "cancelled") return false;
         const existDate = b.date || selectedDate;
         const bStartMs = new Date(`${existDate}T${b.startTime}`).getTime();
-        const bEndMsWithBuffer =
-          bStartMs + (b.durationMins + b.bufferMins) * 60000;
-
-        // Thuật toán kiểm tra giao nhau (Overlap) với View Port
+        const bEndMsWithBuffer = bStartMs + (b.durationMins + b.bufferMins) * 60000;
         return bStartMs < viewEndMs && bEndMsWithBuffer > viewStartMs;
       });
 
-      if (!hasBooking) return false;
+      // 2. Kiểm tra Lịch cố định (SỬA LỖI 1)
+      const hasFixedBooking = fixedBookings.some((fb) => {
+        if (fb.roomId !== roomIdStr || fb.status !== "active") return false;
+        const currentDayNum = new Date(selectedDate + "T00:00:00").getDay();
+        const isException = fb.exceptionDates?.includes(selectedDate); // Bỏ qua nếu ngày này đã bị xóa
+        return !isException &&
+               fb.daysOfWeek.includes(currentDayNum) && 
+               selectedDate >= fb.startDate && 
+               selectedDate <= fb.endDate;
+      });
 
-      if (
-        buildingFilter !== "all" &&
-        (room.building || "Khác") !== buildingFilter
-      )
-        return false;
+      // Nếu phòng không có đơn lẻ VÀ cũng không có lịch cố định -> Ẩn đi
+      if (!hasNormalBooking && !hasFixedBooking) return false;
+
+      if (buildingFilter !== "all" && (room.building || "Khác") !== buildingFilter) return false;
       return true;
     });
 
@@ -1317,6 +1760,40 @@ export default function ManagerDashboardPage() {
                         ))}
                       </div>
 
+
+                      {/* HIỂN THỊ LỊCH CỐ ĐỊNH NẾU KHỚP VỚI NGÀY ĐANG XEM */}
+                      {fixedBookings.filter(fb => {
+                          if (fb.roomId !== roomIdStr || fb.status !== "active") return false;
+                          if (fb.exceptionDates?.includes(selectedDate)) return false; // BỎ QUA NẾU NGÀY NÀY ĐÃ BỊ HỦY
+                          const currentDayNum = new Date(selectedDate + "T00:00:00").getDay();
+                          return fb.daysOfWeek.includes(currentDayNum) && 
+                                 selectedDate >= fb.startDate && 
+                                 selectedDate <= fb.endDate;
+                      }).map(fb => {
+                          const fStartMins = timeToMins(fb.startTime);
+                          const fDuration = timeToMins(fb.endTime) - fStartMins;
+                          const fLeftPct = (fStartMins / totalMins) * 100;
+                          const fWidthPct = (fDuration / totalMins) * 100;
+                          
+                          return (
+                            <div
+                              key={fb.id}
+                              onClick={() => handleCancelFixedDate(fb.id, selectedDate)}
+                              title="Click để HỦY lớp cố định trong ngày này"
+                              className="absolute top-2 bottom-2 bg-purple-600 border border-purple-700 text-white rounded-xl px-3 py-1 overflow-hidden z-10 flex flex-col justify-center shadow-sm cursor-pointer hover:brightness-110 hover:border-red-400"
+                              style={{ left: `${fLeftPct}%`, width: `${fWidthPct}%` }}
+                            >
+                              <p className="text-xs font-black truncate leading-tight flex items-center gap-1">
+                                <Lock className="w-3 h-3"/> {fb.title}
+                              </p>
+                              <p className="text-[10px] opacity-90 truncate font-semibold mt-0.5">
+                                {fb.startTime} - {fb.endTime}
+                              </p>
+                            </div>
+                          );
+                      })}
+
+
                       {roomBookings.map((booking) => {
                         const existDate = booking.date || selectedDate;
                         const bStartMs = new Date(
@@ -1440,6 +1917,7 @@ export default function ManagerDashboardPage() {
           { id: "labs", icon: DoorOpen, label: "Phòng Thực hành" },
           { id: "equipments", icon: Package, label: "Thiết Bị" },
           { id: "timeline", icon: CalendarDays, label: "Lịch Điều phối" },
+          { id: "master-schedule", icon: CalendarRange, label: "Thời Khóa Biểu" },
           { id: "reports", icon: FileText, label: "Báo cáo Sự cố" },
           { id: "lookup", icon: Search, label: "Tra cứu Thông tin" },
         ].map((item) => (
@@ -1487,6 +1965,7 @@ export default function ManagerDashboardPage() {
           {[
             { id: "dashboard", label: "Giám sát" },
             { id: "timeline", label: "Điều phối" },
+            { id: "master-schedule", label: "Cố định" },
             { id: "labs", label: "Phòng" },
             { id: "equipments", label: "Thiết bị" },
             { id: "reports", label: "Báo cáo" },
@@ -1520,6 +1999,7 @@ export default function ManagerDashboardPage() {
               {activeMenu === "timeline" && renderTimeline()}
               {activeMenu === "reports" && renderReports()}
               {activeMenu === "lookup" && renderLookup()}
+              {activeMenu === "master-schedule" && renderMasterSchedule()}
             </motion.div>
           )}
         </AnimatePresence>
