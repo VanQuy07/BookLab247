@@ -47,8 +47,8 @@ export default function BookingModal({
   const [isSuccess, setIsSuccess] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  //const API_URL = getApiBaseUrl();
-  const API_URL = "http://127.0.0.1:8000/api/v1";
+  const API_URL = getApiBaseUrl();
+  //const API_URL = "http://127.0.0.1:8000/api/v1";
 
   useEffect(() => {
     if (isOpen && room) {

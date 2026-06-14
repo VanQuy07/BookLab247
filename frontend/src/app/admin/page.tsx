@@ -178,6 +178,7 @@ export default function AdvancedAdminDashboard() {
     defaultAmenities: "",
     imageUrl: "",
   });
+  const [bookings, setBookings] = useState<any[]>([]);
 
   const [newEq, setNewEq] = useState({
     name: "",
@@ -250,29 +251,25 @@ export default function AdvancedAdminDashboard() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      if (activeMenu === "dashboard") {
-        //const res = await fetch(`${API_URL}/dashboard/stats`);
-        const res = await fetch(`${API_URL}/dashboard/stats?time_range=${timeFilter}`);
-        const data = await res.json();
+      const token = localStorage.getItem("access_token") || "";
+      const headers = { 
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}` 
+      };
 
-        setDashboardStats({
-          totalUsers: data.total_users || 0,
-          totalLabs: data.total_labs || 0,
-          totalEquipments: data.total_equipments || 0,
-          inUseEquipments: data.in_use_equipments || 0,
-          userRolesData: data.user_roles_data || [],
-          equipmentStatusData: data.equipment_status_data || [],
-          popular_labs_data: data.popular_labs_data || [],
-        });
-      } else if (activeMenu === "rooms") {
-        const res = await fetch(`${API_URL}/labs`);
-        setRooms(await res.json());
-      } else if (activeMenu === "equipments") {
-        const res = await fetch(`${API_URL}/equipments`);
-        setEquipments(await res.json());
-      } else if (activeMenu === "users") {
-        const res = await fetch(`${API_URL}/auth/users`);
-        setUsersList(await res.json());
+      const [usersRes, labsRes, eqRes, bkRes] = await Promise.all([
+        fetch(`${API_URL}/auth/users`, { headers }),
+        fetch(`${API_URL}/labs`, { headers }),
+        fetch(`${API_URL}/equipments`, { headers }),
+        fetch(`${API_URL}/bookings`, { headers })
+      ]);
+
+      if (usersRes.ok) setUsersList(await usersRes.json());
+      if (labsRes.ok) setRooms(await labsRes.json());
+      if (eqRes.ok) setEquipments(await eqRes.json());
+      if (bkRes.ok) {
+          const bkData = await bkRes.json();
+          setBookings(Array.isArray(bkData) ? bkData : bkData.data || []);
       }
     } catch (err) {
       console.error("Lỗi fetch data:", err);
@@ -712,520 +709,169 @@ export default function AdvancedAdminDashboard() {
 
   // ================= DASHBOARD CÓ BỘ LỌC THỜI GIAN =================
   const renderDashboard = () => {
-    // 1. Kho dữ liệu ảo (Mock Data) thay đổi theo timeFilter
-    const dashboardData = {
-      yesterday: {
-        metrics: [
-          {
-            title: "Trạng thái phòng",
-            value: "60%",
-            subValue: "12/20 phòng sử dụng",
-            icon: Activity,
-            trend: "down" as const,
-            colorClass: "text-blue-600",
-            bgClass: "bg-blue-50",
-          },
-          {
-            title: "Đơn đặt lịch",
-            value: "85",
-            subValue: "Hoàn tất 85 đơn",
-            icon: CalendarDays,
-            trend: "down" as const,
-            colorClass: "text-emerald-600",
-            bgClass: "bg-emerald-50",
-          },
-          {
-            title: "Thiết bị cho mượn",
-            value: "24",
-            subValue: "Đã trả 5 thiết bị",
-            icon: MonitorPlay,
-            trend: "down" as const,
-            colorClass: "text-amber-600",
-            bgClass: "bg-amber-50",
-          },
-          {
-            title: "Doanh thu (Ngày)",
-            value: "2.1M",
-            subValue: "-5% so với hôm kia",
-            icon: CreditCard,
-            trend: "down" as const,
-            colorClass: "text-purple-600",
-            bgClass: "bg-purple-50",
-          },
-        ],
-        peakHours: [
-          { time: "07:00", bookings: 5 },
-          { time: "09:00", bookings: 25 },
-          { time: "11:00", bookings: 20 },
-          { time: "13:00", bookings: 35 },
-          { time: "15:00", bookings: 30 },
-          { time: "17:00", bookings: 10 },
-        ],
-        popularRooms: [
-          { name: "Lab Máy tính", value: 30 },
-          { name: "Lab Hóa - Sinh", value: 40 },
-          { name: "Phòng Hội thảo", value: 10 },
-          { name: "Không gian chung", value: 20 },
-        ],
-      },
-      today: {
-        metrics: [
-          {
-            title: "Trạng thái phòng",
-            value: "75%",
-            subValue: "15/20 phòng đang dùng",
-            icon: Activity,
-            trend: "up" as const,
-            colorClass: "text-blue-600",
-            bgClass: "bg-blue-50",
-          },
-          {
-            title: "Đơn đặt lịch",
-            value: "124",
-            subValue: "12 đơn chờ duyệt",
-            icon: CalendarDays,
-            trend: "up" as const,
-            colorClass: "text-emerald-600",
-            bgClass: "bg-emerald-50",
-          },
-          {
-            title: "Thiết bị cho mượn",
-            value: "45",
-            subValue: "Trong tổng số 320 TB",
-            icon: MonitorPlay,
-            trend: "neutral" as const,
-            colorClass: "text-amber-600",
-            bgClass: "bg-amber-50",
-          },
-          {
-            title: "Doanh thu (Ngày)",
-            value: "3.2M",
-            subValue: "+12.5% so với hôm qua",
-            icon: CreditCard,
-            trend: "up" as const,
-            colorClass: "text-purple-600",
-            bgClass: "bg-purple-50",
-          },
-        ],
-        peakHours: [
-          { time: "07:00", bookings: 12 },
-          { time: "09:00", bookings: 45 },
-          { time: "11:00", bookings: 30 },
-          { time: "13:00", bookings: 55 },
-          { time: "15:00", bookings: 60 },
-          { time: "17:00", bookings: 25 },
-        ],
-        popularRooms: [
-          { name: "Lab Máy tính", value: 45 },
-          { name: "Lab Hóa - Sinh", value: 25 },
-          { name: "Phòng Hội thảo", value: 20 },
-          { name: "Không gian chung", value: 10 },
-        ],
-      },
-      "7days": {
-        metrics: [
-          {
-            title: "Trạng thái phòng",
-            value: "82%",
-            subValue: "Trung bình 7 ngày",
-            icon: Activity,
-            trend: "up" as const,
-            colorClass: "text-blue-600",
-            bgClass: "bg-blue-50",
-          },
-          {
-            title: "Đơn đặt lịch",
-            value: "856",
-            subValue: "Tăng mạnh đầu tuần",
-            icon: CalendarDays,
-            trend: "up" as const,
-            colorClass: "text-emerald-600",
-            bgClass: "bg-emerald-50",
-          },
-          {
-            title: "Thiết bị cho mượn",
-            value: "120",
-            subValue: "Chưa thu hồi 15 TB",
-            icon: MonitorPlay,
-            trend: "neutral" as const,
-            colorClass: "text-amber-600",
-            bgClass: "bg-amber-50",
-          },
-          {
-            title: "Doanh thu (Tuần)",
-            value: "22.5M",
-            subValue: "+8% so với tuần trước",
-            icon: CreditCard,
-            trend: "up" as const,
-            colorClass: "text-purple-600",
-            bgClass: "bg-purple-50",
-          },
-        ],
-        peakHours: [
-          { time: "T2", bookings: 120 },
-          { time: "T3", bookings: 150 },
-          { time: "T4", bookings: 140 },
-          { time: "T5", bookings: 180 },
-          { time: "T6", bookings: 160 },
-          { time: "T7", bookings: 80 },
-          { time: "CN", bookings: 26 },
-        ],
-        popularRooms: [
-          { name: "Lab Máy tính", value: 300 },
-          { name: "Lab Hóa - Sinh", value: 150 },
-          { name: "Phòng Hội thảo", value: 250 },
-          { name: "Không gian chung", value: 156 },
-        ],
-      },
-      month: {
-        metrics: [
-          {
-            title: "Trạng thái phòng",
-            value: "68%",
-            subValue: "Trung bình tháng",
-            icon: Activity,
-            trend: "down" as const,
-            colorClass: "text-blue-600",
-            bgClass: "bg-blue-50",
-          },
-          {
-            title: "Đơn đặt lịch",
-            value: "3,240",
-            subValue: "Hoàn tất 98%",
-            icon: CalendarDays,
-            trend: "up" as const,
-            colorClass: "text-emerald-600",
-            bgClass: "bg-emerald-50",
-          },
-          {
-            title: "Thiết bị cho mượn",
-            value: "840",
-            subValue: "Mất/Hỏng 2 TB",
-            icon: MonitorPlay,
-            trend: "down" as const,
-            colorClass: "text-amber-600",
-            bgClass: "bg-amber-50",
-          },
-          {
-            title: "Doanh thu (Tháng)",
-            value: "86.4M",
-            subValue: "-2% so với tháng trước",
-            icon: CreditCard,
-            trend: "down" as const,
-            colorClass: "text-purple-600",
-            bgClass: "bg-purple-50",
-          },
-        ],
-        peakHours: [
-          { time: "Tuần 1", bookings: 800 },
-          { time: "Tuần 2", bookings: 950 },
-          { time: "Tuần 3", bookings: 820 },
-          { time: "Tuần 4", bookings: 670 },
-        ],
-        popularRooms: [
-          { name: "Lab Máy tính", value: 1200 },
-          { name: "Lab Hóa - Sinh", value: 800 },
-          { name: "Phòng Hội thảo", value: 600 },
-          { name: "Không gian chung", value: 640 },
-        ],
-      },
-    };
+    // ================= 1. TÍNH TOÁN SỐ LIỆU TỔNG QUAN =================
+    const totalUsers = usersList.length;
+    const studentCount = usersList.filter((u) => u.role === "STUDENT").length;
+    
+    const totalLabs = rooms.length;
+    const activeLabs = rooms.filter((r) => !r.maintenanceMode).length;
 
-    const currentData = dashboardData[timeFilter];
-    // 1. Lấy thêm một vài con số thật từ Backend để hiển thị chi tiết
-    const availableEq =
-      dashboardStats.totalEquipments - dashboardStats.inUseEquipments;
-    const studentCount =
-      dashboardStats.userRolesData.find((r: any) => r.name === "STUDENT")
-        ?.value || 0;
+    const totalEqs = equipments.reduce((sum, eq) => sum + (eq.totalQuantity || 0), 0);
+    const inUseEqs = equipments.reduce((sum, eq) => sum + (eq.inUseQuantity || 0), 0);
+    const maintenanceEqs = equipments.filter(eq => eq.status === 'maintenance').reduce((sum, eq) => sum + (eq.totalQuantity || 0), 0);
+    const availableEqs = totalEqs - inUseEqs - maintenanceEqs;
 
-    // 2. Cấu hình đoạn text nhỏ (subValue) linh hoạt theo Tab và DÙNG SỐ THẬT
-    let subValues = { users: "", labs: "", eq: "", inUse: "" };
+    // ================= 2. CHUẨN BỊ DỮ LIỆU BIỂU ĐỒ (ĐÃ NÂNG CẤP) =================
+    
+    // NÂNG CẤP BIỂU ĐỒ 1: Biểu đồ Cột Chồng (Stacked Bar) theo Danh mục thiết bị
+    const eqCategoryMap: Record<string, { name: string, available: number, inUse: number, maintenance: number }> = {};
 
-    switch (timeFilter) {
-      case "yesterday":
-        subValues = {
-          users: `Hệ thống có ${dashboardStats.totalUsers} tài khoản`,
-          labs: `Quản lý ${dashboardStats.totalLabs} phòng`,
-          eq: `Có sẵn ${availableEq} thiết bị`,
-          inUse: `Chưa thu hồi ${dashboardStats.inUseEquipments} TB`,
-        };
-        break;
-      case "today":
-        subValues = {
-          users: `Bao gồm ${studentCount} Sinh viên`,
-          labs: `${dashboardStats.totalLabs} phòng đang hoạt động`,
-          eq: `Sẵn sàng ${availableEq} thiết bị rảnh`,
-          inUse: `Đang xuất kho ${dashboardStats.inUseEquipments} TB`,
-        };
-        break;
-      case "7days":
-        subValues = {
-          users: `Tổng cộng ${dashboardStats.totalUsers} người dùng`,
-          labs: `Hỗ trợ ${dashboardStats.totalLabs} phòng lab`,
-          eq: `Tổng kho có ${dashboardStats.totalEquipments} TB`,
-          inUse: `Đã mượn ${dashboardStats.inUseEquipments} TB`,
-        };
-        break;
-      case "month":
-        subValues = {
-          users: `Ghi nhận ${dashboardStats.totalUsers} user`,
-          labs: `Theo dõi ${dashboardStats.totalLabs} phòng`,
-          eq: `Số lượng: ${dashboardStats.totalEquipments} thiết bị`,
-          inUse: `Đang dùng ${dashboardStats.inUseEquipments} TB`,
-        };
-        break;
-    }
+    equipments.forEach(eq => {
+      // Rút gọn tên danh mục cho biểu đồ đỡ bị tràn chữ
+      let cat = eq.category || "Khác";
+      if (cat.includes("Công nghệ thông tin")) cat = "CNTT";
+      if (cat.includes("Điện - Điện tử")) cat = "Điện tử";
+      if (cat.includes("Vật tư tiêu hao")) cat = "Tiêu hao";
 
-    // 3. Ghi đè cả TỔNG SỐ và ĐOẠN TEXT NHỎ bằng dữ liệu thật vào giao diện
-    currentData.metrics[0].title = "Tổng người dùng";
-    currentData.metrics[0].value = dashboardStats.totalUsers.toString();
-    currentData.metrics[0].subValue = subValues.users;
+      if (!eqCategoryMap[cat]) {
+        eqCategoryMap[cat] = { name: cat, available: 0, inUse: 0, maintenance: 0 };
+      }
+      
+      const total = eq.totalQuantity || 0;
+      const inUse = eq.inUseQuantity || 0;
+      
+      if (eq.status === 'maintenance') {
+         eqCategoryMap[cat].maintenance += total;
+      } else {
+         eqCategoryMap[cat].inUse += inUse;
+         eqCategoryMap[cat].available += (total - inUse);
+      }
+    });
+    const equipmentChartData = Object.values(eqCategoryMap);
 
-    currentData.metrics[1].title = "Tổng phòng Lab";
-    currentData.metrics[1].value = dashboardStats.totalLabs.toString();
-    currentData.metrics[1].subValue = subValues.labs;
+    // SỬA LỖI BIỂU ĐỒ 2: Xử lý triệt để "Phòng khác"
+    const roomBookingCounts: Record<string, number> = {};
+    bookings.forEach(b => {
+       if (b.status === 'cancelled' || b.status === 'rejected') return;
+       const roomId = b.room_id || b.roomId;
+       if (roomId) roomBookingCounts[roomId] = (roomBookingCounts[roomId] || 0) + 1;
+    });
 
-    currentData.metrics[2].title = "Tổng thiết bị kho";
-    currentData.metrics[2].value = dashboardStats.totalEquipments.toString();
-    currentData.metrics[2].subValue = subValues.eq;
+    const popularLabsData = Object.entries(roomBookingCounts).map(([roomId, count]) => {
+       const room = rooms.find(r => (r.id || r._id) === roomId);
+       return {
+          // Nếu phòng đã bị xóa, hiển thị ID viết tắt để Admin dễ nhận biết thay vì "Phòng khác"
+          name: room ? (room.name || room.title) : `Phòng đã xóa (${roomId.substring(0, 4)}...)`,
+          value: count
+       };
+    }).sort((a, b) => b.value - a.value).slice(0, 5); // Lấy Top 5 phòng
 
-    currentData.metrics[3].title = "Đang cho mượn";
-    currentData.metrics[3].value = dashboardStats.inUseEquipments.toString();
-    currentData.metrics[3].subValue = subValues.inUse;
     return (
-      <div className="space-y-8 pb-10">
-        {/* ================= BỘ LỌC THỜI GIAN NHANH ================= */}
+      <div className="space-y-8 pb-10 animate-in fade-in duration-300">
         <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4">
           <div>
-            <h2 className="text-3xl font-black text-gray-900">
-              Tổng quan Hệ thống
-            </h2>
-            <p className="text-gray-500 mt-1">
-              Nắm bắt nhanh tình hình hoạt động của BookLab247.
-            </p>
-          </div>
-
-          <div className="flex bg-gray-100/80 p-1 rounded-xl border border-gray-200">
-            {[
-              { id: "yesterday", label: "Hôm qua" },
-              { id: "today", label: "Hôm nay" },
-              { id: "7days", label: "7 ngày qua" },
-              { id: "month", label: "Tháng này" },
-            ].map((filter) => (
-              <button
-                key={filter.id}
-                onClick={() => setTimeFilter(filter.id as TimeFilter)}
-                className={`px-4 py-2 text-sm font-bold rounded-lg transition-all ${
-                  timeFilter === filter.id
-                    ? "bg-white text-blue-600 shadow-sm"
-                    : "text-gray-500 hover:text-gray-900 hover:bg-gray-200/50"
-                }`}
-              >
-                {filter.label}
-              </button>
-            ))}
+            <h2 className="text-3xl font-black text-gray-900">Tổng quan Hệ thống</h2>
+            <p className="text-gray-500 mt-1">Phân tích dữ liệu vận hành thực tế của BookLab247.</p>
           </div>
         </div>
 
-        {/* ================= HÀNG THỐNG KÊ (Thay đổi theo filter) ================= */}
+        {/* THẺ METRICS */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-          {currentData.metrics.map((metric, idx) => (
-            <motion.div
-              key={`${timeFilter}-metric-${idx}`} // Ép React re-render chạy animation khi đổi tab
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.2, delay: idx * 0.05 }}
-              className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm flex items-center gap-5 hover:shadow-md transition-shadow"
-            >
-              <div
-                className={`w-14 h-14 rounded-full flex items-center justify-center shrink-0 ${metric.bgClass}`}
-              >
-                <metric.icon className={`w-7 h-7 ${metric.colorClass}`} />
-              </div>
-              <div>
-                <p className="text-sm font-bold text-gray-500 mb-1">
-                  {metric.title}
-                </p>
-                <h3 className="text-2xl font-black text-gray-900 leading-none mb-2">
-                  {metric.value}
-                </h3>
-                <p className="text-xs font-semibold text-gray-400 flex items-center gap-1">
-                  {metric.trend === "up" && (
-                    <TrendingUp className="w-3 h-3 text-emerald-500" />
-                  )}
-                  {metric.trend === "down" && (
-                    <TrendingDown className="w-3 h-3 text-red-500" />
-                  )}
-                  {metric.subValue}
-                </p>
-              </div>
-            </motion.div>
-          ))}
-        </div>
-
-        {/* ================= BIỂU ĐỒ (Thay đổi theo filter) ================= */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <motion.div
-            key={`${timeFilter}-chart1`}
-            initial={{ opacity: 0, scale: 0.98 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ duration: 0.3 }}
-            className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm lg:col-span-2"
-          >
-            <div className="mb-6">
-              <h3 className="text-lg font-bold text-gray-900">
-                Tình trạng Thiết bị kho
-              </h3>
-              <p className="text-sm text-gray-500">
-                Giúp bố trí nhân sự kỹ thuật & lao công hợp lý.
-              </p>
+          <motion.div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm flex items-center gap-5 hover:shadow-md transition-shadow">
+            <div className="w-14 h-14 rounded-full flex items-center justify-center shrink-0 bg-blue-50">
+              <Users className="w-7 h-7 text-blue-600" />
             </div>
-            <div className="h-72 w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart
-                  data={dashboardStats.equipmentStatusData}
-                  margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
-                >
-                  <CartesianGrid
-                    strokeDasharray="3 3"
-                    vertical={false}
-                    stroke="#f1f5f9"
-                  />
-                  <XAxis
-                    dataKey="name"
-                    axisLine={false}
-                    tickLine={false}
-                    tick={{ fontSize: 12, fill: "#64748b" }}
-                    dy={10}
-                  />
-                  <YAxis
-                    axisLine={false}
-                    tickLine={false}
-                    tick={{ fontSize: 12, fill: "#64748b" }}
-                  />
-                  <RechartsTooltip
-                    cursor={{ fill: "#f8fafc" }}
-                    contentStyle={{
-                      borderRadius: "12px",
-                      border: "none",
-                      boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)",
-                    }}
-                  />
-                  <Bar
-                  //   dataKey="value"
-                  //   name="Số lượng"
-                  //   fill="#3b82f6"
-                  //   radius={[6, 6, 0, 0]}
-                  //   barSize={40}
-                  // >
-                  //   {currentData.peakHours.map((entry, index) => (
-                  //     <Cell
-                  //       key={`cell-${index}`}
-                  //       fill={
-                  //         index ===
-                  //         currentData.peakHours.reduce(
-                  //           (maxIdx, current, idx, arr) =>
-                  //             current.bookings > arr[maxIdx].bookings
-                  //               ? idx
-                  //               : maxIdx,
-                  //           0,
-                  //         )
-                  //           ? "#2563eb"
-                  //           : "#93c5fd"
-                  //       }
-                  //     />
-                  //   ))}
-                  //</BarChart></Bar>
-    
-                    dataKey="value"
-                    name="Số lượng"
-                    fill="#3b82f6"
-                    radius={[6, 6, 0, 0]}
-                    barSize={40}
-                  >
-                    {/* Đổi từ peakHours sang equipmentStatusData */}
-                    {dashboardStats.equipmentStatusData.map((entry, index) => (
-                      <Cell
-                        key={`cell-${index}`}
-                        fill={index === 0 ? "#3b82f6" : "#f59e0b"} // Xanh cho Sẵn sàng, Vàng cho Đang mượn
-                      />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
+            <div>
+              <p className="text-sm font-bold text-gray-500 mb-1">Tổng người dùng</p>
+              <h3 className="text-2xl font-black text-gray-900 leading-none mb-2">{totalUsers}</h3>
+              <p className="text-xs font-semibold text-gray-400 flex items-center gap-1"><TrendingUp className="w-3 h-3 text-emerald-500" /> Bao gồm {studentCount} Sinh viên</p>
             </div>
           </motion.div>
 
-          <motion.div
-            key={`${timeFilter}-chart2`}
-            initial={{ opacity: 0, scale: 0.98 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ duration: 0.3, delay: 0.1 }}
-            className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm"
-          >
+          <motion.div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm flex items-center gap-5 hover:shadow-md transition-shadow">
+            <div className="w-14 h-14 rounded-full flex items-center justify-center shrink-0 bg-emerald-50">
+              <DoorOpen className="w-7 h-7 text-emerald-600" />
+            </div>
+            <div>
+              <p className="text-sm font-bold text-gray-500 mb-1">Tổng phòng Lab</p>
+              <h3 className="text-2xl font-black text-gray-900 leading-none mb-2">{totalLabs}</h3>
+              <p className="text-xs font-semibold text-gray-400 flex items-center gap-1"><TrendingUp className="w-3 h-3 text-emerald-500" /> {activeLabs} phòng đang hoạt động</p>
+            </div>
+          </motion.div>
+
+          <motion.div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm flex items-center gap-5 hover:shadow-md transition-shadow">
+            <div className="w-14 h-14 rounded-full flex items-center justify-center shrink-0 bg-amber-50">
+              <Package className="w-7 h-7 text-amber-600" />
+            </div>
+            <div>
+              <p className="text-sm font-bold text-gray-500 mb-1">Tổng thiết bị kho</p>
+              <h3 className="text-2xl font-black text-gray-900 leading-none mb-2">{totalEqs}</h3>
+              <p className="text-xs font-semibold text-gray-400 flex items-center gap-1">Sẵn sàng {availableEqs} món rảnh</p>
+            </div>
+          </motion.div>
+
+          <motion.div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm flex items-center gap-5 hover:shadow-md transition-shadow">
+            <div className="w-14 h-14 rounded-full flex items-center justify-center shrink-0 bg-purple-50">
+              <Activity className="w-7 h-7 text-purple-600" />
+            </div>
+            <div>
+              <p className="text-sm font-bold text-gray-500 mb-1">Thiết bị đang mượn</p>
+              <h3 className="text-2xl font-black text-gray-900 leading-none mb-2">{inUseEqs}</h3>
+              <p className="text-xs font-semibold text-gray-400 flex items-center gap-1"><TrendingUp className="w-3 h-3 text-emerald-500" /> Đang xuất kho {inUseEqs} món</p>
+            </div>
+          </motion.div>
+        </div>
+
+        {/* BIỂU ĐỒ PHÂN TÍCH */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <motion.div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm lg:col-span-2">
             <div className="mb-6">
-              <h3 className="text-lg font-bold text-gray-900">
-                Mức độ ưa chuộng
-              </h3>
-              <p className="text-sm text-gray-500">
-                Phân bổ tỷ lệ loại phòng được đặt.
-              </p>
+              <h3 className="text-lg font-bold text-gray-900">Phân bố Thiết bị theo Danh mục</h3>
+              <p className="text-sm text-gray-500">Thống kê số lượng, tỷ lệ rảnh/bận và rủi ro bảo trì theo từng loại.</p>
+            </div>
+            <div className="h-72 w-full">
+              {equipmentChartData.length === 0 ? (
+                 <div className="h-full flex items-center justify-center text-gray-400 text-sm">Chưa có thiết bị nào trong kho.</div>
+              ) : (
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={equipmentChartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                    <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: "#64748b", fontWeight: 600 }} dy={10} />
+                    <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: "#64748b" }} />
+                    <RechartsTooltip cursor={{ fill: "#f8fafc" }} contentStyle={{ borderRadius: "12px", border: "none", boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)" }} />
+                    <Legend verticalAlign="top" height={36} iconType="circle" wrapperStyle={{ fontSize: "12px", fontWeight: 600, color: "#475569" }} />
+                    
+                    {/* CÁC CỘT XẾP CHỒNG LÊN NHAU (STACKED BAR) */}
+                    <Bar dataKey="available" name="Sẵn sàng" stackId="a" fill="#3b82f6" radius={[0, 0, 4, 4]} barSize={45} />
+                    <Bar dataKey="inUse" name="Đang mượn" stackId="a" fill="#f59e0b" />
+                    <Bar dataKey="maintenance" name="Bảo trì" stackId="a" fill="#ef4444" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
+            </div>
+          </motion.div>
+
+          <motion.div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
+            <div className="mb-6">
+              <h3 className="text-lg font-bold text-gray-900">Mức độ ưa chuộng</h3>
+              <p className="text-sm text-gray-500">Top 5 phòng Lab được đặt nhiều nhất.</p>
             </div>
             <div className="h-72 w-full flex items-center justify-center">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  {/* <Pie
-                    data={dashboardStats.userRolesData}
-                    cx="50%"
-                    cy="45%"
-                    innerRadius={60}
-                    outerRadius={90}
-                    paddingAngle={5}
-                    dataKey="value"
-                  >
-                    {currentData.popularRooms.map((entry, index) => (
-                      <Cell
-                        key={`cell-${index}`}
-                        fill={COLORS[index % COLORS.length]}
-                        stroke="none"
-                      />
-                    ))}
-                  </Pie> */}
-
-                  <Pie
-                    data={dashboardStats.popular_labs_data}
-                    cx="50%"
-                    cy="45%"
-                    innerRadius={60}
-                    outerRadius={90}
-                    paddingAngle={5}
-                    dataKey="value"
-                  >
-                    {/* Đổi từ popularRooms sang userRolesData */}
-                    {dashboardStats.popular_labs_data.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                    ))}
-                  </Pie>
-                  <RechartsTooltip
-                    contentStyle={{
-                      borderRadius: "12px",
-                      border: "none",
-                      boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)",
-                    }}
-                  />
-                  <Legend
-                    verticalAlign="bottom"
-                    height={36}
-                    iconType="circle"
-                    wrapperStyle={{
-                      fontSize: "12px",
-                      fontWeight: 600,
-                      color: "#475569",
-                    }}
-                  />
-                </PieChart>
-              </ResponsiveContainer>
+              {popularLabsData.length === 0 ? (
+                 <p className="text-sm text-gray-400 italic">Chưa có dữ liệu đặt phòng.</p>
+              ) : (
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie data={popularLabsData} cx="50%" cy="45%" innerRadius={60} outerRadius={90} paddingAngle={5} dataKey="value" labelLine={false}>
+                      {popularLabsData.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                      ))}
+                    </Pie>
+                    <RechartsTooltip contentStyle={{ borderRadius: "12px", border: "none", boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)" }} />
+                    <Legend verticalAlign="bottom" height={36} iconType="circle" wrapperStyle={{ fontSize: "12px", fontWeight: 600, color: "#475569" }} />
+                  </PieChart>
+                </ResponsiveContainer>
+              )}
             </div>
           </motion.div>
         </div>

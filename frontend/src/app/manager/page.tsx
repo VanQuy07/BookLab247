@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -25,6 +25,15 @@ import {
   Wrench,
   DoorOpen,
   Banknote,
+  CalendarRange,
+  Lock,
+  SkipForward,
+  Edit,
+  UserCircle,
+  Tag,
+  History,
+  Info,
+  Sparkles
 } from "lucide-react";
 
 import { labService } from "../../services/lab";
@@ -78,14 +87,61 @@ interface BookingItem {
   note: string;
   equipments?: BorrowedEquipment[];
   date?: string;
+ 
   is_urgent?: boolean;
   is_conflict?: boolean;
   conflict_with?: string;
   cancel_reason?: string;
+
+  paymentStatus?: "CHƯA THANH TOÁN" | "ĐANG CHỜ DUYỆT" | "HOÀN THÀNH";
+}
+
+interface FixedBookingRule {
+  id: string;
+  roomId: string;
+  title: string; 
+  startDate: string; 
+  endDate: string;   
+  daysOfWeek: number[]; 
+  startTime: string; 
+  endTime: string;   
+  status: "active" | "suspended" | "expired";
+  note?: string;
+  equipments?: BorrowedEquipment[];
+  exceptionDates?: string[];
+}
+
+// --- YÊU CẦU: STRICT TYPE CHO TRA CỨU ---
+interface CustomerProfile {
+  phone: string;
+  fullName: string;
+  totalBookings: number;
+  completed: number;
+  cancelled: number;
+  tags: ("VIP" | "Warning" | "Regular")[];
+  internalNote: string;
+  bookingHistory: BookingItem[];
+}
+
+interface EquipmentTrackingInfo {
+  equipmentId: string;
+  name: string;
+  inStock: number;
+  total: number;
+  currentlyBorrowedBy: {
+    bookingId: string;
+    roomName: string;
+    customerName: string;
+    quantity: number;
+    expectedReturnTime: string;
+    isOverdue: boolean;
+    originalBooking: BookingItem;
+  }[];
 }
 
 type MenuTab =
   | "dashboard"
+  | "master-schedule"
   | "labs"
   | "equipments"
   | "timeline"
@@ -135,7 +191,7 @@ const SectionHeader = ({ title, description, action }: { title: string, descript
 
 export default function ManagerDashboardPage() {
   const router = useRouter();
-  const [activeMenu, setActiveMenu] = useState<MenuTab>("timeline");
+  const [activeMenu, setActiveMenu] = useState<MenuTab>("dashboard");
   const [loading, setLoading] = useState<boolean>(true);
 
   const [timeFilter, setTimeFilter] = useState<TimeFilter>("today");
@@ -148,6 +204,28 @@ export default function ManagerDashboardPage() {
   const [rooms, setRooms] = useState<ManagerRoom[]>([]);
   //const [bookings, setBookings] = useState<BookingItem[]>(INITIAL_BOOKINGS);
   const [bookings, setBookings] = useState<BookingItem[]>([]);
+
+  const prevPendingCountRef = useRef(0);
+  const pendingCount = bookings.filter((b) => b.status === "pending" || b.status === "CHO_DUYET").length;
+
+  // useEffect(() => {
+  //   if (pendingCount > prevPendingCountRef.current) {
+  //     const audio = new Audio("https://actions.google.com/sounds/v1/alarms/beep_short.ogg");
+      
+  //     audio.play().catch(e => console.log("Trình duyệt chặn tự động phát âm thanh, cần user click vào trang trước."));
+  //   }
+  //   prevPendingCountRef.current = pendingCount;
+  // }, [pendingCount]);
+
+  useEffect(() => {
+    if (pendingCount > prevPendingCountRef.current) {
+      
+      const audio = new Audio("https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3");
+      audio.play().catch(e => console.log("Trình duyệt chặn tự động phát âm thanh, cần user click vào trang trước."));
+    }
+    prevPendingCountRef.current = pendingCount;
+  }, [pendingCount]);
+
   const [equipments, setEquipments] = useState<EquipmentItem[]>([]);
   const [buildingFilter, setBuildingFilter] = useState<string>("all");
   const [roomSearchQuery, setRoomSearchQuery] = useState("");
@@ -199,6 +277,240 @@ export default function ManagerDashboardPage() {
     null,
   );
 
+  // ================= STATES THÔNG MINH & THANH TOÁN =================
+  const [todaySearchQuery, setTodaySearchQuery] = useState<string>("");
+
+  // Hàm tính tổng tiền cho Modal
+  const calculateBookingTotal = (booking: BookingItem): number => {
+    const room = rooms.find(r => (r.id === booking.roomId || r._id === booking.roomId));
+    const roomPrice = Number(room?.price || 0);
+    const roomTotal = (booking.durationMins / 60) * roomPrice;
+    const eqTotal = (booking.equipments || []).reduce((sum, eq) => sum + (eq.price * eq.quantity), 0);
+    return roomTotal + eqTotal;
+  };
+
+  // Hàm Xác nhận thanh toán & Hoàn thành ca
+  const handleConfirmPayment = async (bookingId: string) => {
+    try {
+      const token = localStorage.getItem("access_token");
+      const response = await fetch(`${API_URL}/bookings/${bookingId}/status`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        // Gửi cả cờ completed và trạng thái thanh toán
+        body: JSON.stringify({ status: "completed", payment_status: "HOÀN THÀNH" })
+      });
+
+      if (!response.ok) throw new Error("Lỗi khi cập nhật thanh toán");
+
+      // Cập nhật State nội bộ ngay lập tức
+      setBookings(prev => prev.map(b => b.id === bookingId ? { ...b, status: "completed", paymentStatus: "HOÀN THÀNH" } : b));
+      if (selectedBooking && selectedBooking.id === bookingId) {
+         setSelectedBooking({ ...selectedBooking, status: "completed", paymentStatus: "HOÀN THÀNH" });
+      }
+      
+      showToast("Đã thu tiền và hoàn thành ca mượn!", "success");
+      setSelectedBooking(null); // Đóng modal
+    } catch (e) {
+      showToast("Lỗi kết nối khi thanh toán!", "error");
+    }
+  };
+
+  // ================= STATES THỜI KHÓA BIỂU CỐ ĐỊNH =================
+  const [fixedBookings, setFixedBookings] = useState<FixedBookingRule[]>([]);
+  const [showFixedModal, setShowFixedModal] = useState(false);
+  const [fixedStep, setFixedStep] = useState<"input" | "resolve">("input");
+ const [conflictList, setConflictList] = useState<BookingItem[]>([]);
+  const [gridRoomFilter, setGridRoomFilter] = useState<string>("");
+  const [editingRuleId, setEditingRuleId] = useState<string | null>(null); 
+
+  const [fixedForm, setFixedForm] = useState<Omit<FixedBookingRule, 'id' | 'status'>>({
+    roomId: "",
+    title: "",
+    startDate: selectedDate,
+    endDate: "",
+    daysOfWeek: [],
+    startTime: "07:00",
+    endTime: "11:30",
+    note: "",
+  });
+
+  // HÀM KIỂM TRA TRÙNG LỊCH (CONFLICT CHECKER)
+  const handleCheckFixedConflicts = (e: React.FormEvent) => {
+    e.preventDefault();
+    const { roomId, startDate, endDate, daysOfWeek, startTime, endTime } = fixedForm;
+    if (!roomId || daysOfWeek.length === 0 || !startDate || !endDate) return alert("Vui lòng điền đủ thông tin (Phòng, Ngày, Thứ)!");
+    if (timeToMins(endTime) <= timeToMins(startTime)) return alert("Giờ kết thúc phải lớn hơn giờ bắt đầu!");
+
+    const startMs = new Date(startDate + "T00:00:00").getTime();
+    const endMs = new Date(endDate + "T00:00:00").getTime();
+    const newStartMins = timeToMins(startTime);
+    const newEndMins = timeToMins(endTime);
+
+    // 1. Tạo danh sách các ngày thực tế sẽ diễn ra lịch cố định
+    const generatedDates: string[] = [];
+    for (let curr = startMs; curr <= endMs; curr += 86400000) {
+      const d = new Date(curr);
+      if (daysOfWeek.includes(d.getDay())) {
+        generatedDates.push(d.toISOString().split("T")[0]);
+      }
+    }
+
+    // 2. Quét toàn bộ booking lẻ hiện tại xem có vướng vào các ngày và giờ đó không
+    const overlappingBookings = bookings.filter(b => {
+      if (b.roomId !== roomId || b.status === "cancelled" || b.status === "rejected") return false;
+      const bDate = b.date || selectedDate;
+      if (!generatedDates.includes(bDate)) return false;
+
+      const bStartMins = timeToMins(b.startTime);
+      const bEndMins = bStartMins + b.durationMins + b.bufferMins;
+      return newStartMins < bEndMins && newEndMins > bStartMins;
+    });
+
+    setConflictList(overlappingBookings);
+    setFixedStep("resolve");
+  };
+
+  // HÀM CHỐT TẠO / CẬP NHẬT LỊCH CỐ ĐỊNH
+  const handleCreateFixedRule = async (mode: "skip" | "override") => {
+    let exceptions = editingRuleId ? fixedBookings.find(r => r.id === editingRuleId)?.exceptionDates || [] : [];
+
+    if (conflictList.length > 0) {
+      if (mode === "skip") {
+        // Yêu cầu 1: Bỏ qua các ngày bị trùng -> Lấy các ngày bị trùng nhét thẳng vào mảng exceptionDates (Ngoại lệ)
+        const conflictingDates = conflictList.map(c => c.date || "").filter(d => d !== "");
+        exceptions = Array.from(new Set([...exceptions, ...conflictingDates])); // Lọc trùng lặp
+        showToast(`Đã tự động bỏ qua ${conflictingDates.length} ngày bị trùng lịch.`, "success");
+      } else if (mode === "override") {
+        // Ghi đè: Gọi API hủy các đơn lẻ
+        const conflictIds = conflictList.map(c => c.id);
+        try {
+          await Promise.all(conflictIds.map(id => 
+            fetch(`https://booklab247.onrender.com/api/v1/bookings/${id}/status`, {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("access_token")}` },
+              body: JSON.stringify({ status: "cancelled" })
+            })
+          ));
+          setBookings(prev => prev.map(b => conflictIds.includes(b.id) ? { ...b, status: "cancelled", note: "Hủy tự động" } : b));
+          showToast(`Đã ghi đè (Hủy) ${conflictIds.length} đơn đặt lẻ!`, "success");
+        } catch(e) {}
+      }
+    }
+
+    // Gói dữ liệu gửi lên Database
+    const payload = {
+      room_id: fixedForm.roomId,
+      title: fixedForm.title,
+      start_date: fixedForm.startDate,
+      end_date: fixedForm.endDate,
+      days_of_week: fixedForm.daysOfWeek,
+      start_time: fixedForm.startTime,
+      end_time: fixedForm.endTime,
+      note: fixedForm.note || "",
+      exception_dates: exceptions,
+      status: "active"
+    };
+
+    try {
+      if (editingRuleId) {
+        await fetch(`https://booklab247.onrender.com/api/v1/bookings/fixed/${editingRuleId}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("access_token")}` },
+          body: JSON.stringify(payload)
+        });
+        setEditingRuleId(null);
+        showToast("Cập nhật Lịch cố định thành công!", "success");
+      } else {
+        await fetch(`https://booklab247.onrender.com/api/v1/bookings/fixed`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("access_token")}` },
+          body: JSON.stringify(payload)
+        });
+        showToast("Tạo Chuỗi Thời khóa biểu thành công!", "success");
+      }
+      setShowFixedModal(false);
+      loadData(); // Gọi lại loadData để cập nhật UI đồng bộ với Server
+    } catch(e) {
+      showToast("Lỗi khi lưu lịch cố định", "error");
+    }
+  };
+
+
+  // HÀM TÙY CHỈNH: HỦY 1 NGÀY BẤT KỲ TRONG CHUỖI LỊCH CỐ ĐỊNH
+  const handleCancelFixedDate = async (ruleId: string, dateToCancel: string) => {
+    if (confirm(`Bạn có chắc chắn muốn HỦY lịch cố định của ngày ${dateToCancel.split('-').reverse().join('/')} không?\nLưu ý: Chỉ hủy riêng ngày này, các ngày khác trong chuỗi vẫn giữ nguyên.`)) {
+      const rule = fixedBookings.find(r => r.id === ruleId);
+      if (rule) {
+        const currentExceptions = rule.exceptionDates || [];
+        if (!currentExceptions.includes(dateToCancel)) {
+          const newExceptions = [...currentExceptions, dateToCancel];
+          try {
+            await fetch(`https://booklab247.onrender.com/api/v1/bookings/fixed/${ruleId}`, {
+              method: "PUT",
+              headers: { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("access_token")}` },
+              body: JSON.stringify({
+                room_id: rule.roomId,
+                title: rule.title,
+                start_date: rule.startDate,
+                end_date: rule.endDate,
+                days_of_week: rule.daysOfWeek,
+                start_time: rule.startTime,
+                end_time: rule.endTime,
+                exception_dates: newExceptions,
+                status: rule.status
+              })
+            });
+            loadData();
+            showToast(`Đã hủy lịch cố định ngày ${dateToCancel}`, "success");
+          } catch(e) {}
+        }
+      }
+    }
+  };
+
+  // ================= STATES TRA CỨU THÔNG TIN (LOOKUP) =================
+  const [lookupTab, setLookupTab] = useState<"customer" | "room" | "equipment">("customer");
+  const [lookupSearch, setLookupSearch] = useState<string>("");
+  
+  // State cho Smart Room Search (Reverse Lookup)
+  const [smartRoomForm, setSmartRoomForm] = useState({
+    date: selectedDate,
+    startTime: "08:00",
+    endTime: "11:30",
+    minCapacity: 10,
+    equipmentId: "" // Bộ lọc thiết bị mở rộng
+  });
+
+  // ================= HỆ THỐNG CẢNH BÁO QUÁ HẠN TỰ ĐỘNG =================
+  const notifiedOverdues = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    let hasNewOverdue = false;
+    bookings.forEach(b => {
+      // Chỉ kiểm tra các ca Đang mượn (Checked-in) và có thiết bị
+      if (b.status === "checked-in" && b.equipments && b.equipments.length > 0) {
+        const bDate = b.date || selectedDate;
+        const endMins = timeToMins(b.startTime) + b.durationMins;
+        const endH = Math.floor(endMins / 60) % 24;
+        const endM = endMins % 60;
+        const returnDateTime = new Date(`${bDate}T${endH.toString().padStart(2,'0')}:${endM.toString().padStart(2,'0')}:00`);
+
+        // Nếu thời gian hiện tại vượt quá giờ trả dự kiến & chưa từng thông báo
+        if (currentTime > returnDateTime && !notifiedOverdues.current.has(b.id)) {
+          hasNewOverdue = true;
+          notifiedOverdues.current.add(b.id);
+        }
+      }
+    });
+
+    if (hasNewOverdue) {
+      showToast("Cảnh báo: Có thiết bị mượn đã quá giờ trả!", "error");
+    }
+  }, [currentTime, bookings]);
+
+  // Mô phỏng lưu trữ ghi chú Khách hàng tại Local (Vì chưa có DB Customer riêng)
+  const [customerNotes, setCustomerNotes] = useState<Record<string, { tags: ("VIP"|"Warning"|"Regular")[], note: string }>>({});
+
   // ================= STATES MAINTENANCE REPORT =================
   const [reportModal, setReportModal] = useState<{
     isOpen: boolean;
@@ -245,23 +557,25 @@ export default function ManagerDashboardPage() {
         const bkData = await bkRes.json();
         const rawBookings = Array.isArray(bkData) ? bkData : bkData.data || [];
 
-        const formattedBookings = rawBookings.map((b: any) => ({
-          id: b.id || b._id,
-          roomId: b.room_id || b.roomId,
-          customerName:
-            b.customer_name || b.customerName || "Khách chưa rõ tên",
-          phone: b.phone || "",
-          status: b.status || "pending",
-          date: b.date || "",
-          startTime: b.start_time || b.startTime || "00:00",
+        // Ép kiểu chuẩn xác, không dùng any
+        const formattedBookings = rawBookings.map((b: Record<string, unknown>): BookingItem => ({
+          id: String(b.id || b._id || ""),
+          roomId: String(b.room_id || b.roomId || ""),
+          customerName: String(b.customer_name || b.customerName || "Khách chưa rõ tên"),
+          phone: String(b.phone || ""),
+          status: String(b.status || "pending"),
+          date: String(b.date || ""),
+          startTime: String(b.start_time || b.startTime || "00:00"),
           durationMins: Number(b.duration_mins || b.durationMins || 0),
           bufferMins: Number(b.buffer_mins || b.bufferMins || 15),
-          note: b.note || "",
-          equipments: b.equipments || [],
-          is_urgent: b.is_urgent || false,
-          is_conflict: b.is_conflict || false,
-          conflict_with: b.conflict_with || "",
-          cancel_reason: b.cancel_reason || "",
+
+          note: String(b.note || ""),
+          equipments: (b.equipments as BorrowedEquipment[]) || [],
+          is_urgent: Boolean(b.is_urgent || false),
+          is_conflict: Boolean(b.is_conflict || false),
+          conflict_with: String(b.conflict_with || ""),
+          cancel_reason: String(b.cancel_reason || ""),
+          paymentStatus: (b.payment_status as "CHƯA THANH TOÁN" | "ĐANG CHỜ DUYỆT" | "HOÀN THÀNH") || "CHƯA THANH TOÁN",
         }));
         setBookings(formattedBookings);
       } else {
@@ -307,7 +621,34 @@ export default function ManagerDashboardPage() {
     }
 
     // ==========================================
-    // 3. LUỒNG TẢI THIẾT BỊ (Giữ nguyên của bạn)
+    // 2,5. LUỒNG TẢI LỊCH CỐ ĐỊNH TỪ DATABASE
+    // ==========================================
+    try {
+      const fixedRes = await fetch(`${API_URL}/bookings/fixed`, {
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }
+      });
+      if (fixedRes.ok) {
+        const fixedData = await fixedRes.json();
+        setFixedBookings(fixedData.map((fb: any) => ({
+          id: fb.id,
+          roomId: fb.room_id,
+          title: fb.title,
+          startDate: fb.start_date,
+          endDate: fb.end_date,
+          daysOfWeek: fb.days_of_week,
+          startTime: fb.start_time,
+          endTime: fb.end_time,
+          status: fb.status,
+          note: fb.note,
+          exceptionDates: fb.exception_dates || []
+        })));
+      }
+    } catch (err) {
+      console.error("Lỗi tải lịch cố định:", err);
+    }
+
+    // ==========================================
+    // 3. LUỒNG TẢI THIẾT BỊ 
     // ==========================================
     try {
       const eqRes = await fetch(`${API_URL}/equipments`, {
@@ -557,8 +898,8 @@ const startObj = new Date(
   const executeUpdateStatus = async (bookingId: string, newStatus: string) => {
     try {
       const token = localStorage.getItem("access_token");
-      //const API_URL = "https://booklab247.onrender.com/api/v1";
-      const API_URL = "http://localhost:8000/api/v1";
+      const API_URL = "https://booklab247.onrender.com/api/v1";
+      //const API_URL = "http://localhost:8000/api/v1";
 
       const response = await fetch(`${API_URL}/bookings/${bookingId}/status`, {
         method: "PATCH",
@@ -884,7 +1225,6 @@ const startObj = new Date(
   );
 
   const renderDashboard = () => {
-    // 1. TÍNH TOÁN CÁC CHỈ SỐ THỐNG KÊ
     const usedRoomsCount = rooms.filter((l) => l.isBooked).length;
     const maintenanceRoomsCount = rooms.filter((l) => l.maintenanceMode).length;
     const maintenanceEqsCount = equipments.filter(
@@ -914,11 +1254,13 @@ const startObj = new Date(
 
     const todayStr = new Date().toISOString().split("T")[0];
     const upcomingBookings = bookings
-      .filter(
-        (b) =>
-          (b.date === todayStr || !b.date) &&
-          (b.status === "confirmed" || b.status === "checked-in"),
-      )
+      .filter((b) => (b.date === todayStr || !b.date) && (b.status === "confirmed" || b.status === "checked-in" || b.status === "completed"))
+      .filter(b => {
+         if (!todaySearchQuery) return true;
+         const q = todaySearchQuery.toLowerCase();
+         // Smart Search: Quét cả Tên và SĐT
+         return b.customerName.toLowerCase().includes(q) || b.phone.includes(q);
+      })
       .sort((a, b) => timeToMins(a.startTime) - timeToMins(b.startTime));
 
     return (
@@ -1006,12 +1348,23 @@ const startObj = new Date(
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 animate-in fade-in duration-300">
           {/* CỘT 1: LỊCH CA HÔM NAY */}
-          {/* <div className="bg-white rounded-2xl border border-gray-100 shadow-sm flex flex-col h-[350px]">
-            <div className="p-4 border-b border-gray-100">
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm flex flex-col h-[350px]">
+            <div className="p-4 border-b border-gray-100 flex flex-col gap-3 shrink-0">
               <h3 className="font-bold text-gray-900 flex items-center gap-2">
-                <Clock className="w-5 h-5 text-emerald-500" /> Các ca hoạt động
-                hôm nay
+                <Clock className="w-5 h-5 text-emerald-500" /> Các ca hoạt động hôm nay
               </h3>
+
+              {/* SMART SEARCH BAR */}
+              <div className="relative">
+                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                <input
+                  type="text"
+                  placeholder="Tìm Tên hoặc SĐT (Ví dụ: 098...)"
+                  value={todaySearchQuery}
+                  onChange={(e) => setTodaySearchQuery(e.target.value)}
+                  className="w-full pl-9 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm outline-none focus:border-emerald-500 transition-colors"
+                />
+              </div>
             </div>
             <div className="p-4 overflow-y-auto space-y-3">
               {upcomingBookings.length === 0 ? (
@@ -1038,10 +1391,20 @@ const startObj = new Date(
                           </span>
                         </p>
                       </div>
-                      <div className="text-right">
+                      <div className="text-right flex flex-col items-end gap-2 shrink-0">
                         <span className="font-black text-emerald-600 bg-emerald-50 px-2 py-1 rounded-lg text-sm shadow-sm">
                           {booking.startTime}
                         </span>
+                        {/* TAG TRẠNG THÁI THANH TOÁN */}
+                        {booking.paymentStatus === "HOÀN THÀNH" ? (
+                          <span className="flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full border border-emerald-200">
+                             <CheckCircle2 className="w-3 h-3"/> Đã thu
+                          </span>
+                        ) : (
+                          <span className="flex items-center gap-1 text-[10px] font-bold text-red-600 bg-red-100 px-2 py-0.5 rounded-full border border-red-200">
+                             <AlertTriangle className="w-3 h-3"/> Nợ
+                          </span>
+                        )}
                       </div>
                     </div>
                   );
@@ -1049,79 +1412,6 @@ const startObj = new Date(
               )}
             </div>
           </div>
-
-          {/* CỘT 2: ĐƠN CHỜ DUYỆT KHẨN */}
-          {/* <div className="bg-white rounded-2xl border border-gray-100 shadow-sm flex flex-col h-[350px]">
-            <div className="p-4 border-b border-gray-100">
-              <h3 className="font-bold text-gray-900 flex items-center gap-2">
-                <AlertTriangle className="w-5 h-5 text-amber-500" /> Đơn chờ
-                duyệt khẩn
-              </h3>
-            </div>
-            <div className="p-4 overflow-y-auto space-y-3">
-              {pendingBookings.length === 0 ? (
-                <div className="text-center text-sm text-gray-500 py-10">
-                  Không có đơn chờ duyệt.
-                </div>
-              ) : (
-                pendingBookings.map((booking) => {
-                  const roomName = getRoomName(booking.roomId);
-                  return (
-                    <div
-                      key={booking.id}
-                      className="bg-amber-50 border border-amber-100 p-3 rounded-xl flex flex-col gap-3"
-                    >
-                      <div
-                        className="flex justify-between items-start cursor-pointer hover:opacity-80"
-                        onClick={() => setSelectedBooking(booking)}
-                      >
-                        <div>
-                          <p className="font-bold text-gray-900 text-sm">
-                            {booking.customerName}
-                          </p>
-                          <p className="text-xs text-gray-500 mt-0.5">
-                            {booking.date} |{" "}
-                            <span className="font-bold text-amber-600">
-                              {booking.startTime}
-                            </span>{" "}
-                            ({booking.durationMins}p)
-                          </p>
-                          <p className="text-xs text-gray-500 mt-0.5">
-                            Phòng:{" "}
-                            <span className="font-bold text-gray-700">
-                              {roomName}
-                            </span>
-                          </p>
-                        </div>
-                        <span className="bg-amber-100 text-amber-700 text-[10px] px-2 py-1 rounded-md font-bold uppercase tracking-wider">
-                          Chờ duyệt
-                        </span>
-                      </div>
-                      <div className="flex gap-2 mt-1">
-                        <button
-                          onClick={() =>
-                            handleUpdateStatus(booking.id, "confirmed")
-                          }
-                          className="flex-1 bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-bold py-2 rounded-lg transition-colors shadow-sm"
-                        >
-                          Duyệt đơn
-                        </button>
-                        <button
-                          onClick={() =>
-                            handleUpdateStatus(booking.id, "cancelled")
-                          }
-                          className="flex-1 bg-white hover:bg-red-50 text-red-500 border border-red-200 text-xs font-bold py-2 rounded-lg transition-colors shadow-sm"
-                        >
-                          Từ chối
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-          </div>
-        </div> */}
 
 
           {/* CỘT 1: LỊCH CA HÔM NAY (Hiển thị Timeline kèm trạng thái hủy) */}
@@ -1169,11 +1459,19 @@ const startObj = new Date(
           </div>
 
           {/* CỘT 2: ĐƠN CHỜ DUYỆT KHẨN (Hiển thị Tag Khẩn cấp & Cảnh báo trùng lịch) */}
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm flex flex-col h-[350px]">
-            <div className="p-4 border-b border-gray-100">
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm flex flex-col h-[350px] overflow-hidden">
+            <div className="p-4 border-b border-gray-100 flex justify-between items-center bg-amber-50/30">
               <h3 className="font-bold text-gray-900 flex items-center gap-2">
-                <AlertTriangle className="w-5 h-5 text-amber-500" /> Đơn chờ duyệt
+                <AlertTriangle className={`w-5 h-5 text-amber-500 ${pendingCount > 0 ? "animate-pulse" : ""}`} /> 
+                Đơn chờ duyệt
               </h3>
+              
+              {/* BADGE THÔNG BÁO ĐỎ CÓ SỐ LƯỢNG */}
+              {pendingCount > 0 && (
+                <span className="bg-red-500 text-white px-3 py-1 rounded-full text-xs font-black shadow-md shadow-red-500/30 animate-bounce">
+                  {pendingCount} đơn mới
+                </span>
+              )}
             </div>
             <div className="p-4 overflow-y-auto space-y-3">
               {pendingBookings.length === 0 ? (
@@ -1276,14 +1574,597 @@ const startObj = new Date(
       Giao diện Báo cáo sự cố
     </div>
   );
-  const renderLookup = () => (
-    <div className="p-6 bg-white rounded-2xl border border-gray-100 text-center py-20 text-gray-400">
-      Giao diện Tra cứu thông tin
-    </div>
-  );
+  // ================= GIAO DIỆN TRA CỨU THÔNG TIN (OMNI-LOOKUP) =================
+  const renderLookup = () => {
+    // 1. DATA: KHÁCH HÀNG (Giữ nguyên)
+    const generateCustomerProfiles = (): CustomerProfile[] => {
+      const profileMap: Record<string, CustomerProfile> = {};
+      bookings.forEach(b => {
+        const phone = b.phone || "Không có SĐT";
+        if (!profileMap[phone]) {
+          const savedData = customerNotes[phone] || { tags: ["Regular"], note: "" };
+          profileMap[phone] = {
+            phone, fullName: b.customerName,
+            totalBookings: 0, completed: 0, cancelled: 0,
+            tags: savedData.tags, internalNote: savedData.note, bookingHistory: []
+          };
+        }
+        profileMap[phone].totalBookings += 1;
+        if (b.status === "completed") profileMap[phone].completed += 1;
+        if (b.status === "cancelled" || b.status === "rejected") profileMap[phone].cancelled += 1;
+        profileMap[phone].bookingHistory.push(b);
+        profileMap[phone].fullName = b.customerName; 
+      });
+      return Object.values(profileMap).filter(c => !lookupSearch || c.phone.includes(lookupSearch) || c.fullName.toLowerCase().includes(lookupSearch.toLowerCase()));
+    };
+
+    // 2. DATA: TRUY VẾT THIẾT BỊ (ĐÃ FIX GOM NHÓM & TRẠNG THÁI)
+    const generateEquipmentTracking = (): EquipmentTrackingInfo[] => {
+      // BƯỚC 1: Gom nhóm thiết bị trong kho theo TÊN (tránh hiển thị 3 dòng Máy Chiếu bị tách rời)
+      const groupedEqs: Record<string, EquipmentItem> = {};
+      equipments.forEach(eq => {
+        const name = eq.name.trim();
+        if (!groupedEqs[name]) {
+          groupedEqs[name] = { ...eq };
+        } else {
+          groupedEqs[name].totalQuantity = (groupedEqs[name].totalQuantity || 0) + (eq.totalQuantity || 0);
+          // Lưu gộp các ID lại để lát nữa quét xem khách mượn ID nào cũng tính
+          groupedEqs[name].id = `${groupedEqs[name].id || groupedEqs[name]._id},${eq.id || eq._id}`;
+        }
+      });
+
+      // BƯỚC 2: Quét tìm người mượn
+      return Object.values(groupedEqs).filter(eq => !lookupSearch || eq.name.toLowerCase().includes(lookupSearch.toLowerCase())).map(eq => {
+        const eqIds = String(eq.id || "").split(','); // Danh sách các ID của thiết bị này
+        const borrowerMap: Record<string, EquipmentTrackingInfo["currentlyBorrowedBy"][0]> = {};
+        let actualInUse = 0; 
+        
+        // Quét các booking đang mượn (Bao gồm cả 'checked-in' và 'DANG_MUON' từ Backend)
+        bookings.filter(b => ["checked-in", "DANG_MUON", "confirmed"].includes(b.status)).forEach(b => {
+          // Tìm xem booking này có mượn món đồ nào khớp với danh sách ID không
+          const usedEq = b.equipments?.find(e => eqIds.includes(String(e.id || (e as any)._id || "")));
+          
+          if (usedEq && usedEq.quantity > 0) {
+            actualInUse += Number(usedEq.quantity);
+            const rName = rooms.find(r => String(r.id || r._id) === String(b.roomId))?.title || "Chưa rõ";
+            
+            const bDate = b.date || selectedDate;
+            const endMs = timeToMins(b.startTime) + b.durationMins;
+            const endH = Math.floor(endMs / 60) % 24;
+            const endM = endMs % 60;
+            const returnTimeStr = `${endH.toString().padStart(2,'0')}:${endM.toString().padStart(2,'0')}`;
+            const [yyyy, mm, dd] = bDate.split('-');
+            const displayTime = `${dd}/${mm} - ${returnTimeStr}`; 
+            
+            const returnDateTime = new Date(`${bDate}T${returnTimeStr}:00`);
+            const isOverdue = currentTime > returnDateTime;
+
+            if (borrowerMap[b.id]) {
+              borrowerMap[b.id].quantity += Number(usedEq.quantity);
+            } else {
+              borrowerMap[b.id] = {
+                bookingId: b.id,
+                roomName: rName,
+                customerName: b.customerName,
+                quantity: Number(usedEq.quantity),
+                expectedReturnTime: displayTime,
+                isOverdue: isOverdue,
+                originalBooking: b
+              };
+            }
+          }
+        });
+
+        return {
+          equipmentId: eqIds[0],
+          name: eq.name,
+          inStock: Math.max(0, (eq.totalQuantity || 0) - actualInUse), // Trừ chính xác
+          total: eq.totalQuantity || 0,
+          currentlyBorrowedBy: Object.values(borrowerMap)
+        };
+      });
+    };
+
+    // 3. DATA: TÌM PHÒNG THÔNG MINH
+    const generateAvailableRooms = () => {
+      const searchStartMins = timeToMins(smartRoomForm.startTime);
+      const searchEndMins = timeToMins(smartRoomForm.endTime);
+      if (searchEndMins <= searchStartMins) return []; // Auto chặn các case lỗi giờ (ví dụ 12h - 02h)
+
+      // Lọc thiết bị nếu có yêu cầu
+      if (smartRoomForm.equipmentId) {
+        const requiredEq = equipments.find(e => (e.id || e._id) === smartRoomForm.equipmentId);
+        const eqAvailable = (requiredEq?.totalQuantity || 0) - (requiredEq?.inUseQuantity || 0);
+        if (eqAvailable <= 0) return []; // Kho hết đồ -> Không trả ra phòng nào
+      }
+
+      return rooms.filter(room => {
+        if (room.maintenanceMode) return false;
+        if (Number(room.capacity || 0) < smartRoomForm.minCapacity) return false;
+        const roomIdStr = room.id || room._id;
+        
+        const isConflictNormal = bookings.some(b => {
+          if (b.roomId !== roomIdStr || b.status === "cancelled") return false;
+          if ((b.date || selectedDate) !== smartRoomForm.date) return false;
+          const bStartMins = timeToMins(b.startTime);
+          const bEndMins = bStartMins + b.durationMins + b.bufferMins;
+          return searchStartMins < bEndMins && searchEndMins > bStartMins;
+        });
+        if (isConflictNormal) return false;
+
+        const isConflictFixed = fixedBookings.some(fb => {
+          if (fb.roomId !== roomIdStr || fb.status !== "active") return false;
+          if (fb.exceptionDates?.includes(smartRoomForm.date)) return false;
+          const targetDayNum = new Date(smartRoomForm.date + "T00:00:00").getDay();
+          if (!fb.daysOfWeek.includes(targetDayNum)) return false;
+          if (smartRoomForm.date < fb.startDate || smartRoomForm.date > fb.endDate) return false;
+
+          const fStartMins = timeToMins(fb.startTime);
+          const fEndMins = timeToMins(fb.endTime);
+          return searchStartMins < fEndMins && searchEndMins > fStartMins;
+        });
+        return !isConflictFixed;
+      });
+    };
+
+    return (
+      <div className="space-y-6 animate-in fade-in duration-300">
+        {/* THANH OMNIBOX (Giữ nguyên) */}
+        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex flex-col gap-6">
+          <div className="relative w-full max-w-3xl mx-auto">
+            <Search className="w-6 h-6 absolute left-4 top-1/2 -translate-y-1/2 text-blue-500" />
+            <input 
+              type="text" 
+              placeholder="Gõ SĐT khách hàng hoặc Tên thiết bị để tra cứu nhanh..." 
+              value={lookupSearch}
+              onChange={(e) => {
+                setLookupSearch(e.target.value);
+                if (/[0-9]{3}/.test(e.target.value)) setLookupTab("customer");
+                else if (e.target.value) setLookupTab("equipment");
+              }}
+              className="w-full pl-12 pr-4 py-4 bg-gray-50 border-2 border-gray-200 rounded-2xl text-lg font-bold outline-none focus:border-blue-500 focus:bg-white transition-all shadow-inner"
+            />
+          </div>
+          <div className="flex justify-center gap-2">
+            {[ { id: "customer", label: "Khách hàng (CRM)" }, { id: "room", label: "Tìm Phòng (Smart)" }, { id: "equipment", label: "Truy vết Thiết bị" } ].map(t => (
+              <button 
+                key={t.id} onClick={() => setLookupTab(t.id as any)}
+                className={`px-6 py-2 rounded-xl text-sm font-bold transition-all ${lookupTab === t.id ? "bg-slate-900 text-white shadow-md" : "bg-white text-gray-500 border border-gray-200 hover:bg-gray-50"}`}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* TAB 1: KHÁCH HÀNG (Giữ nguyên HTML cũ) */}
+        {lookupTab === "customer" && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {generateCustomerProfiles().length === 0 ? (
+              <div className="col-span-full py-10 text-center text-gray-400 bg-white rounded-2xl border border-gray-100">Không tìm thấy khách hàng nào khớp với tìm kiếm.</div>
+            ) : generateCustomerProfiles().map(customer => (
+              <div key={customer.phone} className="bg-white rounded-2xl border border-gray-200 shadow-sm p-5 flex flex-col gap-4">
+                <div className="flex justify-between items-start">
+                  <div>
+                    <h3 className="text-lg font-black text-gray-900 flex items-center gap-2"><UserCircle className="w-5 h-5 text-blue-500"/> {customer.fullName}</h3>
+                    <p className="text-gray-500 font-bold text-sm mt-0.5">{customer.phone}</p>
+                  </div>
+                  <div className="flex gap-1">
+                    {customer.tags.map(tag => (
+                      <span key={tag} className={`px-2 py-1 rounded-md text-[10px] font-black uppercase tracking-wider ${tag==='VIP'?'bg-amber-100 text-amber-700':tag==='Warning'?'bg-red-100 text-red-700':'bg-gray-100 text-gray-600'}`}>{tag}</span>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-3 gap-2 bg-gray-50 p-3 rounded-xl border border-gray-100 text-center">
+                  <div><p className="text-xl font-black text-blue-600">{customer.totalBookings}</p><p className="text-[10px] font-bold text-gray-400 uppercase">Tổng ca</p></div>
+                  <div><p className="text-xl font-black text-emerald-600">{customer.completed}</p><p className="text-[10px] font-bold text-gray-400 uppercase">Hoàn thành</p></div>
+                  <div><p className="text-xl font-black text-red-500">{customer.cancelled}</p><p className="text-[10px] font-bold text-gray-400 uppercase">Hủy / Bùng</p></div>
+                </div>
+
+                <div>
+                  <p className="text-xs font-bold text-gray-700 mb-1 flex items-center gap-1"><Tag className="w-3 h-3"/> Ghi chú nội bộ</p>
+                  <textarea 
+                    className="w-full text-sm p-2 bg-yellow-50/50 border border-yellow-200 rounded-lg outline-none focus:border-yellow-400 text-yellow-900 placeholder:text-yellow-400" 
+                    rows={2} placeholder="Thêm ghi chú riêng về khách này..."
+                    defaultValue={customer.internalNote}
+                    onBlur={(e) => {
+                      setCustomerNotes({...customerNotes, [customer.phone]: { ...customerNotes[customer.phone], tags: customer.tags, note: e.target.value }})
+                    }}
+                  />
+                </div>
+
+                <div className="max-h-40 overflow-y-auto border border-gray-100 rounded-xl">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-slate-100 sticky top-0"><tr><th className="p-2 font-bold text-slate-600">Ngày</th><th className="p-2 font-bold text-slate-600">Phòng</th><th className="p-2 font-bold text-slate-600 text-right">Tình trạng</th></tr></thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {customer.bookingHistory.sort((a,b)=> new Date(b.date||"").getTime() - new Date(a.date||"").getTime()).map(h => {
+                         const rName = rooms.find(r=>(r.id||r._id) === h.roomId)?.title || "Phòng";
+                         return (
+                           <tr key={h.id} className="hover:bg-slate-50">
+                             <td className="p-2 text-gray-600 font-medium">{h.date?.split('-').reverse().join('/')}</td>
+                             <td className="p-2 font-bold text-gray-800 capitalize">{rName}</td>
+                             <td className="p-2 text-right">
+                               <span className={`px-2 py-0.5 rounded-md font-bold text-[10px] ${h.paymentStatus==='HOÀN THÀNH'?'bg-emerald-50 text-emerald-600':h.status==='cancelled'?'bg-red-50 text-red-500':'bg-amber-50 text-amber-600'}`}>
+                                  {h.paymentStatus==='HOÀN THÀNH' ? 'Đã thu' : h.status==='cancelled' ? 'Hủy' : 'Chưa thu'}
+                               </span>
+                             </td>
+                           </tr>
+                         )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* TAB 2: TÌM PHÒNG THÔNG MINH (Đã cải thiện Độ Tương Phản & Bổ sung Dropdown Thiết Bị) */}
+        {lookupTab === "room" && (
+          <div className="space-y-6">
+            <div className="bg-gradient-to-r from-blue-600 to-indigo-700 p-6 rounded-2xl shadow-md flex flex-wrap gap-4 items-end">
+               <div className="flex-1 min-w-[200px]">
+                  <label className="block text-xs font-bold text-blue-200 mb-1.5 uppercase tracking-wider">Ngày cần thuê</label>
+                  <input type="date" value={smartRoomForm.date} onChange={e => setSmartRoomForm({...smartRoomForm, date: e.target.value})} className="w-full px-4 py-2.5 bg-white border border-gray-200 rounded-xl outline-none text-gray-900 font-bold" />
+               </div>
+               <div className="w-full md:w-32">
+                  <label className="block text-xs font-bold text-blue-200 mb-1.5 uppercase tracking-wider">Từ giờ</label>
+                  <input type="time" value={smartRoomForm.startTime} onChange={e => setSmartRoomForm({...smartRoomForm, startTime: e.target.value})} className="w-full px-4 py-2.5 bg-white border border-gray-200 rounded-xl outline-none text-gray-900 font-bold" />
+               </div>
+               <div className="w-full md:w-32">
+                  <label className="block text-xs font-bold text-blue-200 mb-1.5 uppercase tracking-wider">Đến giờ</label>
+                  <input type="time" value={smartRoomForm.endTime} onChange={e => setSmartRoomForm({...smartRoomForm, endTime: e.target.value})} className="w-full px-4 py-2.5 bg-white border border-gray-200 rounded-xl outline-none text-gray-900 font-bold" />
+               </div>
+               <div className="w-full md:w-32">
+                  <label className="block text-xs font-bold text-blue-200 mb-1.5 uppercase tracking-wider">Sức chứa &ge;</label>
+                  <input type="number" min={1} value={smartRoomForm.minCapacity} onChange={e => setSmartRoomForm({...smartRoomForm, minCapacity: Number(e.target.value)})} className="w-full px-4 py-2.5 bg-white border border-gray-200 rounded-xl outline-none text-gray-900 font-bold" />
+               </div>
+               {/* Ô DROPDOWN TÌM THIẾT BỊ MỞ RỘNG */}
+               <div className="w-full md:w-48">
+                  <label className="block text-xs font-bold text-blue-200 mb-1.5 uppercase tracking-wider">Thiết bị kèm theo</label>
+                  <select value={smartRoomForm.equipmentId} onChange={e => setSmartRoomForm({...smartRoomForm, equipmentId: e.target.value})} className="w-full px-4 py-2.5 bg-white border border-gray-200 rounded-xl outline-none text-gray-900 font-bold">
+                     <option value="">Không yêu cầu</option>
+                     {equipments.map(eq => <option key={eq.id || eq._id} value={eq.id || eq._id}>{eq.name}</option>)}
+                  </select>
+               </div>
+            </div>
+
+            {timeToMins(smartRoomForm.endTime) <= timeToMins(smartRoomForm.startTime) && (
+              <div className="bg-amber-50 text-amber-700 p-3 rounded-lg text-sm font-bold border border-amber-200 flex items-center gap-2">
+                 <AlertTriangle className="w-5 h-5"/> Giờ kết thúc đang nhỏ hơn hoặc bằng giờ bắt đầu. Vui lòng nhập định dạng 24h (Ví dụ: 14:30 thay vì 02:30).
+              </div>
+            )}
+
+            <h3 className="font-black text-gray-900 text-lg">Kết quả: {generateAvailableRooms().length} phòng trống</h3>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {generateAvailableRooms().map(room => (
+                <div key={room.id||room._id} className="bg-white border border-emerald-200 rounded-2xl p-5 shadow-sm hover:shadow-md transition-shadow relative overflow-hidden">
+                   <div className="absolute top-0 right-0 bg-emerald-500 text-white text-[10px] font-black px-3 py-1 rounded-bl-xl">Trống lịch</div>
+                   <h4 className="font-black text-lg text-gray-900 mt-2 capitalize">{room.title||room.name}</h4>
+                   <p className="text-sm text-gray-500 font-medium mt-1"><MapPin className="w-3.5 h-3.5 inline text-gray-400"/> {room.building} - {room.floor}</p>
+                   <p className="text-sm text-gray-500 font-medium mt-1"><Users className="w-3.5 h-3.5 inline text-gray-400"/> Sức chứa: <span className="font-bold text-gray-800">{room.capacity}</span> người</p>
+                   <div className="mt-4 pt-4 border-t border-gray-100 flex justify-between items-center">
+                      <span className="font-black text-emerald-600">{Number(room.price||0).toLocaleString()}đ<span className="text-xs text-gray-400 font-medium">/h</span></span>
+                      
+                      {/* FIX UX QUICK BOOK: Auto Fill Data */}
+                      <button onClick={() => {
+                         setQuickBookData({
+                           ...quickBookData, 
+                           roomId: String(room.id||room._id), 
+                           startDate: smartRoomForm.date, 
+                           endDate: smartRoomForm.date,
+                           startTime: smartRoomForm.startTime, 
+                           endTime: smartRoomForm.endTime,
+                           equipments: {} // Có thể bổ sung auto check thiết bị ở đây nếu muốn
+                         });
+                         setShowQuickBook(true);
+                      }} className="px-4 py-2 bg-emerald-50 text-emerald-600 hover:bg-emerald-600 hover:text-white font-bold rounded-xl text-sm transition-colors">
+                        Book ngay
+                      </button>
+                   </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* TAB 3: TRUY VẾT THIẾT BỊ (Đã nâng cấp Cảnh báo Đỏ & Clickable UI) */}
+        {lookupTab === "equipment" && (
+          <div className="space-y-4">
+             {generateEquipmentTracking().map(eq => (
+               <div key={eq.equipmentId} className="bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-sm">
+                  <div className="bg-slate-50 p-4 flex justify-between items-center border-b border-gray-200">
+                     <h3 className="font-black text-lg text-gray-900 flex items-center gap-2"><Package className="w-5 h-5 text-indigo-500"/> {eq.name}</h3>
+                     <div className="flex gap-4 text-sm font-bold">
+                        <span className="text-gray-500">Tổng: {eq.total}</span>
+                        <span className={eq.inStock > 0 ? "text-emerald-600" : "text-red-500"}>Sẵn sàng: {eq.inStock}</span>
+                     </div>
+                  </div>
+                  <div className="p-4">
+                     {eq.currentlyBorrowedBy.length === 0 ? (
+                       <p className="text-sm text-gray-500 italic flex items-center gap-2"><Info className="w-4 h-4"/> Tất cả thiết bị đang nằm trong kho.</p>
+                     ) : (
+                       <table className="w-full text-left text-sm">
+                         <thead><tr className="text-gray-400"><th className="pb-2">Đang mượn bởi</th><th className="pb-2">Phòng sử dụng</th><th className="pb-2 text-center">Số lượng</th><th className="pb-2 text-right">Giờ trả dự kiến</th></tr></thead>
+                         <tbody className="divide-y divide-gray-100">
+                            {eq.currentlyBorrowedBy.sort((a,b)=> timeToMins(a.expectedReturnTime.split('- ')[1]) - timeToMins(b.expectedReturnTime.split('- ')[1])).map((b, i) => (
+                              <tr key={i}>
+                                <td className="py-3 font-bold text-gray-900">{b.customerName}</td>
+                                <td className="py-3">
+                                   {/* Room Clickable -> Mở Modal Chi tiết */}
+                                   <button 
+                                      onClick={() => setSelectedBooking(b.originalBooking)}
+                                      className="text-indigo-600 hover:text-indigo-800 hover:underline font-bold bg-indigo-50 hover:bg-indigo-100 px-2 py-1 rounded-lg transition-colors capitalize"
+                                   >
+                                      {b.roomName}
+                                   </button>
+                                </td>
+                                <td className="py-3 text-center font-black">{b.quantity}</td>
+                                <td className="py-3 text-right">
+                                   {/* UI Cảnh báo Đỏ nếu quá hạn */}
+                                   {b.isOverdue ? (
+                                     <span className="text-red-600 font-bold bg-red-50 px-3 py-1.5 rounded-lg border border-red-200 inline-flex items-center gap-1 shadow-sm animate-pulse">
+                                       <AlertTriangle className="w-3.5 h-3.5"/> Quá hạn ({b.expectedReturnTime})
+                                     </span>
+                                   ) : (
+                                     <span className="text-amber-600 font-bold bg-amber-50 px-3 py-1 rounded-lg border border-amber-200">
+                                       <Clock className="w-3.5 h-3.5 inline mr-1"/> {b.expectedReturnTime}
+                                     </span>
+                                   )}
+                                </td>
+                              </tr>
+                            ))}
+                         </tbody>
+                       </table>
+                     )}
+                  </div>
+               </div>
+             ))}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // ================= GIAO DIỆN MASTER SCHEDULE (THỜI KHÓA BIỂU) =================
+  const renderMasterSchedule = () => {
+    const WEEK_DAYS = [{id:1, label:"Thứ 2"}, {id:2, label:"Thứ 3"}, {id:3, label:"Thứ 4"}, {id:4, label:"Thứ 5"}, {id:5, label:"Thứ 6"}, {id:6, label:"Thứ 7"}, {id:0, label:"Chủ Nhật"}];
+
+    return (
+      <div className="space-y-6 animate-in fade-in duration-300">
+        <div className="flex justify-between items-end bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
+          <div>
+            <h2 className="text-2xl font-black text-gray-900">Thời Khóa Biểu (Cố Định)</h2>
+            <p className="text-gray-500 text-sm mt-1">Quản lý các lớp học/sự kiện lặp lại hàng tuần.</p>
+          </div>
+          <button onClick={() => { 
+            setFixedForm({
+              roomId: "", title: "", startDate: selectedDate, endDate: "", daysOfWeek: [], startTime: "07:00", endTime: "11:30", note: ""
+            });
+            setEditingRuleId(null);
+            setFixedStep("input"); 
+            setShowFixedModal(true); 
+          }} className="px-5 py-2.5 bg-purple-600 hover:bg-purple-700 text-white font-bold rounded-xl text-sm flex items-center gap-2 shadow-md">
+            <Plus className="w-4 h-4" /> Tạo Lịch Cố Định
+          </button>
+        </div>
+
+        {/* DANH SÁCH QUY TẮC */}
+        <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
+          <table className="w-full text-left">
+            <thead className="bg-gray-50 border-b border-gray-200">
+              <tr>
+                <th className="p-4 font-bold text-gray-600 text-sm">Lớp / Sự kiện</th>
+                <th className="p-4 font-bold text-gray-600 text-sm">Phòng Lab</th>
+                <th className="p-4 font-bold text-gray-600 text-sm">Lịch học</th>
+                <th className="p-4 font-bold text-gray-600 text-sm">Thời hạn</th>
+                <th className="p-4 font-bold text-gray-600 text-sm text-center">Trạng thái</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {fixedBookings.length === 0 ? (
+                <tr><td colSpan={5} className="p-8 text-center text-gray-400">Chưa có lịch cố định nào được tạo.</td></tr>
+              ) : (
+                fixedBookings.map(rule => {
+                  const rName = rooms.find(r => (r.id || r._id) === rule.roomId)?.title || "Chưa rõ"; // FIX TÊN PHÒNG Ở ĐÂY
+                  const daysStr = rule.daysOfWeek.map(d => d === 0 ? "CN" : `T${d+1}`).join(", ");
+                  return (
+                    <tr key={rule.id} className="hover:bg-gray-50">
+                      <td className="p-4 font-black text-gray-900 flex items-center gap-2"><Lock className="w-4 h-4 text-purple-600"/> {rule.title}</td>
+                      <td className="p-4 font-bold text-gray-700">{rName}</td>
+                      <td className="p-4"><span className="bg-purple-50 text-purple-700 px-2 py-1 rounded-md text-xs font-bold mr-2">{daysStr}</span> {rule.startTime} - {rule.endTime}</td>
+                      <td className="p-4 text-sm text-gray-500">{rule.startDate.split('-').reverse().join('/')} đến {rule.endDate.split('-').reverse().join('/')}</td>
+                      <td className="p-4 text-center flex justify-center items-center gap-2">
+                        <span className={`px-2 py-1 rounded-md text-xs font-bold ${rule.status === 'active' ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-500'}`}>
+                          {rule.status === 'active' ? "Đang chạy" : "Tạm dừng"}
+                        </span>
+                        
+                        {/* NÚT CHỈNH SỬA */}
+                        <button 
+                          onClick={() => {
+                            setFixedForm({
+                              roomId: rule.roomId, title: rule.title, startDate: rule.startDate, endDate: rule.endDate,
+                              daysOfWeek: rule.daysOfWeek, startTime: rule.startTime, endTime: rule.endTime, note: rule.note || ""
+                            });
+                            setEditingRuleId(rule.id);
+                            setFixedStep("input");
+                            setShowFixedModal(true);
+                          }}
+                          className="p-1.5 text-blue-500 hover:bg-blue-50 rounded-lg transition-colors" title="Chỉnh sửa chuỗi lịch"
+                        >
+                          <Edit className="w-4 h-4" />
+                        </button>
+
+                        {/* NÚT XÓA DATABASE */}
+                        <button 
+                          onClick={async () => {
+                            if(confirm("Bạn có chắc chắn muốn xóa TOÀN BỘ chuỗi lịch cố định này khỏi hệ thống?")) {
+                              try {
+                                await fetch(`https://booklab247.onrender.com/api/v1/bookings/fixed/${rule.id}`, {
+                                  method: "DELETE",
+                                  headers: { Authorization: `Bearer ${localStorage.getItem("access_token")}` }
+                                });
+                                loadData();
+                                showToast("Đã xóa chuỗi lịch cố định!", "success");
+                              } catch(e) {}
+                            }
+                          }}
+                          className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition-colors" title="Xóa toàn bộ chuỗi"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </td>
+                    </tr>
+                  )
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {/* CHẾ ĐỘ XEM DẠNG LƯỚI TUẦN (WEEKLY GRID) */}
+        <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-5">
+          <div className="flex justify-between items-center mb-4">
+             <h3 className="font-bold text-gray-900">Xem dạng Lưới Tuần (Weekly Grid)</h3>
+             <select value={gridRoomFilter} onChange={e => setGridRoomFilter(e.target.value)} className="px-3 py-1.5 border border-gray-200 rounded-lg text-sm font-bold bg-gray-50 outline-none">
+                <option value="">-- Chọn phòng xem lịch --</option>
+                {rooms.map(r => <option key={r.id||r._id} value={r.id||r._id}>{r.name||r.title}</option>)}
+             </select>
+          </div>
+          {gridRoomFilter ? (
+            <div className="grid grid-cols-7 gap-3">
+              {WEEK_DAYS.map(day => (
+                <div key={day.id} className="border border-gray-200 rounded-xl overflow-hidden bg-gray-50">
+                   <div className="bg-slate-200 p-2 text-center text-sm font-black text-gray-700 border-b border-gray-200">{day.label}</div>
+                   <div className="p-2 space-y-2 min-h-[150px]">
+                      {fixedBookings.filter(fb => fb.roomId === gridRoomFilter && fb.status === 'active' && fb.daysOfWeek.includes(day.id)).map(fb => (
+                        <div key={fb.id} className="bg-purple-100 border border-purple-200 rounded-lg p-2 text-xs">
+                          <p className="font-black text-purple-900 truncate">{fb.title}</p>
+                          <p className="text-purple-700 font-bold mt-1">{fb.startTime} - {fb.endTime}</p>
+                        </div>
+                      ))}
+                   </div>
+                </div>
+              ))}
+            </div>
+          ) : <p className="text-sm text-gray-400 text-center py-6">Vui lòng chọn phòng để xem lưới lịch.</p>}
+        </div>
+
+        {/* MODAL TẠO LỊCH CỐ ĐỊNH & CONFLICT RESOLUTION */}
+        <AnimatePresence>
+          {showFixedModal && (
+            <div className="fixed inset-0 bg-black/60 z-[999] flex items-center justify-center p-4">
+              <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col">
+                <div className="bg-purple-700 p-5 flex justify-between items-center text-white shrink-0">
+                  <h3 className="font-black text-xl flex items-center gap-2"><CalendarRange className="w-5 h-5"/> Tạo Lịch Cố Định</h3>
+                  <button onClick={() => setShowFixedModal(false)} className="hover:bg-purple-800 p-1 rounded-full"><X className="w-6 h-6" /></button>
+                </div>
+                
+                {fixedStep === "input" ? (
+                  <form onSubmit={handleCheckFixedConflicts} className="p-6 space-y-5">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-bold text-gray-700 mb-1">Tên Lớp / Sự kiện *</label>
+                        <input type="text" required placeholder="VD: Thực hành Mạng máy tính" value={fixedForm.title} onChange={e => setFixedForm({...fixedForm, title: e.target.value})} className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl outline-none" />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-bold text-gray-700 mb-1">Chọn Phòng Lab *</label>
+                        <select required value={fixedForm.roomId} onChange={e => setFixedForm({...fixedForm, roomId: e.target.value})} className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl font-bold outline-none">
+                          <option value="" disabled>-- Chọn phòng --</option>
+                          {rooms.map(r => <option key={r.id||r._id} value={r.id||r._id}>{r.name||r.title}</option>)}
+                        </select>
+                      </div>
+                    </div>
+
+                    <div>
+                      <div className="flex justify-between items-end mb-2">
+                         <label className="block text-sm font-bold text-gray-700">Tần suất (Lặp lại vào) *</label>
+                         <button type="button" onClick={() => setFixedForm({...fixedForm, daysOfWeek: [1,2,3,4,5,6,0]})} className="text-xs font-bold text-purple-600 hover:underline">
+                           Chọn tất cả (Hàng ngày)
+                         </button>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {WEEK_DAYS.map(d => (
+                          <label key={d.id} className={`px-4 py-2 border rounded-xl cursor-pointer font-bold text-sm transition-colors ${fixedForm.daysOfWeek.includes(d.id) ? 'bg-purple-100 border-purple-500 text-purple-700' : 'bg-white hover:bg-gray-50 text-gray-600'}`}>
+                            <input type="checkbox" className="hidden" checked={fixedForm.daysOfWeek.includes(d.id)} onChange={(e) => {
+                              const newDays = e.target.checked ? [...fixedForm.daysOfWeek, d.id] : fixedForm.daysOfWeek.filter(x => x !== d.id);
+                              setFixedForm({...fixedForm, daysOfWeek: newDays});
+                            }} /> {d.label}
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4 bg-purple-50 p-4 rounded-xl border border-purple-100">
+                      <div>
+                         <label className="block text-xs font-bold text-purple-900 mb-1 uppercase">Bắt đầu chuỗi từ</label>
+                         <input type="date" required value={fixedForm.startDate} onChange={e => setFixedForm({...fixedForm, startDate: e.target.value})} className="w-full px-3 py-2 bg-white rounded-lg outline-none" />
+                      </div>
+                      <div>
+                         <label className="block text-xs font-bold text-purple-900 mb-1 uppercase">Kết thúc chuỗi ngày</label>
+                         <input type="date" required value={fixedForm.endDate} onChange={e => setFixedForm({...fixedForm, endDate: e.target.value})} className="w-full px-3 py-2 bg-white rounded-lg outline-none" />
+                      </div>
+                      <div>
+                         <label className="block text-xs font-bold text-purple-900 mb-1 uppercase">Giờ vào lớp</label>
+                         <input type="time" required value={fixedForm.startTime} onChange={e => setFixedForm({...fixedForm, startTime: e.target.value})} className="w-full px-3 py-2 bg-white rounded-lg outline-none" />
+                      </div>
+                      <div>
+                         <label className="block text-xs font-bold text-purple-900 mb-1 uppercase">Giờ tan lớp</label>
+                         <input type="time" required value={fixedForm.endTime} onChange={e => setFixedForm({...fixedForm, endTime: e.target.value})} className="w-full px-3 py-2 bg-white rounded-lg outline-none" />
+                      </div>
+                    </div>
+
+                    <div className="flex justify-end gap-3 pt-2">
+                       <button type="button" onClick={() => setShowFixedModal(false)} className="px-6 py-2.5 text-gray-500 font-bold hover:bg-gray-100 rounded-xl">Hủy</button>
+                       <button type="submit" className="px-6 py-2.5 bg-purple-600 hover:bg-purple-700 text-white font-bold rounded-xl shadow-md">Kiểm tra Khả dụng</button>
+                    </div>
+                  </form>
+                ) : (
+                  <div className="p-6 flex flex-col items-center text-center">
+                    {conflictList.length === 0 ? (
+                      <>
+                        <div className="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mb-4"><CheckCircle2 className="w-8 h-8"/></div>
+                        <h3 className="text-xl font-black text-gray-900 mb-2">Không phát hiện trùng lịch!</h3>
+                        <p className="text-sm text-gray-500 mb-6">Chuỗi thời gian bạn chọn hoàn toàn trống. Bạn có thể tạo lịch ngay.</p>
+                        <div className="w-full flex gap-3">
+                          <button onClick={() => setFixedStep("input")} className="flex-1 py-3 bg-gray-100 font-bold rounded-xl">Quay lại</button>
+                          <button onClick={() => handleCreateFixedRule('skip')} className="flex-1 py-3 bg-emerald-600 text-white font-bold rounded-xl shadow-md">Hoàn tất Tạo Lịch</button>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div className="w-16 h-16 bg-red-100 text-red-600 rounded-full flex items-center justify-center mb-4"><AlertTriangle className="w-8 h-8"/></div>
+                        <h3 className="text-xl font-black text-gray-900 mb-2">Phát hiện Trùng Lịch!</h3>
+                        <p className="text-sm text-gray-500 mb-4">Hệ thống tìm thấy <b>{conflictList.length}</b> đơn đặt phòng lẻ đã tồn tại trong chuỗi thời gian bạn cấu hình.</p>
+                        
+                        <div className="w-full bg-red-50 border border-red-100 rounded-xl max-h-40 overflow-y-auto p-2 mb-6 space-y-2 text-left">
+                          {conflictList.map(c => (
+                            <div key={c.id} className="bg-white p-2 rounded-lg text-xs shadow-sm flex justify-between">
+                              <span><b>{c.customerName}</b> ({c.startTime} - {c.durationMins}p)</span>
+                              <span className="text-red-500 font-bold">{c.date?.split('-').reverse().join('/')}</span>
+                            </div>
+                          ))}
+                        </div>
+
+                        <div className="w-full flex gap-3">
+                          <button onClick={() => setFixedStep("input")} className="w-1/4 py-3 bg-gray-100 font-bold rounded-xl text-sm">Sửa lại</button>
+                          <button onClick={() => handleCreateFixedRule('skip')} className="flex-1 py-3 bg-blue-600 text-white font-bold rounded-xl shadow-md flex items-center justify-center gap-2 text-sm"><SkipForward className="w-4 h-4"/> Bỏ qua & Tạo</button>
+                          <button onClick={() => handleCreateFixedRule('override')} className="flex-1 py-3 bg-red-600 text-white font-bold rounded-xl shadow-md text-sm">Ghi đè (Hủy đơn cũ)</button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+      </div>
+    );
+  };
 
   // ================= GIAO DIỆN TIMELINE EXCEL XUYÊN NGÀY =================
-  // ================= GIAO DIỆN TIMELINE XUYÊN NGÀY (FULL 24H) =================
   const renderTimeline = () => {
     const startHour = 0;
     const endHour = 24;
@@ -1297,28 +2178,34 @@ const startObj = new Date(
       new Set(rooms.map((r) => r.building || "Khác")),
     ).filter(Boolean);
 
-    // CHỈ hiển thị những phòng có lịch đặt GIAO NHAU với NGÀY ĐANG CHỌN
+    // CHỈ hiển thị những phòng có lịch đặt lẻ HOẶC lịch cố định trong ngày đang chọn
     const filteredRooms = rooms.filter((room) => {
       const roomIdStr = room.id || room._id || "";
-      const hasBooking = bookings.some((b) => {
-        if (b.roomId !== roomIdStr) return false;
-        if (b.status === "cancelled") return false; // Không hiển thị ca đã từ chối/hủy
+      
+      // 1. Kiểm tra Lịch đặt lẻ
+      const hasNormalBooking = bookings.some((b) => {
+        if (b.roomId !== roomIdStr || b.status === "cancelled") return false;
         const existDate = b.date || selectedDate;
         const bStartMs = new Date(`${existDate}T${b.startTime}`).getTime();
-        const bEndMsWithBuffer =
-          bStartMs + (b.durationMins + b.bufferMins) * 60000;
-
-        // Thuật toán kiểm tra giao nhau (Overlap) với View Port
+        const bEndMsWithBuffer = bStartMs + (b.durationMins + b.bufferMins) * 60000;
         return bStartMs < viewEndMs && bEndMsWithBuffer > viewStartMs;
       });
 
-      if (!hasBooking) return false;
+      // 2. Kiểm tra Lịch cố định (SỬA LỖI 1)
+      const hasFixedBooking = fixedBookings.some((fb) => {
+        if (fb.roomId !== roomIdStr || fb.status !== "active") return false;
+        const currentDayNum = new Date(selectedDate + "T00:00:00").getDay();
+        const isException = fb.exceptionDates?.includes(selectedDate); // Bỏ qua nếu ngày này đã bị xóa
+        return !isException &&
+               fb.daysOfWeek.includes(currentDayNum) && 
+               selectedDate >= fb.startDate && 
+               selectedDate <= fb.endDate;
+      });
 
-      if (
-        buildingFilter !== "all" &&
-        (room.building || "Khác") !== buildingFilter
-      )
-        return false;
+      // Nếu phòng không có đơn lẻ VÀ cũng không có lịch cố định -> Ẩn đi
+      if (!hasNormalBooking && !hasFixedBooking) return false;
+
+      if (buildingFilter !== "all" && (room.building || "Khác") !== buildingFilter) return false;
       return true;
     });
 
@@ -1505,6 +2392,40 @@ const startObj = new Date(
                         ))}
                       </div>
 
+
+                      {/* HIỂN THỊ LỊCH CỐ ĐỊNH NẾU KHỚP VỚI NGÀY ĐANG XEM */}
+                      {fixedBookings.filter(fb => {
+                          if (fb.roomId !== roomIdStr || fb.status !== "active") return false;
+                          if (fb.exceptionDates?.includes(selectedDate)) return false; // BỎ QUA NẾU NGÀY NÀY ĐÃ BỊ HỦY
+                          const currentDayNum = new Date(selectedDate + "T00:00:00").getDay();
+                          return fb.daysOfWeek.includes(currentDayNum) && 
+                                 selectedDate >= fb.startDate && 
+                                 selectedDate <= fb.endDate;
+                      }).map(fb => {
+                          const fStartMins = timeToMins(fb.startTime);
+                          const fDuration = timeToMins(fb.endTime) - fStartMins;
+                          const fLeftPct = (fStartMins / totalMins) * 100;
+                          const fWidthPct = (fDuration / totalMins) * 100;
+                          
+                          return (
+                            <div
+                              key={fb.id}
+                              onClick={() => handleCancelFixedDate(fb.id, selectedDate)}
+                              title="Click để HỦY lớp cố định trong ngày này"
+                              className="absolute top-2 bottom-2 bg-purple-600 border border-purple-700 text-white rounded-xl px-3 py-1 overflow-hidden z-10 flex flex-col justify-center shadow-sm cursor-pointer hover:brightness-110 hover:border-red-400"
+                              style={{ left: `${fLeftPct}%`, width: `${fWidthPct}%` }}
+                            >
+                              <p className="text-xs font-black truncate leading-tight flex items-center gap-1">
+                                <Lock className="w-3 h-3"/> {fb.title}
+                              </p>
+                              <p className="text-[10px] opacity-90 truncate font-semibold mt-0.5">
+                                {fb.startTime} - {fb.endTime}
+                              </p>
+                            </div>
+                          );
+                      })}
+
+
                       {roomBookings.map((booking) => {
                         const existDate = booking.date || selectedDate;
                         const bStartMs = new Date(
@@ -1628,6 +2549,7 @@ const startObj = new Date(
           { id: "labs", icon: DoorOpen, label: "Phòng Thực hành" },
           { id: "equipments", icon: Package, label: "Thiết Bị" },
           { id: "timeline", icon: CalendarDays, label: "Lịch Điều phối" },
+          { id: "master-schedule", icon: CalendarRange, label: "Thời Khóa Biểu" },
           { id: "reports", icon: FileText, label: "Báo cáo Sự cố" },
           { id: "lookup", icon: Search, label: "Tra cứu Thông tin" },
         ].map((item) => (
@@ -1655,26 +2577,55 @@ const startObj = new Date(
     <div className="flex h-screen bg-slate-50 font-sans overflow-hidden">
       {renderSidebar()}
 
-      <main className="flex-1 overflow-y-auto p-4 md:p-8 lg:p-10 relative">
-        {/* Mobile Header */}
-        <div className="md:hidden flex justify-between items-center mb-6 bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
-          <h1 className="text-xl font-black flex items-center gap-2">
-            <ShieldCheck className="w-6 h-6 text-emerald-500" /> Manager
-            <span className="text-emerald-500">Ops</span>
-          </h1>
-          <button
-            onClick={handleLogout}
-            className="p-2 text-red-500 bg-red-50 rounded-lg"
-          >
-            <LogOut className="w-5 h-5" />
-          </button>
+      <main className="flex-1 overflow-y-auto p-4 md:p-8 lg:p-10 relative bg-slate-50/50">
+        {/* ================= TIÊU ĐỀ GIAO DIỆN LUNG LINH ================= */}
+        <div className="mb-6 md:mb-8 relative rounded-3xl overflow-hidden shadow-2xl border border-white/20 bg-gradient-to-r from-blue-600 via-violet-600 to-fuchsia-600 animate-in fade-in slide-in-from-top-4 duration-500">
+          {/* Hiệu ứng ánh sáng (Orbs) bay lơ lửng */}
+          <div className="absolute top-[-50%] left-[-10%] w-64 h-64 bg-white/20 blur-3xl rounded-full mix-blend-overlay animate-pulse"></div>
+          <div className="absolute bottom-[-50%] right-[-10%] w-64 h-64 bg-yellow-300/30 blur-3xl rounded-full mix-blend-overlay"></div>
+          
+          <div className="relative p-6 md:p-8 flex flex-col md:flex-row items-center justify-between gap-4 w-full">
+            {/* Cột trái: Lời chào */}
+            <div className="text-white text-center md:text-left w-full md:w-auto">
+              <h2 className="text-2xl md:text-3xl font-black tracking-tight flex items-center justify-center md:justify-start gap-3 drop-shadow-md">
+                <Sparkles className="w-8 h-8 text-yellow-300 animate-bounce" />
+                Hệ Thống Manager<span className="text-yellow-300">Ops</span>
+              </h2>
+              <p className="mt-2 text-white/90 font-medium text-sm md:text-base">
+                Xin chào! Chúc bạn một ngày làm việc hiệu quả và tràn đầy năng lượng 🚀
+              </p>
+            </div>
+            
+            {/* Cột phải: Đồng hồ & Nút Đăng xuất */}
+            <div className="flex items-center gap-4 w-full md:w-auto justify-between md:justify-end">
+              <div className="bg-white/10 backdrop-blur-md border border-white/20 px-5 py-2.5 rounded-2xl flex flex-col items-center md:items-end shadow-inner">
+                <div className="flex items-center gap-2 text-yellow-300 font-black text-xl md:text-2xl drop-shadow-sm">
+                  <Clock className="w-5 h-5" />
+                  {currentTime.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" })}
+                </div>
+                <span className="text-white/90 text-[10px] md:text-xs font-bold uppercase tracking-widest mt-0.5">
+                  {currentTime.toLocaleDateString("vi-VN", { weekday: "long", day: "2-digit", month: "long" })}
+                </span>
+              </div>
+
+              {/* Nút Đăng xuất ở Mobile đem lên đây để tiết kiệm không gian */}
+              <button
+                onClick={handleLogout}
+                className="md:hidden p-3 text-white bg-white/10 border border-white/20 hover:bg-red-500 rounded-2xl backdrop-blur-sm transition-all shadow-md"
+              >
+                <LogOut className="w-6 h-6" />
+              </button>
+            </div>
+          </div>
         </div>
+
 
         {/* Mobile Nav Tabs */}
         <div className="md:hidden flex overflow-x-auto gap-2 mb-6 pb-2 scrollbar-hide">
           {[
             { id: "dashboard", label: "Giám sát" },
             { id: "timeline", label: "Điều phối" },
+            { id: "master-schedule", label: "Cố định" },
             { id: "labs", label: "Phòng" },
             { id: "equipments", label: "Thiết bị" },
             { id: "reports", label: "Báo cáo" },
@@ -1708,6 +2659,7 @@ const startObj = new Date(
               {activeMenu === "timeline" && renderTimeline()}
               {activeMenu === "reports" && renderReports()}
               {activeMenu === "lookup" && renderLookup()}
+              {activeMenu === "master-schedule" && renderMasterSchedule()}
             </motion.div>
           )}
         </AnimatePresence>
@@ -2132,14 +3084,31 @@ const startObj = new Date(
                   )}
                 </div>
 
-                <div className="bg-gray-50 p-4 border-t border-gray-100 flex justify-end">
-                  <button
-                    type="button"
-                    onClick={() => setSelectedBooking(null)}
-                    className="px-6 py-2.5 bg-slate-900 hover:bg-black text-white font-bold rounded-xl shadow-md"
-                  >
-                    Đóng lại
-                  </button>
+                <div className="bg-gray-50 p-5 border-t border-gray-100 flex flex-col sm:flex-row justify-between items-center gap-4">
+                  <div>
+                    <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Tổng tiền cần thu:</p>
+                    <p className="text-2xl font-black text-emerald-600 leading-none mt-1">
+                      {calculateBookingTotal(selectedBooking).toLocaleString("vi-VN")}đ
+                    </p>
+                  </div>
+                  <div className="flex gap-2 w-full sm:w-auto">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedBooking(null)}
+                      className="flex-1 sm:flex-none px-6 py-3 bg-gray-200 hover:bg-gray-300 text-gray-700 font-bold rounded-xl transition-colors shadow-sm"
+                    >
+                      Đóng lại
+                    </button>
+                    {selectedBooking.paymentStatus !== "HOÀN THÀNH" && (
+                      <button
+                        type="button"
+                        onClick={() => handleConfirmPayment(selectedBooking.id)}
+                        className="flex-1 sm:flex-none px-6 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-black rounded-xl shadow-lg transition-all active:scale-95 flex items-center justify-center gap-2"
+                      >
+                        <Banknote className="w-5 h-5" /> Nhận tiền & Kết thúc
+                      </button>
+                    )}
+                  </div>
                 </div>
               </motion.div>
             </div>

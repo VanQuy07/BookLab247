@@ -111,13 +111,10 @@ export default function UserDevicesPage() {
         }
 
         const data: ApiEquipment[] = await response.json();
-        // Ánh xạ (Map) dữ liệu từ Backend sang Frontend UI
         const formattedDevices: DeviceItem[] = data.map((item) => {
-          // Tính toán số lượng tồn kho thực tế
           const availableQuantity =
             (item.totalQuantity || 0) - (item.inUseQuantity || 0);
 
-          // Xác định trạng thái thiết bị
           let deviceStatus: "available" | "maintenance" | "out_of_stock" =
             "available";
           if (item.status === "maintenance") deviceStatus = "maintenance";
@@ -135,7 +132,6 @@ export default function UserDevicesPage() {
             quantity: availableQuantity,
             totalQuantity: item.totalQuantity || 0,
             managementType: item.managementType || "pool",
-            // SỬA LỖI: Ưu tiên lấy giá pricePerHour theo đúng thiết kế
             price: item.pricePerHour || item.price || 0,
             status: deviceStatus,
             image:
@@ -158,7 +154,6 @@ export default function UserDevicesPage() {
     fetchDevicesFromAdmin();
   }, []);
 
-  //Lọc
   const filteredDevices = devices.filter((device) => {
     if (
       searchQuery &&

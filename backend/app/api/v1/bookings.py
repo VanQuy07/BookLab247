@@ -28,10 +28,24 @@ class BookingCreate(BaseModel):
 
 class BookingStatusUpdate(BaseModel):
     status: str
+    payment_status: str | None = None
 
 
 class BookingCancelRequest(BaseModel):
     cancel_reason: str = ""
+
+
+class FixedBookingCreate(BaseModel):
+    room_id: str
+    title: str
+    start_date: str
+    end_date: str
+    days_of_week: list[int]
+    start_time: str
+    end_time: str
+    note: str = ""
+    exception_dates: list[str] = []
+    status: str = "active"
 
 
 def time_to_mins(time_str: str) -> int:
@@ -50,9 +64,9 @@ def _serialize_booking(doc: dict) -> dict:
     return doc
 
 
-def _get_room_info(room_id: str) -> dict:
+async def _get_room_info(room_id: str) -> dict:
     try:
-        room = db["labs"].find_one({"_id": ObjectId(room_id)})
+        room = await db["labs"].find_one({"_id": ObjectId(room_id)})
     except Exception:
         room = None
     if room:
@@ -66,39 +80,45 @@ def _get_room_info(room_id: str) -> dict:
     return {}
 
 
-def _auto_update_booking_statuses():
+async def _auto_update_booking_statuses():
     """Tự động chuyển trạng thái đơn đặt phòng theo thời gian."""
     now = datetime.now(timezone.utc)
     updated_count = 0
 
     # Chuyển DA_DUYET -> DANG_MUON (đến giờ bắt đầu)
-    pending_to_active = db["bookings"].find({
-        "status": "DA_DUYET",
-    })
-    for booking in pending_to_active:
-        booking_datetime = _parse_booking_datetime(booking.get("date", ""), booking.get("start_time", ""))
+    pending_to_active = db["bookings"].find(
+        {
+            "status": "DA_DUYET",
+        }
+    )
+    async for booking in pending_to_active:
+        booking_datetime = _parse_booking_datetime(
+            booking.get("date", ""), booking.get("start_time", "")
+        )
         if booking_datetime and now >= booking_datetime:
-            db["bookings"].update_one(
+            await db["bookings"].update_one(
                 {"_id": booking["_id"]},
-                {"$set": {"status": "DANG_MUON", "updated_at": now}}
+                {"$set": {"status": "DANG_MUON", "updated_at": now}},
             )
             updated_count += 1
 
     # Chuyển DANG_MUON -> DA_XONG (hết giờ mượn)
-    active_to_done = db["bookings"].find({
-        "status": "DANG_MUON",
-    })
-    for booking in active_to_done:
+    active_to_done = db["bookings"].find(
+        {
+            "status": "DANG_MUON",
+        }
+    )
+    async for booking in active_to_done:
         end_time = _get_end_time(
             booking.get("start_time", ""),
             booking.get("duration_mins", 0),
-            booking.get("buffer_mins", 0)
+            booking.get("buffer_mins", 0),
         )
         end_datetime = _parse_booking_datetime(booking.get("date", ""), end_time)
         if end_datetime and now >= end_datetime:
-            db["bookings"].update_one(
+            await db["bookings"].update_one(
                 {"_id": booking["_id"]},
-                {"$set": {"status": "DA_XONG", "updated_at": now}}
+                {"$set": {"status": "DA_XONG", "updated_at": now}},
             )
             updated_count += 1
 
@@ -130,13 +150,52 @@ def _get_end_time(start_time: str, duration_mins: int, buffer_mins: int = 0) -> 
         return "00:00"
 
 
+# ================== 0. QUẢN LÝ LỊCH CỐ ĐỊNH LÊN DATABASE ==================
+@router.post("/fixed")
+async def create_fixed_booking(rule: FixedBookingCreate):
+    data = rule.model_dump()
+    data["created_at"] = datetime.now(timezone.utc)
+    result = await db["fixed_bookings"].insert_one(data)
+    created = await db["fixed_bookings"].find_one({"_id": result.inserted_id})
+    created["id"] = str(created["_id"])
+    created.pop("_id", None)
+    return created
+
+
+@router.get("/fixed")
+async def get_fixed_bookings():
+    cursor = db["fixed_bookings"].find().sort("created_at", -1)
+    results = []
+    async for doc in cursor:
+        doc["id"] = str(doc["_id"])
+        doc.pop("_id", None)
+        results.append(doc)
+    return results
+
+
+@router.put("/fixed/{rule_id}")
+async def update_fixed_booking(rule_id: str, rule: FixedBookingCreate):
+    if not ObjectId.is_valid(rule_id):
+        raise HTTPException(status_code=400, detail="ID không hợp lệ")
+    await db["fixed_bookings"].update_one(
+        {"_id": ObjectId(rule_id)}, {"$set": rule.model_dump()}
+    )
+    return {"success": True}
+
+
+@router.delete("/fixed/{rule_id}")
+async def delete_fixed_booking(rule_id: str):
+    if not ObjectId.is_valid(rule_id):
+        raise HTTPException(status_code=400, detail="ID không hợp lệ")
+    await db["fixed_bookings"].delete_one({"_id": ObjectId(rule_id)})
+    return {"success": True}
+
+
 # ================== 1. TẠO ĐƠN ==================
 @router.post("")
 async def create_booking(booking: BookingCreate):
     new_start = time_to_mins(booking.start_time)
-    new_end_with_buffer = (
-        new_start + booking.duration_mins + booking.buffer_mins
-    )
+    new_end_with_buffer = new_start + booking.duration_mins + booking.buffer_mins
 
     overlapping = await db["bookings"].find_one(
         {
@@ -144,7 +203,9 @@ async def create_booking(booking: BookingCreate):
             "date": booking.date,
             "start_time_mins": {"$lt": new_end_with_buffer},
             "end_time_with_buffer_mins": {"$gt": new_start},
-            "status": {"$in": ["pending", "confirmed", "CHO_DUYET", "DA_DUYET", "DANG_MUON"]},
+            "status": {
+                "$in": ["pending", "confirmed", "CHO_DUYET", "DA_DUYET", "DANG_MUON"]
+            },
         }
     )
     if overlapping:
@@ -165,37 +226,29 @@ async def create_booking(booking: BookingCreate):
     result = await db["bookings"].insert_one(new_booking_data)
     created = await db["bookings"].find_one({"_id": result.inserted_id})
     created = _serialize_booking(created)
-    created["room"] = _get_room_info(booking.room_id)
+    created["room"] = await _get_room_info(booking.room_id)
     return created
 
 
-# ================== 2. LẤY TẤT CẢ (ADMIN) ==================
-# ================== 2. LẤY TẤT CẢ (ADMIN) - ĐÃ MERGE ==================
 @router.get("")
 async def get_bookings(
     authorization: str | None = Header(default=None),
 ):
-    # 1. Tự động cập nhật trạng thái theo giờ (Từ nhánh Master)
-    _auto_update_booking_statuses()
+    await _auto_update_booking_statuses()
 
-    # 2. Lấy danh sách đơn (Từ nhánh Master)
     bookings_cursor = db["bookings"].find().sort("created_at", -1)
     bookings_list = await bookings_cursor.to_list(length=500)
     
-    # 3. Lấy ngày hiện tại và ca đã duyệt (Từ nhánh của Hằng)
     today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    # Cập nhật thêm các status tiếng Việt của nhánh master vào danh sách đối chiếu
     confirmed_statuses = ["confirmed", "checked-in", "CHO_DUYET", "DA_DUYET", "DANG_MUON"]
     confirmed_bookings = [b for b in bookings_list if b.get("status") in confirmed_statuses]
 
     results = []
     for doc in bookings_list:
-        # 4. Serialize và gắn thông tin phòng (Từ nhánh Master)
         doc = _serialize_booking(doc)
-        room = _get_room_info(doc.get("room_id", ""))
+        room = await _get_room_info(doc.get("room_id", ""))
         doc["room"] = room
         
-        # 5. Xử lý logic Đơn khẩn và Trùng lịch (Từ nhánh của Hằng)
         doc["is_urgent"] = (doc.get("date") == today_str)
         doc["is_conflict"] = False
         doc["conflict_with"] = ""
@@ -220,11 +273,32 @@ async def get_bookings(
 
 
 # ================== 3. API DUYỆT / TỪ CHỐI ĐƠN - ĐÃ MERGE ==================
-# Giữ class của Hằng để nhận cancel_reason
 class BookingStatusUpdate(BaseModel):
     status: str
+    payment_status: str | None = None
     cancel_reason: str = ""
 
+# ================== 3.5. API LẤY LỊCH SỬ ĐẶT CỦA USER ==================
+@router.get("/user/{user_id}")
+async def get_user_bookings(user_id: str):
+    await _auto_update_booking_statuses()
+
+    uid = user_id.strip()
+    bookings_cursor = (
+        db["bookings"]
+        .find({"$or": [{"user_id": uid}, {"customer_name": uid}]})
+        .sort("created_at", -1)
+    )
+    bookings_list = await bookings_cursor.to_list(length=500)
+    results = []
+    for doc in bookings_list:
+        doc = _serialize_booking(doc)
+        room = await _get_room_info(doc.get("room_id", ""))
+        doc["room"] = room
+        results.append(doc)
+    return results
+
+# ================== 4. DUYỆT / TỪ CHỐI (ADMIN) ==================
 @router.patch("/{booking_id}/status")
 async def update_booking_status(
     booking_id: str,
@@ -254,20 +328,21 @@ async def update_booking_status(
         if status_update.cancel_reason:
             update_data["cancel_reason"] = status_update.cancel_reason
 
+    if status_update.payment_status:
+        update_data["payment_status"] = status_update.payment_status
+
     result = await db["bookings"].update_one(
         {"_id": ObjectId(booking_id)},
         {"$set": update_data},
     )
     
     if result.matched_count == 0:
-        raise HTTPException(
-            status_code=404, detail="Không tìm thấy đơn đặt phòng"
-        )
+        raise HTTPException(status_code=404, detail="Không tìm thấy đơn đặt phòng")
 
     # Trả về data đầy đủ để Master không bị lỗi
     updated = await db["bookings"].find_one({"_id": ObjectId(booking_id)})
     updated = _serialize_booking(updated)
-    updated["room"] = _get_room_info(updated.get("room_id", ""))
+    updated["room"] = await _get_room_info(updated.get("room_id", ""))
     return updated
 
 
@@ -292,7 +367,7 @@ async def cancel_booking(
         raise HTTPException(
             status_code=400,
             detail=f"Không thể hủy đơn ở trạng thái '{current_status}'. "
-                   f"Chỉ đơn đang chờ duyệt hoặc đã duyệt mới được hủy.",
+            f"Chỉ đơn đang chờ duyệt hoặc đã duyệt mới được hủy.",
         )
 
     cancel_reason = ""
@@ -313,5 +388,6 @@ async def cancel_booking(
 
     updated = await db["bookings"].find_one({"_id": ObjectId(booking_id)})
     updated = _serialize_booking(updated)
-    updated["room"] = _get_room_info(updated.get("room_id", ""))
+
+    updated["room"] = await _get_room_info(updated.get("room_id", ""))
     return updated
