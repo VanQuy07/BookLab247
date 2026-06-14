@@ -201,12 +201,16 @@ export default function LandingPage() {
             >
               Danh sách phòng
             </Link>
+            
+            {/* ĐÃ ẨN TAB THIẾT BỊ 
             <Link
               href="/dashboard/user/device"
               className="hover:text-blue-600 transition-colors"
             >
               Thiết bị
             </Link>
+            */}
+
             <Link
               href="/dashboard/user/history"
               className="hover:text-blue-600 transition-colors"
@@ -335,7 +339,7 @@ export default function LandingPage() {
 
               <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
                 <Link
-                  href="/labs"
+                  href="/dashboard/user/labs"
                   className="w-full sm:w-auto flex items-center justify-center gap-2 px-8 py-4 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 shadow-xl shadow-blue-600/20 transition-all group"
                 >
                   Xem danh sách phòng{" "}
