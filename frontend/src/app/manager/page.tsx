@@ -2815,6 +2815,7 @@ export default function ManagerDashboardPage() {
         </AnimatePresence>
 
         {/* ================= MODAL XEM CHI TIẾT CA ĐẶT ================= */}
+        {/* ================= MODAL XEM CHI TIẾT CA ĐẶT ================= */}
         <AnimatePresence>
           {selectedBooking && (
             <div
@@ -2858,22 +2859,61 @@ export default function ManagerDashboardPage() {
                   </div>
 
                   <div className="grid grid-cols-2 gap-4">
-                    <div className="bg-gray-50 p-4 rounded-xl border border-gray-100">
-                      <p className="text-xs font-bold text-gray-400 uppercase mb-1">
-                        Thời gian mượn
-                      </p>
-                      <p className="text-lg font-black text-gray-900">
-                        {selectedBooking.startTime} -{" "}
-                        {minsToTime(
-                          timeToMins(selectedBooking.startTime) +
-                            selectedBooking.durationMins,
-                        )}
-                      </p>
-                      <p className="text-xs font-medium text-amber-600 mt-1 flex items-center gap-1">
-                        <Clock className="w-3 h-3" /> Dọn dẹp:{" "}
-                        {selectedBooking.bufferMins} phút
-                      </p>
-                    </div>
+                    {/* 🚀 ĐÃ NÂNG CẤP: TỰ ĐỘNG TÍNH NGÀY KẾT THÚC & CHỐNG TRÀN 24H */}
+                    {(() => {
+                      // Lấy ngày bắt đầu (nếu không có thì lấy ngày hôm nay làm mốc chuẩn)
+                      const startDateStr =
+                        selectedBooking.date ||
+                        new Date().toISOString().split("T")[0];
+                      const startDateTime = new Date(
+                        `${startDateStr}T${selectedBooking.startTime}`,
+                      );
+
+                      // Cộng thêm số phút mượn (Javascript sẽ tự động đẩy sang ngày hôm sau nếu vượt 24h)
+                      const endDateTime = new Date(
+                        startDateTime.getTime() +
+                          selectedBooking.durationMins * 60000,
+                      );
+
+                      const endHour = endDateTime
+                        .getHours()
+                        .toString()
+                        .padStart(2, "0");
+                      const endMin = endDateTime
+                        .getMinutes()
+                        .toString()
+                        .padStart(2, "0");
+                      const endTimeStr = `${endHour}:${endMin}`;
+
+                      // Kiểm tra xem ngày kết thúc có lệch với ngày bắt đầu không
+                      const isNextDay =
+                        startDateTime.getDate() !== endDateTime.getDate() ||
+                        startDateTime.getMonth() !== endDateTime.getMonth();
+
+                      // Nếu qua ngày mới, in thêm (DD/MM)
+                      const endDateDisplay = isNextDay
+                        ? ` (${endDateTime.getDate().toString().padStart(2, "0")}/${(endDateTime.getMonth() + 1).toString().padStart(2, "0")})`
+                        : "";
+
+                      return (
+                        <div className="bg-gray-50 p-4 rounded-xl border border-gray-100">
+                          <p className="text-xs font-bold text-gray-400 uppercase mb-1">
+                            Thời gian mượn
+                          </p>
+                          <p className="text-lg font-black text-gray-900 flex items-baseline gap-1 flex-wrap">
+                            {selectedBooking.startTime} - {endTimeStr}
+                            <span className="text-sm text-blue-600 font-bold whitespace-nowrap">
+                              {endDateDisplay}
+                            </span>
+                          </p>
+                          <p className="text-xs font-medium text-amber-600 mt-1 flex items-center gap-1">
+                            <Clock className="w-3 h-3" /> Dọn dẹp:{" "}
+                            {selectedBooking.bufferMins} phút
+                          </p>
+                        </div>
+                      );
+                    })()}
+
                     <div className="bg-gray-50 p-4 rounded-xl border border-gray-100">
                       <p className="text-xs font-bold text-gray-400 uppercase mb-1">
                         Phòng Lab
