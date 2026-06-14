@@ -59,10 +59,16 @@ export default function UserBookingHistoryPage() {
           : data.data || data.items || [];
 
         // 🚀 CHỐT CHẶN: Chỉ lọc ra những đơn hàng TRÙNG TÊN với User đang đăng nhập
-        const myOwnBookings = allBookings.filter(
-          (b: any) =>
-            b.customer_name === userName || b.customerName === userName,
-        );
+        // const myOwnBookings = allBookings.filter(
+        //   (b: any) =>
+        //     b.customer_name === userName || b.customerName === userName,
+        // );
+        const normalizedUserName = userName.trim().toLowerCase();
+        const myOwnBookings = allBookings.filter((b: any) => {
+        const name1 = (b.customer_name || "").trim().toLowerCase();
+        const name2 = (b.customerName || "").trim().toLowerCase();
+        return name1 === normalizedUserName || name2 === normalizedUserName;
+      });
 
         setBookings(myOwnBookings);
       } else if (response.status === 401) {
@@ -95,8 +101,17 @@ export default function UserBookingHistoryPage() {
 
       if (!response.ok) throw new Error("Không thể hủy đơn lúc này.");
 
-      alert("Đã hủy đơn thành công!");
-      if (token) fetchMyBookings(token, currentUserName);
+      // alert("Đã hủy đơn thành công!");
+      // if (token) fetchMyBookings(token, currentUserName);
+      // Chuyển trực tiếp trạng thái đơn bị hủy thành 'cancelled' ở client
+  alert("Đã hủy đơn thành công!"); // Có thể đổi sang toast notification sau này
+  setBookings(prevBookings => 
+  prevBookings.map(b => 
+    (b.id === bookingId || b._id === bookingId) 
+      ? { ...b, status: "cancelled" } 
+      : b
+  )
+);
     } catch (error: any) {
       alert(`⛔ Lỗi: ${error.message}`);
     }
@@ -238,14 +253,18 @@ export default function UserBookingHistoryPage() {
 
                   let endHour = "--";
                   let endMin = "--";
-                  if (booking.start_time && booking.duration_mins) {
-                    const endTimeMins =
-                      parseInt(booking.start_time.split(":")[0]) * 60 +
-                      parseInt(booking.start_time.split(":")[1]) +
-                      booking.duration_mins;
-                    endHour = Math.floor(endTimeMins / 60)
-                      .toString()
-                      .padStart(2, "0");
+                  if (booking.start_time && typeof booking.start_time === "string" && booking.start_time.includes(":") && booking.duration_mins) {
+                    // const endTimeMins =
+                    // parseInt(booking.start_time.split(":")[0]) * 60 +
+                    // parseInt(booking.start_time.split(":")[1]) +
+                    // booking.duration_mins;
+                    const timeParts = booking.start_time.split(":");
+                    const hours = parseInt(timeParts[0], 10) || 0;
+                    const mins = parseInt(timeParts[1], 10) || 0;
+                    
+                    const endTimeMins = (hours * 60) + mins + booking.duration_mins;
+                    
+                    endHour = Math.floor(endTimeMins / 60).toString().padStart(2, "0");
                     endMin = (endTimeMins % 60).toString().padStart(2, "0");
                   }
 
