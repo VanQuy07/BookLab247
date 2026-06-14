@@ -34,6 +34,19 @@ class BookingCancelRequest(BaseModel):
     cancel_reason: str = ""
 
 
+class FixedBookingCreate(BaseModel):
+    room_id: str
+    title: str
+    start_date: str
+    end_date: str
+    days_of_week: list[int]
+    start_time: str
+    end_time: str
+    note: str = ""
+    exception_dates: list[str] = []
+    status: str = "active"
+
+
 def time_to_mins(time_str: str) -> int:
     h, m = map(int, time_str.split(":"))
     return h * 60 + m
@@ -134,6 +147,47 @@ def _get_end_time(start_time: str, duration_mins: int, buffer_mins: int = 0) -> 
         return f"{end_h:02d}:{end_m:02d}"
     except ValueError:
         return "00:00"
+
+
+# ================== 0. QUẢN LÝ LỊCH CỐ ĐỊNH LÊN DATABASE ==================
+@router.post("/fixed")
+async def create_fixed_booking(rule: FixedBookingCreate):
+    data = rule.model_dump()
+    data["created_at"] = datetime.now(timezone.utc)
+    result = await db["fixed_bookings"].insert_one(data)
+    created = await db["fixed_bookings"].find_one({"_id": result.inserted_id})
+    created["id"] = str(created["_id"])
+    created.pop("_id", None)
+    return created
+
+
+@router.get("/fixed")
+async def get_fixed_bookings():
+    cursor = db["fixed_bookings"].find().sort("created_at", -1)
+    results = []
+    async for doc in cursor:
+        doc["id"] = str(doc["_id"])
+        doc.pop("_id", None)
+        results.append(doc)
+    return results
+
+
+@router.put("/fixed/{rule_id}")
+async def update_fixed_booking(rule_id: str, rule: FixedBookingCreate):
+    if not ObjectId.is_valid(rule_id):
+        raise HTTPException(status_code=400, detail="ID không hợp lệ")
+    await db["fixed_bookings"].update_one(
+        {"_id": ObjectId(rule_id)}, {"$set": rule.model_dump()}
+    )
+    return {"success": True}
+
+
+@router.delete("/fixed/{rule_id}")
+async def delete_fixed_booking(rule_id: str):
+    if not ObjectId.is_valid(rule_id):
+        raise HTTPException(status_code=400, detail="ID không hợp lệ")
+    await db["fixed_bookings"].delete_one({"_id": ObjectId(rule_id)})
+    return {"success": True}
 
 
 # ================== 1. TẠO ĐƠN ==================
