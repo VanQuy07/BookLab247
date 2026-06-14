@@ -108,12 +108,17 @@ const TABS: { id: FilterTab; label: string }[] = [
   { id: "DA_HUY", label: "Đã hủy" },
 ];
 
-function computeEndTime(startTime: string, durationMins: number): string {
+function computeEndTime(startTime: string,
+  durationMins: number,
+  bufferMins: number = 0): string {
   if (!startTime) return "--:--";
   const parts = startTime.split(":");
   if (parts.length < 2) return "--:--";
   const totalMins =
-    parseInt(parts[0]) * 60 + parseInt(parts[1]) + durationMins;
+    parseInt(parts[0]) * 60 +
+    parseInt(parts[1]) +
+    durationMins +
+    bufferMins;
   const h = Math.floor(totalMins / 60) % 24;
   const m = totalMins % 60;
   return `${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}`;
@@ -127,7 +132,7 @@ function formatDate(dateStr: string): string {
 
 export default function UserBookingHistoryPage() {
   const router = useRouter();
-
+  const [, forceUpdate] = useState(0);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(true);
   const [isLoggedIn, setIsLoggedIn] = useState(true);
@@ -175,6 +180,14 @@ export default function UserBookingHistoryPage() {
   }, [loadBookings]);
 
   useEffect(() => {
+    const timer = setInterval(() => {
+      forceUpdate((v) => v + 1);
+    }, 60000); // mỗi phút
+  
+    return () => clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
     if (!toastMsg) return;
     const t = setTimeout(() => setToastMsg(null), 3500);
     return () => clearTimeout(t);
@@ -212,17 +225,79 @@ export default function UserBookingHistoryPage() {
     return "CHO_DUYET"; // fallback an toàn
   };
 
+  // const getDisplayStatus = (booking: Booking) => {
+  //   const status = normalizeStatus(booking.status);
+  
+  //   // giữ nguyên các trạng thái cuối
+  //   if (
+  //     ["CHO_DUYET", "DA_HUY", "DA_TU_CHOI"].includes(status)
+  //   ) {
+  //     return status;
+  //   }
+  
+  //   const now = new Date();
+  
+  //   const start = new Date(
+  //     `${booking.date}T${booking.start_time}`
+  //   );
+  
+  //   const end = new Date(
+  //     start.getTime() +
+  //       booking.duration_mins * 60 * 1000
+  //   );
+  
+  //   if (now < start) {
+  //     return "DA_DUYET";
+  //   }
+  
+  //   if (now >= start && now <= end) {
+  //     return "DANG_MUON";
+  //   }
+  
+  //   return "DA_XONG";
+  // };
+
+  function getRuntimeStatus(booking: Booking): string {
+    const baseStatus = normalizeStatus(booking.status);
+  
+    // các trạng thái không được tự đổi
+    if (["CHO_DUYET", "DA_TU_CHOI", "DA_HUY"].includes(baseStatus)) {
+      return baseStatus;
+    }
+  
+    const now = new Date();
+  
+    const start = new Date(
+      `${booking.date}T${booking.start_time}`
+    );
+  
+    const end = new Date(
+      start.getTime() +
+      (booking.duration_mins + booking.buffer_mins) * 60 * 1000
+    );
+  
+    if (now < start) {
+      return "DA_DUYET";
+    }
+  
+    if (now >= start && now <= end) {
+      return "DANG_MUON";
+    }
+  
+    return "DA_XONG";
+  }
+
   const filteredBookings = bookings.filter((b) => {
     if (activeTab === "ALL") return true;
-    return normalizeStatus(b.status) === activeTab;
+    return getRuntimeStatus(b) === activeTab;
   });
 
   const getStatusInfo = (status: string): StatusConfig => {
     const key = normalizeStatus(status);
   
     return (
-      STATUS_MAP[key] || {
-        text: status,
+      STATUS_MAP[key] ?? {
+        text: key,
         color: "text-gray-600",
         bgColor: "bg-gray-50 border-gray-200",
         icon: Info,
@@ -231,13 +306,13 @@ export default function UserBookingHistoryPage() {
   };
 
   const getTimeline = (booking: Booking) => {
-    const s = normalizeStatus(booking.status);
+    const s = getRuntimeStatus(booking);
     const steps = [
       {
         label: "Đã gửi yêu cầu",
         done: true,
         // active: ["PENDING", "CHO_DUYET", "CONFIRMED"].includes(s),
-        active: ["PENDING", "CHO_DUYET", "DA_DUYET"].includes(s),
+        active: s === "CHO_DUYET" || s === "DA_DUYET",
         time: booking.created_at,
         icon: GitBranch,
       },
@@ -250,11 +325,20 @@ export default function UserBookingHistoryPage() {
       //     : undefined,
       //   icon: CheckCircle2,
       // },
+      // {
+      //   label: "Đã duyệt",
+      //   done: ["DA_DUYET", "DANG_MUON", "DA_XONG", "DA_HUY", "DA_TU_CHOI"].includes(s),
+      //   active: s === "DA_DUYET",
+      //   time: s === "DA_DUYET" ? booking.updated_at : undefined,
+      //   icon: CheckCircle2,
+      // },
       {
         label: "Đã duyệt",
-        done: ["DA_DUYET", "DANG_MUON", "DA_XONG", "DA_HUY", "DA_TU_CHOI"].includes(s),
+        done: ["DA_DUYET", "DANG_MUON", "DA_XONG"].includes(s),
         active: s === "DA_DUYET",
-        time: s === "DA_DUYET" ? booking.updated_at : undefined,
+        time: ["DA_DUYET", "DANG_MUON", "DA_XONG"].includes(s)
+          ? booking.updated_at
+          : undefined,
         icon: CheckCircle2,
       },
       {
@@ -280,14 +364,50 @@ export default function UserBookingHistoryPage() {
       //     icon: XCircle,
       //   });
       // }
-      if (["DA_TU_CHOI", "DA_HUY"].includes(s)) {
-        steps.push({
-          label: s === "DA_HUY" ? "Đã hủy" : "Bị từ chối",
-          done: true,
-          active: false,
-          time: booking.updated_at,
-          icon: XCircle,
-        });
+      // if (["DA_TU_CHOI", "DA_HUY"].includes(s)) {
+      //   steps.push({
+      //     label: s === "DA_HUY" ? "Đã hủy" : "Bị từ chối",
+      //     done: true,
+      //     active: false,
+      //     time: booking.updated_at,
+      //     icon: XCircle,
+      //   });
+      // }
+
+      if (s === "DA_TU_CHOI") {
+        return [
+          steps[0], // Đã gửi yêu cầu
+          {
+            label: "Bị từ chối",
+            done: true,
+            active: false,
+            time: booking.updated_at,
+            icon: XCircle,
+          },
+        ];
+      }
+      
+      // if (s === "DA_HUY") {
+      //   steps.push({
+      //     label: "Đã hủy",
+      //     done: true,
+      //     active: false,
+      //     time: booking.updated_at,
+      //     icon: XCircle,
+      //   });
+      // }
+
+      if (s === "DA_HUY") {
+        return [
+          steps[0],
+          {
+            label: "Đã hủy",
+            done: true,
+            active: false,
+            time: booking.updated_at,
+            icon: XCircle,
+          },
+        ];
       }
 
     return steps;
@@ -308,14 +428,27 @@ export default function UserBookingHistoryPage() {
     }
   };
 
-  const canCancel = (booking: Booking) => {
-    const status = normalizeStatus(booking.status);
-    if (!["CHO_DUYET", "DA_DUYET", "DANG_MUON"].includes(status)) return false;
-    const cancellableStatuses = ["PENDING", "CONFIRMED", "CHO_DUYET", "DA_DUYET", "DANG_MUON"];
-    if (!cancellableStatuses.includes(status)) return false;
+  // const canCancel = (booking: Booking) => {
+  //   const status = getRuntimeStatus(booking);
+  //   if (!["CHO_DUYET", "DA_DUYET", "DANG_MUON"].includes(status)) return false;
+  //   const cancellableStatuses = ["PENDING", "CONFIRMED", "CHO_DUYET", "DA_DUYET", "DANG_MUON"];
+  //   if (!cancellableStatuses.includes(status)) return false;
 
-    const now = new Date();
-    const bookingDate = new Date(`${booking.date}T${booking.start_time}`);
+  //   const now = new Date();
+  //   const bookingDate = new Date(`${booking.date}T${booking.start_time}`);
+  //   return bookingDate.getTime() > Date.now();
+  // };
+
+  const canCancel = (booking: Booking) => {
+    const status = getRuntimeStatus(booking);
+  
+    if (!["CHO_DUYET", "DA_DUYET"].includes(status))
+      return false;
+  
+    const bookingDate = new Date(
+      `${booking.date}T${booking.start_time}`
+    );
+  
     return bookingDate.getTime() > Date.now();
   };
 
@@ -323,7 +456,7 @@ export default function UserBookingHistoryPage() {
     const count =
       tab.id === "ALL"
         ? bookings.length
-        : bookings.filter((b) => normalizeStatus(b.status) === tab.id).length;
+        : bookings.filter((b) => getRuntimeStatus(b) === tab.id).length;
     return { ...tab, count };
   });
 
@@ -463,18 +596,20 @@ export default function UserBookingHistoryPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
               <AnimatePresence>
                 {filteredBookings.map((booking) => {
-                  const status = booking.status || "";
-                  const si = getStatusInfo(status);
+                  const runtimeStatus = getRuntimeStatus(booking);
+                  const si = getStatusInfo(runtimeStatus);
                   const StatusIcon = si.icon;
+                  const timeline = getTimeline(booking);
                   const bookingId = booking.id || booking._id || "";
                   const endTime = computeEndTime(
                     booking.start_time,
                     booking.duration_mins,
+                    booking.buffer_mins
                   );
                   const hasRejection = !!(
                     booking.rejection_reason &&
-                    ["REJECTED", "DA_TU_CHOI", "CANCELLED", "DA_HUY"].includes(
-                      status.toUpperCase()
+                    ["DA_TU_CHOI", "DA_HUY"].includes(
+                      normalizeStatus(booking.status)
                     )
                   );
 
@@ -593,9 +728,9 @@ export default function UserBookingHistoryPage() {
                               className="overflow-hidden"
                             >
                               <div className="space-y-2 pt-1">
-                                {getTimeline(booking).map((step, idx) => {
+                                {timeline.map((step, idx) => {
                                   const Icon = step.icon;
-                                  const isLast = idx === getTimeline(booking).length - 1;
+                                  const isLast = idx === timeline.length - 1;
                                   return (
                                     <div key={idx} className="flex items-start gap-2.5">
                                       <div className="flex flex-col items-center">
@@ -736,7 +871,9 @@ export default function UserBookingHistoryPage() {
                     </p>
                   </div>
                   {(() => {
-                    const si = getStatusInfo(selectedBooking.status);
+                    const si = getStatusInfo(
+                      getRuntimeStatus(selectedBooking)
+                    );
                     const Icon = si.icon;
                     return (
                       <span
@@ -768,6 +905,7 @@ export default function UserBookingHistoryPage() {
                       {computeEndTime(
                         selectedBooking.start_time,
                         selectedBooking.duration_mins,
+                        selectedBooking.buffer_mins
                       )}
                     </p>
                   </div>
