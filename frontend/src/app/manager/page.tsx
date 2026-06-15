@@ -1037,7 +1037,7 @@ const startObj = new Date(
     }
   };
 
-  // ================= XỬ LÝ DUYỆT / TỪ CHỐI ĐƠN =================
+  
   // ================= XỬ LÝ DUYỆT / TỪ CHỐI ĐƠN =================
   const handleUpdateStatus = (bookingId: string, newStatus: string) => {
     // Nếu bấm từ chối, mở bảng Xác nhận đẹp thay vì dùng window.confirm
@@ -3176,7 +3176,6 @@ const startObj = new Date(
           )}
         </AnimatePresence>
 
-        {/* ================= MODAL XEM CHI TIẾT CA ĐẶT ================= */}
         {/* ================= MODAL XEM CHI TIẾT CA ĐẶT ================= */}
         <AnimatePresence>
           {selectedBooking && (
