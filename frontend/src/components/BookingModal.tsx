@@ -288,22 +288,52 @@ export default function BookingModal({
                 const bDuration = b.duration_mins || b.durationMins || 0;
                 const bBuffer = b.buffer_mins || b.bufferMins || 15;
 
-                const endTimeStr = minsToTime(bStartMins + bDuration);
+                const startDateStr = b.date || formData.startDate;
+                const startDateTime = new Date(
+                  `${startDateStr}T${startTimeStr}`,
+                );
+                const endDateTime = new Date(
+                  startDateTime.getTime() + bDuration * 60000,
+                );
+
+                const endHour = endDateTime
+                  .getHours()
+                  .toString()
+                  .padStart(2, "0");
+                const endMin = endDateTime
+                  .getMinutes()
+                  .toString()
+                  .padStart(2, "0");
+                const endTimeStr = `${endHour}:${endMin}`;
+
+                const isNextDay =
+                  startDateTime.getDate() !== endDateTime.getDate() ||
+                  startDateTime.getMonth() !== endDateTime.getMonth();
+                const endDateDisplay = isNextDay
+                  ? ` (${endDateTime.getDate().toString().padStart(2, "0")}/${(endDateTime.getMonth() + 1).toString().padStart(2, "0")})`
+                  : "";
 
                 const leftPct = (bStartMins / totalMins) * 100;
-                const widthPct = (bDuration / totalMins) * 100;
-                const bufferWidthPct = (bBuffer / totalMins) * 100;
+                const widthPct = Math.min(
+                  (bDuration / totalMins) * 100,
+                  100 - leftPct,
+                );
+                const bufferWidthPct = Math.min(
+                  (bBuffer / totalMins) * 100,
+                  100 - (leftPct + widthPct),
+                );
 
                 return (
                   <React.Fragment key={b.id || b._id}>
                     <div
                       className="absolute top-0 bottom-0 bg-red-500/90 border-x border-red-600 flex items-center justify-center overflow-hidden z-10 shadow-sm transition-all hover:brightness-110"
                       style={{ left: `${leftPct}%`, width: `${widthPct}%` }}
-                      title={`Đã đặt: ${startTimeStr} - ${endTimeStr} (${bDuration} phút)`}
+                      title={`Đã đặt: ${startTimeStr} - ${endTimeStr}${endDateDisplay} (${bDuration} phút)`}
                     >
                       {widthPct > 4 && (
                         <span className="text-[10px] sm:text-xs font-black text-white whitespace-nowrap px-1 drop-shadow-md">
                           {startTimeStr} - {endTimeStr}
+                          {endDateDisplay}
                         </span>
                       )}
                     </div>
