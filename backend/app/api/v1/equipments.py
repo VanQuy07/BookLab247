@@ -26,13 +26,29 @@ class EquipmentCreate(BaseModel):
 @router.get("")
 async def get_all_equipments():
     equipments = []
+    
+    # 1. Lấy tất cả thiết bị
     cursor = db["equipments"].find({})
     async for doc in cursor:
         doc["id"] = str(doc["_id"])
         del doc["_id"]
+        
+        # 2. Xử lý logic tên phòng (location)
+        room_id = doc.get("roomId")
+        if room_id and ObjectId.is_valid(room_id):
+            # Tìm tên phòng tương ứng trong collection "rooms"
+            room = await db["labs"].find_one({"_id": ObjectId(room_id)})
+            if room:
+                # Ưu tiên lấy 'name', nếu không có thì lấy 'title'
+                doc["location"] = room.get("name") or room.get("title") or "Phòng không tên"
+            else:
+                doc["location"] = "Phòng không tồn tại"
+        else:
+            doc["location"] = "Trong kho" # Nếu không có roomId
+            
         equipments.append(doc)
+        
     return equipments
-
 
 @router.post("")
 async def create_equipment(eq_data: EquipmentCreate):
