@@ -1209,9 +1209,9 @@ export default function ManagerDashboardPage() {
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-3 w-full xl:w-auto">
-            <button className="flex-1 sm:flex-none flex items-center justify-center gap-2 bg-slate-900 text-white px-4 py-2.5 rounded-xl text-sm font-bold shadow-md hover:bg-black transition-colors">
+            {/* <button className="flex-1 sm:flex-none flex items-center justify-center gap-2 bg-slate-900 text-white px-4 py-2.5 rounded-xl text-sm font-bold shadow-md hover:bg-black transition-colors">
               <QrCode className="w-4 h-4" /> Quét mã QR
-            </button>
+            </button> */}
             <div className="flex bg-gray-100 p-1 rounded-xl border border-gray-200 w-full sm:w-auto items-center overflow-x-auto scrollbar-hide">
               {[
                 { id: "today", label: "Hôm nay" },
