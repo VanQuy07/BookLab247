@@ -147,6 +147,10 @@ export default function BookingModal({
     const eqId = eq.id || eq._id;
     const currentList = { ...selectedEqs };
 
+    const eqPrice = Number(
+      eq.pricePerHour || eq.price_per_hour || eq.price || 0,
+    );
+
     if (currentList[eqId]) {
       delete currentList[eqId];
     } else {
@@ -154,7 +158,7 @@ export default function BookingModal({
         name: eq.name,
         quantity: 1,
         max: availableQty,
-        price: eq.price || 0,
+        price: eqPrice,
       };
     }
     setSelectedEqs(currentList);
@@ -546,9 +550,27 @@ export default function BookingModal({
                           className="w-4 h-4 mt-0.5 text-violet-600 rounded border-gray-300 focus:ring-violet-500"
                         />
                         <div className="flex-1">
-                          <span className="text-sm font-bold text-gray-900 line-clamp-1">
-                            {eq.name}
-                          </span>
+                          <div className="flex items-start justify-between gap-1">
+                            <span className="text-sm font-bold text-gray-900 line-clamp-1">
+                              {eq.name}
+                            </span>
+                            {(() => {
+                              const displayPrice = Number(
+                                eq.pricePerHour ||
+                                  eq.price_per_hour ||
+                                  eq.price ||
+                                  0,
+                              );
+                              if (displayPrice > 0) {
+                                return (
+                                  <span className="text-[10px] font-black bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded-md whitespace-nowrap">
+                                    {displayPrice.toLocaleString("vi-VN")}đ/h
+                                  </span>
+                                );
+                              }
+                              return null;
+                            })()}
+                          </div>
                           <p
                             className={`text-xs mt-0.5 font-semibold ${isOutOfStock ? "text-red-500" : "text-green-600"}`}
                           >
