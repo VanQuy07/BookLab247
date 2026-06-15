@@ -122,6 +122,18 @@ interface CustomerProfile {
   internalNote: string;
   bookingHistory: BookingItem[];
 }
+interface MaintenanceLog {
+  id: string;
+  type: "room" | "equipment";
+  itemId: string;
+  itemName: string;
+  reason: string;
+  startDate: string;
+  startTime: string;
+  endDate: string;
+  endTime: string;
+  status: "pending" | "completed";
+}
 
 interface EquipmentTrackingInfo {
   equipmentId: string;
@@ -512,13 +524,90 @@ export default function ManagerDashboardPage() {
   const [customerNotes, setCustomerNotes] = useState<Record<string, { tags: ("VIP"|"Warning"|"Regular")[], note: string }>>({});
 
   // ================= STATES MAINTENANCE REPORT =================
+  // ================= STATES BẢO TRÌ NHANH & SỰ CỐ =================
+  const [maintenanceLogs, setMaintenanceLogs] = useState<MaintenanceLog[]>([]);
+  const [maintenanceModal, setMaintenanceModal] = useState<{
+    isOpen: boolean; type: "room" | "equipment"; itemId: string; itemName: string; reason: string;
+    startDate: string; startTime: string; endDate: string; endTime: string;
+  }>({ 
+    isOpen: false, type: "room", itemId: "", itemName: "", reason: "", 
+    startDate: selectedDate, startTime: "08:00", endDate: selectedDate, endTime: "17:00" 
+  });
+
+  // ================= HỆ THỐNG TỰ ĐỘNG CHUYỂN TRẠNG THÁI BẢO TRÌ =================
+  useEffect(() => {
+    const nowMs = currentTime.getTime();
+    let shouldUpdateRooms = false;
+    let shouldUpdateEqs = false;
+    let updatedLogs = false;
+
+    const newRooms = [...rooms];
+    const newEqs = [...equipments];
+    const newLogs = [...maintenanceLogs];
+
+    newLogs.forEach(log => {
+      if (log.status === "pending") {
+        const startMs = new Date(`${log.startDate}T${log.startTime}:00`).getTime();
+        const endMs = new Date(`${log.endDate}T${log.endTime}:00`).getTime();
+
+        if (nowMs >= startMs && nowMs <= endMs) {
+          // TỚI GIỜ BẢO TRÌ -> Tự động bật trạng thái bảo trì
+          if (log.type === "room") {
+            const rIdx = newRooms.findIndex(r => (r.id || r._id) === log.itemId);
+            if (rIdx !== -1 && !newRooms[rIdx].maintenanceMode) {
+              newRooms[rIdx] = { ...newRooms[rIdx], maintenanceMode: true };
+              shouldUpdateRooms = true;
+            }
+          } else {
+            const eIdx = newEqs.findIndex(e => (e.id || e._id) === log.itemId);
+            if (eIdx !== -1 && newEqs[eIdx].status !== "maintenance") {
+              newEqs[eIdx] = { ...newEqs[eIdx], status: "maintenance" };
+              shouldUpdateEqs = true;
+            }
+          }
+        } else if (nowMs > endMs) {
+          // HẾT GIỜ BẢO TRÌ -> Tự động hoàn thành
+          log.status = "completed";
+          updatedLogs = true;
+
+          // Gửi API ngầm để cập nhật trạng thái trong Database
+          fetch(`https://booklab247.onrender.com/api/v1/bookings/maintenance/${log.id}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("access_token")}` },
+            body: JSON.stringify({ status: "completed" })
+          }).catch(()=>{});
+
+          // Mở lại phòng/thiết bị
+          if (log.type === "room") {
+            const rIdx = newRooms.findIndex(r => (r.id || r._id) === log.itemId);
+            if (rIdx !== -1 && newRooms[rIdx].maintenanceMode) {
+              newRooms[rIdx] = { ...newRooms[rIdx], maintenanceMode: false };
+              shouldUpdateRooms = true;
+            }
+          } else {
+            const eIdx = newEqs.findIndex(e => (e.id || e._id) === log.itemId);
+            if (eIdx !== -1 && newEqs[eIdx].status === "maintenance") {
+              newEqs[eIdx] = { ...newEqs[eIdx], status: "available" };
+              shouldUpdateEqs = true;
+            }
+          }
+        }
+      }
+    });
+
+    if (shouldUpdateRooms) setRooms(newRooms);
+    if (shouldUpdateEqs) setEquipments(newEqs);
+    if (updatedLogs) setMaintenanceLogs(newLogs);
+  }, [currentTime, maintenanceLogs]);
+
+
   const [reportModal, setReportModal] = useState<{
-    isOpen: boolean;
-    type: "room" | "equipment";
-    itemId: string;
-    itemName: string;
-    reason: string;
-  }>({ isOpen: false, type: "room", itemId: "", itemName: "", reason: "" });
+    isOpen: boolean; type: "room" | "equipment"; itemId: string; itemName: string; reason: string;
+    startDate: string; startTime: string; endDate: string; endTime: string;
+  }>({ 
+    isOpen: false, type: "room", itemId: "", itemName: "", reason: "", 
+    startDate: selectedDate, startTime: "08:00", endDate: selectedDate, endTime: "17:00" 
+  });
 
   //const API_URL = `${process.env.NEXT_PUBLIC_API_URL}/api/v1`;
   //const API_URL = //"https://booklab247.onrender.com/api/v1";
@@ -645,6 +734,32 @@ export default function ManagerDashboardPage() {
       }
     } catch (err) {
       console.error("Lỗi tải lịch cố định:", err);
+    }
+
+    // ==========================================
+    // 2.8. LUỒNG TẢI LỊCH BẢO TRÌ TỪ DATABASE
+    // ==========================================
+    try {
+      const mtRes = await fetch(`${API_URL}/bookings/maintenance`, {
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }
+      });
+      if (mtRes.ok) {
+        const mtData = await mtRes.json();
+        setMaintenanceLogs(mtData.map((m: any) => ({
+          id: m.id,
+          type: m.type,
+          itemId: m.item_id,
+          itemName: m.item_name,
+          reason: m.reason,
+          startDate: m.start_date,
+          startTime: m.start_time,
+          endDate: m.end_date,
+          endTime: m.end_time,
+          status: m.status
+        })));
+      }
+    } catch (err) {
+      console.error("Lỗi tải lịch bảo trì:", err);
     }
 
     // ==========================================
@@ -802,6 +917,45 @@ const startObj = new Date(
       quantity: data.quantity,
       price: data.price,
     }));
+    // LỖI 1A: KIỂM TRA TRÙNG VỚI LỊCH CỐ ĐỊNH Ở FRONTEND
+    const targetDayOfWeek = startDateTime.getDay();
+    const isConflictFixed = fixedBookings.some(fb => {
+      if (fb.roomId !== targetId || fb.status !== "active") return false;
+      if (fb.exceptionDates?.includes(quickBookData.startDate)) return false;
+      if (!fb.daysOfWeek.includes(targetDayOfWeek)) return false;
+      if (quickBookData.startDate < fb.startDate || quickBookData.startDate > fb.endDate) return false;
+      const fStartMs = new Date(`${quickBookData.startDate}T${fb.startTime}`).getTime();
+      const fEndMs = new Date(`${quickBookData.startDate}T${fb.endTime}`).getTime();
+      return newStartMs < fEndMs && newEndMsWithBuffer > fStartMs;
+    });
+
+    if (isConflictFixed) return alert("⛔ LỖI TRÙNG LỊCH!\nPhòng đang có Lịch cố định hoạt động vào khung giờ này.");
+
+    // LỖI 3C: KIỂM TRA TRÙNG VỚI LỊCH BẢO TRÌ CỦA PHÒNG
+    const isConflictMaintenance = maintenanceLogs.some(mt => {
+      if (mt.type === "room" && mt.itemId === targetId && mt.status !== "completed") {
+         if (quickBookData.startDate >= mt.startDate && quickBookData.startDate <= mt.endDate) {
+             const mtStartMs = new Date(`${quickBookData.startDate}T${mt.startTime}`).getTime();
+             const mtEndMs = new Date(`${quickBookData.startDate}T${mt.endTime}`).getTime();
+             return newStartMs < mtEndMs && newEndMsWithBuffer > mtStartMs;
+         }
+      }
+      return false;
+    });
+    if (isConflictMaintenance) return alert("⛔ LỖI BẢO TRÌ!\nPhòng đang được Lên lịch Sửa chữa trong khung giờ này. Vui lòng chọn giờ khác!");
+
+    // LỖI 3D: KIỂM TRA TRÙNG BẢO TRÌ THIẾT BỊ MƯỢN KÈM
+    const eqConflict = maintenanceLogs.find(mt => {
+      if (mt.type === "equipment" && mt.status !== "completed" && quickBookData.equipments[mt.itemId]) {
+          if (quickBookData.startDate >= mt.startDate && quickBookData.startDate <= mt.endDate) {
+              const mtStartMs = new Date(`${quickBookData.startDate}T${mt.startTime}`).getTime();
+              const mtEndMs = new Date(`${quickBookData.startDate}T${mt.endTime}`).getTime();
+              return newStartMs < mtEndMs && newEndMsWithBuffer > mtStartMs;
+          }
+      }
+      return false;
+    });
+    if (eqConflict) return alert(`⛔ LỖI BẢO TRÌ THIẾT BỊ!\nThiết bị [${eqConflict.itemName}] đang được lên lịch sửa chữa trong khung giờ này. Vui lòng bỏ chọn thiết bị này!`);
 
     const payload = {
       room_id: targetId,
@@ -934,31 +1088,56 @@ const startObj = new Date(
     }
   };
 
-  // ================= XỬ LÝ BÁO CÁO BẢO TRÌ =================
-  const handleReportSubmit = (e: React.FormEvent) => {
+  // ================= XỬ LÝ LÊN LỊCH BẢO TRÌ NHANH LÊN DATABASE =================
+  const handleMaintenanceSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!reportModal.reason.trim()) return alert("Vui lòng nhập lý do!");
+    if (!maintenanceModal.reason.trim()) return alert("Vui lòng nhập lý do!");
 
-    if (reportModal.type === "room") {
-      setRooms(
-        rooms.map((r) =>
-          r.id === reportModal.itemId || r._id === reportModal.itemId
-            ? { ...r, maintenanceMode: true }
-            : r,
-        ),
-      );
-    } else {
-      setEquipments(
-        equipments.map((eq) =>
-          eq.id === reportModal.itemId || eq._id === reportModal.itemId
-            ? { ...eq, status: "maintenance" }
-            : eq,
-        ),
-      );
+    const payload = {
+      type: maintenanceModal.type,
+      item_id: maintenanceModal.itemId,
+      item_name: maintenanceModal.itemName,
+      reason: maintenanceModal.reason,
+      start_date: maintenanceModal.startDate,
+      start_time: maintenanceModal.startTime,
+      end_date: maintenanceModal.endDate,
+      end_time: maintenanceModal.endTime,
+      status: "pending"
+    };
+
+    try {
+      const token = localStorage.getItem("access_token");
+      await fetch(`https://booklab247.onrender.com/api/v1/bookings/maintenance`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify(payload)
+      });
+
+      // Tải lại dữ liệu từ DB
+      loadData();
+
+      const startMins = timeToMins(maintenanceModal.startTime);
+      const endMins = timeToMins(maintenanceModal.endTime);
+      const conflicts = bookings.filter(b => {
+        if (b.status === "cancelled") return false;
+        if (maintenanceModal.type === "room" && b.roomId !== maintenanceModal.itemId) return false;
+        if (b.date && b.date >= maintenanceModal.startDate && b.date <= maintenanceModal.endDate) {
+           const bStart = timeToMins(b.startTime);
+           const bEnd = bStart + b.durationMins;
+           return startMins < bEnd && endMins > bStart;
+        }
+        return false;
+      });
+
+      if (conflicts.length > 0) {
+        alert(`⚠️ CẢNH BÁO VA CHẠM LỊCH!\nCó ${conflicts.length} đơn đặt của khách bị dính vào giờ bảo trì này.\nHệ thống đã lưu lại, hãy vào tab "Nhật ký Bảo trì" để lấy SĐT báo Hủy cho khách nhé.`);
+      }
+
+      showToast(`✅ Đã lên lịch bảo trì cho: ${maintenanceModal.itemName}`, "success");
+      setMaintenanceModal({ ...maintenanceModal, isOpen: false, reason: "" });
+    } catch(err) {
+      showToast("Lỗi khi lưu lịch bảo trì!", "error");
     }
-
-    alert(`✅ Đã gửi báo cáo bảo trì cho: ${reportModal.itemName}`);
-    setReportModal({ ...reportModal, isOpen: false, reason: "" });
   };
 
   const changeDate = (days: number) => {
@@ -975,7 +1154,6 @@ const startObj = new Date(
           <h2 className="text-2xl font-black text-gray-900 tracking-tight">Quản lý Phòng Lab</h2>
           <p className="text-gray-500 font-medium text-sm mt-1">Kiểm soát trạng thái phòng Lab của hệ thống.</p>
         </div>
-        <button className="bg-emerald-600 text-white px-4 py-2 rounded-xl font-bold text-sm hover:bg-emerald-700 transition-all shadow-md">+ Thêm Phòng</button>
       </div>
     <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden animate-in fade-in duration-300">
       <div className="overflow-x-auto">
@@ -1035,43 +1213,54 @@ const startObj = new Date(
                   )}
                 </td>
                 <td className="p-4 text-center">
-                  {/* YÊU CẦU 4: Bật/Tắt bảo trì cho Phòng */}
                   {room.maintenanceMode ? (
                     <button
-                      onClick={() => {
-                        if (
-                          confirm(
-                            `Xác nhận hoàn tất bảo trì phòng ${room.name || room.title}?`,
-                          )
-                        ) {
-                          const currentRoomId = room.id || room._id;
-                          setRooms(
-                            rooms.map((r) =>
-                              (r.id || r._id) === currentRoomId
-                                ? { ...r, maintenanceMode: false }
-                                : r,
-                            ),
+                      onClick={async (): Promise<void> => {
+                        if (confirm(`Xác nhận hoàn tất sửa chữa và đưa phòng ${room.title || room.name} trở lại hoạt động?`)) {
+                          const currentRoomId: string = String(room.id || room._id || "");
+                          const activeLogs = maintenanceLogs.filter(
+                            (m) => m.type === "room" && m.itemId === currentRoomId && m.status === "pending"
                           );
+                          try {
+                            const token: string | null = localStorage.getItem("access_token");
+                            await Promise.all(
+                              activeLogs.map((log) =>
+                                fetch(`https://booklab247.onrender.com/api/v1/bookings/maintenance/${log.id}`, {
+                                  method: "PUT",
+                                  headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+                                  body: JSON.stringify({ status: "completed" }),
+                                })
+                              )
+                            );
+                            setRooms(rooms.map((roomItem) => 
+                              (roomItem.id || roomItem._id) === currentRoomId ? { ...roomItem, maintenanceMode: false } : roomItem
+                            ));
+                            loadData();
+                            showToast("Phòng Lab đã sẵn sàng hoạt động trở lại!", "success");
+                          } catch (err) {
+                            showToast("Lỗi kết nối cơ sở dữ liệu khi hoàn tất bảo trì!", "error");
+                          }
                         }
                       }}
                       className="p-2 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
-                      title="Hoàn tất bảo trì"
+                      title="Hoàn tất sửa chữa phòng"
                     >
                       <CheckCircle2 className="w-5 h-5" />
                     </button>
                   ) : (
                     <button
                       onClick={() =>
-                        setReportModal({
+                        setMaintenanceModal({
+                          ...maintenanceModal,
                           isOpen: true,
                           type: "room",
-                          itemId: room.id || room._id || "",
-                          itemName: room.title || room.name || "",
+                          itemId: String(room.id || room._id || ""),
+                          itemName: String(room),
                           reason: "",
                         })
                       }
-                      className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-                      title="Báo cáo bảo trì/sửa chữa"
+                      className="p-2 text-gray-400 hover:text-amber-500 hover:bg-amber-50 rounded-lg transition-colors"
+                      title="Bảo trì / Sửa chữa nhanh"
                     >
                       <Wrench className="w-5 h-5" />
                     </button>
@@ -1094,7 +1283,6 @@ const startObj = new Date(
         <h2 className="text-2xl font-black text-gray-900 tracking-tight">Quản lý Thiết bị</h2>
         <p className="text-gray-500 font-medium text-sm mt-1">Kiểm soát trạng thái Thiết bị của hệ thống.</p>
       </div>
-      <button className="bg-emerald-600 text-white px-4 py-2 rounded-xl font-bold text-sm hover:bg-emerald-700 transition-all shadow-md">+ Thêm Phòng</button>
     </div>
     <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden animate-in fade-in duration-300">
       <div className="overflow-x-auto">
@@ -1172,48 +1360,57 @@ const startObj = new Date(
                     <MapPin className="w-4 h-4 text-gray-400" /> {roomName}
                   </td>
                   <td className="p-4 text-center">
-                    {/* YÊU CẦU 4: Bật/Tắt sửa chữa cho Thiết bị */}
-                    {eq.status === "maintenance" ? (
-                      <button
-                        onClick={() => {
-                          if (
-                            confirm(
-                              `Xác nhận hoàn tất sửa chữa thiết bị ${eq.name}?`,
-                            )
-                          ) {
-                            const currentEqId = eq.id || eq._id;
-                            setEquipments(
-                              equipments.map((e) =>
-                                (e.id || e._id) === currentEqId
-                                  ? { ...e, status: "available" }
-                                  : e,
-                              ),
-                            );
-                          }
-                        }}
-                        className="p-2 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
-                        title="Hoàn tất sửa chữa"
-                      >
-                        <CheckCircle2 className="w-5 h-5" />
-                      </button>
-                    ) : (
-                      <button
-                        onClick={() =>
-                          setReportModal({
-                            isOpen: true,
-                            type: "equipment",
-                            itemId: eq.id || eq._id || "",
-                            itemName: eq.name,
-                            reason: "",
-                          })
-                        }
-                        className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-                        title="Báo cáo bảo trì/sửa chữa"
-                      >
-                        <Wrench className="w-5 h-5" />
-                      </button>
-                    )}
-                  </td>
+  {eq.status === 'maintenance' ? (
+    <button
+      onClick={async (): Promise<void> => {
+        const exactEqId: string = String(eq.id || eq._id || "");
+        if (confirm(`Xác nhận thiết bị [${eq.name}] đã sửa chữa xong và nhập lại kho?`)) {
+          const activeLogs = maintenanceLogs.filter(
+            (m) => m.type === "equipment" && m.itemId === exactEqId && m.status === "pending"
+          );
+          try {
+            const token: string | null = localStorage.getItem("access_token");
+            await Promise.all(
+              activeLogs.map((log) =>
+                fetch(`https://booklab247.onrender.com/api/v1/bookings/maintenance/${log.id}`, {
+                  method: "PUT",
+                  headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+                  body: JSON.stringify({ status: "completed" }),
+                })
+              )
+            );
+            setEquipments(equipments.map((e) => (e.id || e._id) === exactEqId ? { ...e, status: "available" } : e));
+            loadData();
+            showToast("Thiết bị đã được đưa về trạng thái Sẵn sàng!", "success");
+          } catch (err) {
+            showToast("Không thể cập nhật trạng thái thiết bị lên server!", "error");
+          }
+        }
+      }}
+      className="p-2 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
+      title="Hoàn tất sửa chữa"
+    >
+      <CheckCircle2 className="w-5 h-5" />
+    </button>
+  ) : (
+    <button
+      onClick={() =>
+        setMaintenanceModal({
+          ...maintenanceModal,
+          isOpen: true,
+          type: "equipment",
+          itemId: String(eq.id || eq._id || ""),
+          itemName: String(eq.name || ""),
+          reason: "",
+        })
+      }
+      className="p-2 text-gray-400 hover:text-amber-500 hover:bg-amber-50 rounded-lg transition-colors"
+      title="Bảo trì / Sửa chữa nhanh"
+    >
+      <Wrench className="w-5 h-5" />
+    </button>
+  )}
+</td>
                 </tr>
               );
             })}
@@ -1225,124 +1422,87 @@ const startObj = new Date(
   );
 
   const renderDashboard = () => {
-    const usedRoomsCount = rooms.filter((l) => l.isBooked).length;
-    const maintenanceRoomsCount = rooms.filter((l) => l.maintenanceMode).length;
-    const maintenanceEqsCount = equipments.filter(
-      (e) => e.status === "maintenance",
-    ).length;
-    const totalMaintenance = maintenanceRoomsCount + maintenanceEqsCount;
-    const itemsOut = equipments.reduce(
-      (sum, eq) => sum + (eq.inUseQuantity || 0),
-      0,
-    );
+    // 1. TÍNH SỐ PHÒNG ĐANG SỬ DỤNG
+    const usedRoomsCount = rooms.filter(room => {
+       const roomIdStr = room.id || room._id || "";
+       return bookings.some(b => b.roomId === roomIdStr && b.date === selectedDate && ['checked-in', 'confirmed', 'DANG_MUON'].includes(b.status));
+    }).length;
 
-    // 2. HÀM TÌM TÊN PHÒNG CHO ĐƠN ĐẶT
-    const getRoomName = (bookingRoomId: string) => {
-      if (!bookingRoomId) return "Phòng chưa xác định";
-      const cleanBookingId = String(bookingRoomId).trim();
-      const foundRoom = rooms.find(
-        (r) => String(r.id || r._id).trim() === cleanBookingId,
-      );
-      return foundRoom
-        ? foundRoom.title || foundRoom.name
-        : "Phòng chưa xác định";
-    };
+    // 2. TÍNH TỔNG SỰ CỐ BẢO TRÌ (Phòng + Thiết bị) BÁM SÁT NGÀY ĐANG CHỌN
+    const maintenanceRoomsCount = maintenanceLogs.filter(m => m.type === "room" && m.status === "pending" && selectedDate >= m.startDate && selectedDate <= m.endDate).length;
+    const maintenanceEqsCount = maintenanceLogs.filter(m => m.type === "equipment" && m.status === "pending" && selectedDate >= m.startDate && selectedDate <= m.endDate).length;
+    const totalMaintenance = maintenanceRoomsCount + maintenanceEqsCount;
+    
+    // 3. TÍNH CHÍNH XÁC THIẾT BỊ RỜI KHO (Cộng trực tiếp từ các Đơn đặt đang chạy)
+    let itemsOut = 0;
+    bookings.forEach(b => {
+      if ((b.date === selectedDate || !b.date) && ['checked-in', 'confirmed', 'DANG_MUON'].includes(b.status)) {
+        if (b.equipments && Array.isArray(b.equipments)) {
+          b.equipments.forEach(eq => {
+             itemsOut += Number(eq.quantity || 0);
+          });
+        }
+      }
+    });
+
+    
 
     // 3. LỌC ĐƠN HÀNG CHỜ DUYỆT VÀ CA HÔM NAY
-    const pendingBookings = bookings.filter((b) => b.status === "pending");
+    const pendingBookings = bookings.filter((b) => b.status === "pending" || b.status === "CHO_DUYET");
     const pendingCount = pendingBookings.length;
 
     const todayStr = new Date().toISOString().split("T")[0];
     const upcomingBookings = bookings
-      .filter((b) => (b.date === todayStr || !b.date) && (b.status === "confirmed" || b.status === "checked-in" || b.status === "completed"))
+      .filter((b) => (b.date === selectedDate || !b.date) && (b.status === "confirmed" || b.status === "checked-in" || b.status === "completed"))
       .filter(b => {
          if (!todaySearchQuery) return true;
          const q = todaySearchQuery.toLowerCase();
-         // Smart Search: Quét cả Tên và SĐT
          return b.customerName.toLowerCase().includes(q) || b.phone.includes(q);
       })
       .sort((a, b) => timeToMins(a.startTime) - timeToMins(b.startTime));
+    const getRoomName = (bookingRoomId: string) => {
+      const foundRoom = rooms.find((r) => String(r.id || r._id).trim() === String(bookingRoomId).trim());
+      return foundRoom ? foundRoom.title || foundRoom.name : "Phòng chưa xác định";
+    };
 
     return (
       <div className="space-y-6 pb-10">
-        {/* THANH TOP BAR */}
+        {/* THANH TOP BAR CÓ CHỌN NGÀY */}
         <div className="flex flex-col xl:flex-row justify-between items-start xl:items-end gap-4 bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
           <div>
-            <h2 className="text-2xl font-black text-gray-900">
-              Giám sát Trực tiếp
-            </h2>
-            <p className="text-gray-500 text-sm mt-1">
-              Cập nhật trạng thái phòng và thiết bị realtime.
-            </p>
+            <h2 className="text-2xl font-black text-gray-900">Giám sát Trực tiếp</h2>
+            <p className="text-gray-500 text-sm mt-1">Cập nhật trạng thái phòng theo mốc thời gian.</p>
           </div>
           <div className="flex flex-wrap items-center gap-3 w-full xl:w-auto">
-            {/* <button className="flex-1 sm:flex-none flex items-center justify-center gap-2 bg-slate-900 text-white px-4 py-2.5 rounded-xl text-sm font-bold shadow-md hover:bg-black transition-colors">
-              <QrCode className="w-4 h-4" /> Quét mã QR
-            </button> */}
-            <div className="flex bg-gray-100 p-1 rounded-xl border border-gray-200 w-full sm:w-auto items-center overflow-x-auto scrollbar-hide">
-              {[
-                { id: "today", label: "Hôm nay" },
-                { id: "yesterday", label: "Hôm qua" },
-                { id: "7days", label: "7 Ngày" },
-              ].map((f) => (
-                <button
-                  key={f.id}
-                  onClick={() => {
-                    setTimeFilter(f.id as TimeFilter);
-                    setCustomDate("");
-                  }}
-                  className={`px-4 py-1.5 text-sm font-bold rounded-lg whitespace-nowrap transition-all ${timeFilter === f.id && !customDate ? "bg-white text-emerald-600 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}
-                >
-                  {f.label}
-                </button>
-              ))}
-              <div className="h-4 w-px bg-gray-300 mx-2"></div>
-              <input
-                type="date"
-                value={customDate}
-                onChange={(e) => {
-                  setCustomDate(e.target.value);
-                  setTimeFilter("custom");
-                }}
-                className={`px-3 py-1 text-sm font-bold rounded-lg bg-transparent outline-none cursor-pointer ${customDate ? "text-emerald-600 bg-white shadow-sm" : "text-gray-500"}`}
-              />
+            {/* THÊM BỘ CHỌN NGÀY CHUYỂN TIẾP TRỰC QUAN */}
+            <div className="flex items-center bg-gray-50 border border-gray-200 rounded-xl overflow-hidden shadow-sm">
+              <button onClick={() => changeDate(-1)} className="p-2 hover:bg-gray-200 text-gray-500"><ChevronLeft className="w-5 h-5" /></button>
+              <input type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} className="px-3 py-1.5 text-sm font-bold outline-none cursor-pointer bg-transparent text-emerald-600" />
+              <button onClick={() => changeDate(1)} className="p-2 hover:bg-gray-200 text-gray-500"><ChevronRight className="w-5 h-5" /></button>
             </div>
+            <button onClick={() => setSelectedDate(new Date().toISOString().split("T")[0])} className="px-4 py-2 bg-slate-900 text-white font-bold rounded-xl text-sm hover:bg-black shadow-md">
+               Về Hôm nay
+            </button>
           </div>
         </div>
-
+        
         {/* THỐNG KÊ TỔNG QUAN */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 animate-in fade-in duration-300">
           <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
-            <p className="text-xs font-bold text-gray-500 mb-1">ĐANG SỬ DỤNG</p>
-            <h3 className="text-2xl font-black text-emerald-600">
-              {usedRoomsCount}/{rooms.length}{" "}
-              <span className="text-sm font-medium text-gray-400">Phòng</span>
-            </h3>
+            <p className="text-xs font-bold text-gray-500 mb-1">ĐANG DÙNG (NGÀY {selectedDate.split('-')[2]})</p>
+            <h3 className="text-2xl font-black text-emerald-600">{usedRoomsCount}/{rooms.length} <span className="text-sm font-medium text-gray-400">Phòng</span></h3>
           </div>
           <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
-            <p className="text-xs font-bold text-gray-500 mb-1">CHỜ DUYỆT</p>
-            <h3 className="text-2xl font-black text-amber-500">
-              {pendingCount}{" "}
-              <span className="text-sm font-medium text-gray-400">Đơn</span>
-            </h3>
+            <p className="text-xs font-bold text-gray-500 mb-1">ĐƠN CHỜ DUYỆT</p>
+            <h3 className="text-2xl font-black text-amber-500">{pendingCount} <span className="text-sm font-medium text-gray-400">Đơn mới</span></h3>
           </div>
           <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
-            <p className="text-xs font-bold text-gray-500 mb-1">
-              THIẾT BỊ RỜI KHO
-            </p>
-            <h3 className="text-2xl font-black text-blue-600">
-              {itemsOut}{" "}
-              <span className="text-sm font-medium text-gray-400">Món</span>
-            </h3>
+            <p className="text-xs font-bold text-gray-500 mb-1">THIẾT BỊ RỜI KHO</p>
+            <h3 className="text-2xl font-black text-blue-600">{itemsOut} <span className="text-sm font-medium text-gray-400">Món</span></h3>
           </div>
           <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
-            <p className="text-xs font-bold text-gray-500 mb-1">
-              BẢO TRÌ ĐỘT XUẤT
-            </p>
-            <h3 className="text-2xl font-black text-red-500">
-              {totalMaintenance}{" "}
-              <span className="text-sm font-medium text-gray-400">Sự cố</span>
-            </h3>
+            <p className="text-xs font-bold text-gray-500 mb-1">ĐANG BẢO TRÌ</p>
+            <h3 className="text-2xl font-black text-red-500">{totalMaintenance} <span className="text-sm font-medium text-gray-400">Sự cố</span></h3>
           </div>
         </div>
 
@@ -1351,7 +1511,7 @@ const startObj = new Date(
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm flex flex-col h-[350px]">
             <div className="p-4 border-b border-gray-100 flex flex-col gap-3 shrink-0">
               <h3 className="font-bold text-gray-900 flex items-center gap-2">
-                <Clock className="w-5 h-5 text-emerald-500" /> Các ca hoạt động hôm nay
+                <Clock className="w-5 h-5 text-emerald-500" /> Các ca hoạt động 
               </h3>
 
               {/* SMART SEARCH BAR */}
@@ -1413,50 +1573,6 @@ const startObj = new Date(
             </div>
           </div>
 
-
-          {/* CỘT 1: LỊCH CA HÔM NAY (Hiển thị Timeline kèm trạng thái hủy) */}
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm flex flex-col h-[350px]">
-            <div className="p-4 border-b border-gray-100">
-              <h3 className="font-bold text-gray-900 flex items-center gap-2">
-                <Clock className="w-5 h-5 text-emerald-500" /> Các ca hoạt động hôm nay
-              </h3>
-            </div>
-            <div className="p-4 overflow-y-auto space-y-3">
-              {bookings.filter(b => b.date === todayStr && ['confirmed', 'checked-in', 'cancelled'].includes(b.status)).length === 0 ? (
-                <div className="text-center text-sm text-gray-500 py-10">Không có hoạt động nào hôm nay.</div>
-              ) : (
-                bookings
-                  .filter(b => b.date === todayStr && ['confirmed', 'checked-in', 'cancelled'].includes(b.status))
-                  .sort((a, b) => timeToMins(a.startTime) - timeToMins(b.startTime))
-                  .map((booking) => {
-                    const roomName = getRoomName(booking.roomId);
-                    const isCancelled = booking.status === 'cancelled';
-                    return (
-                      <div
-                        key={booking.id}
-                        className={`border p-3 rounded-xl flex justify-between items-center cursor-pointer transition-colors ${
-                          isCancelled ? "bg-gray-50 border-dashed border-gray-200 opacity-60" : "bg-slate-50 border-slate-200 hover:bg-slate-100"
-                        }`}
-                        onClick={() => setSelectedBooking(booking)}
-                      >
-                        <div className={isCancelled ? "line-through text-gray-400" : ""}>
-                          <p className={`font-bold text-sm ${isCancelled ? "text-gray-500" : "text-gray-900"}`}>{booking.customerName}</p>
-                          <p className="text-xs mt-0.5">Phòng: <span className="font-bold">{roomName}</span></p>
-                          {isCancelled && <p className="text-[10px] text-red-500 font-bold mt-1">❌ Đã hủy</p>}
-                        </div>
-                        <div className="text-right">
-                          <span className={`font-black px-2 py-1 rounded-lg text-sm shadow-sm ${
-                            isCancelled ? "bg-gray-200 text-gray-500" : "bg-emerald-50 text-emerald-600"
-                          }`}>
-                            {booking.startTime}
-                          </span>
-                        </div>
-                      </div>
-                    );
-                })
-              )}
-            </div>
-          </div>
 
           {/* CỘT 2: ĐƠN CHỜ DUYỆT KHẨN (Hiển thị Tag Khẩn cấp & Cảnh báo trùng lịch) */}
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm flex flex-col h-[350px] overflow-hidden">
@@ -1570,9 +1686,106 @@ const startObj = new Date(
     );
   };
   const renderReports = () => (
-    <div className="p-6 bg-white rounded-2xl border border-gray-100 text-center py-20 text-gray-400">
-      Giao diện Báo cáo sự cố
-    </div>
+      <div className="space-y-6 animate-in fade-in duration-300">
+        <div className="flex justify-between items-end bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
+          <div>
+            <h2 className="text-2xl font-black text-gray-900">Quản lý Bảo trì & Sự cố</h2>
+            <p className="text-gray-500 text-sm mt-1">Theo dõi các phòng và thiết bị đang được phong tỏa để sửa chữa.</p>
+          </div>
+        </div>
+
+        <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
+          <table className="w-full text-left">
+            <thead className="bg-gray-50 border-b border-gray-200">
+              <tr>
+                <th className="p-4 font-bold text-gray-600 text-sm">Đối tượng</th>
+                <th className="p-4 font-bold text-gray-600 text-sm">Loại</th>
+                <th className="p-4 font-bold text-gray-600 text-sm">Tình trạng hỏng / Ghi chú</th>
+                <th className="p-4 font-bold text-gray-600 text-sm">Thời gian phong tỏa</th>
+                <th className="p-4 font-bold text-gray-600 text-sm text-center">Tình trạng</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {maintenanceLogs.length === 0 ? (
+                <tr><td colSpan={5} className="p-8 text-center text-gray-400">Không có lịch bảo trì nào đang diễn ra.</td></tr>
+              ) : (
+                maintenanceLogs.map(log => {
+                   // Quét lại xem có đơn nào của khách bị dính vào lịch này không để hiện Cảnh báo
+                   const conflicts = bookings.filter(b => {
+                      if (b.status === "cancelled") return false;
+                      if (log.type === "room" && b.roomId !== log.itemId) return false;
+                      if (b.date && b.date >= log.startDate && b.date <= log.endDate) {
+                         const bStart = timeToMins(b.startTime);
+                         const bEnd = bStart + b.durationMins;
+                         return timeToMins(log.startTime) < bEnd && timeToMins(log.endTime) > bStart;
+                      }
+                      return false;
+                   });
+
+                   return (
+                    <tr key={log.id} className="hover:bg-gray-50">
+                      <td className="p-4 font-black text-gray-900">{log.itemName}</td>
+                      <td className="p-4"><span className={`px-2 py-1 rounded text-xs font-bold ${log.type === 'room' ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700'}`}>{log.type === 'room' ? 'Phòng Lab' : 'Thiết bị'}</span></td>
+                      <td className="p-4 text-sm text-gray-700 font-medium">
+                        {log.reason}
+                        {conflicts.length > 0 && (
+                           <div className="mt-3 p-2 bg-red-50 border border-red-100 rounded-lg shadow-sm">
+                              <p className="text-[10px] font-black text-red-600 uppercase mb-1 flex items-center gap-1"><AlertTriangle className="w-3 h-3"/> Cần liên hệ hủy đơn:</p>
+                              {conflicts.map(c => <p key={c.id} className="text-xs font-semibold text-red-700">• {c.customerName} - {c.phone} (Đặt lúc {c.startTime})</p>)}
+                           </div>
+                        )}
+                      </td>
+                      <td className="p-4 text-sm text-gray-600 font-bold">{log.startDate.split('-').reverse().join('/')} <span className="mx-1">đến</span> {log.endDate.split('-').reverse().join('/')}<br/><span className="text-red-500">{log.startTime} - {log.endTime}</span></td>
+                      <td className="p-4 text-center">
+                        {log.status === 'completed' ? (
+                          <span className="bg-emerald-100 text-emerald-700 px-3 py-1 rounded-full text-xs font-bold">Đã hoàn tất</span>
+                        ) : (
+                          <button 
+                            onClick={async (): Promise<void> => {
+                              if (confirm(`Xác nhận kết thúc đợt bảo trì phong tỏa cho: ${log.itemName}?`)) {
+                                try {
+                                  const token: string | null = localStorage.getItem("access_token");
+                                  const response: Response = await fetch(`https://booklab247.onrender.com/api/v1/bookings/maintenance/${log.id}`, {
+                                    method: "PUT",
+                                    headers: { 
+                                      "Content-Type": "application/json", 
+                                      Authorization: `Bearer ${token}` 
+                                    },
+                                    body: JSON.stringify({ status: "completed" })
+                                  });
+
+                                  if (!response.ok) throw new Error("API phản hồi lỗi");
+
+                                  // Đồng bộ trực tiếp mở khóa lại đối tượng tương ứng trên UI
+                                  if (log.type === "room") {
+                                    setRooms(rooms.map((r) => (r.id || r._id) === log.itemId ? { ...r, maintenanceMode: false } : r));
+                                  } else {
+                                    setEquipments(equipments.map((e) => (e.id || e._id) === log.itemId ? { ...e, status: "available" } : e));
+                                  }
+
+                                  // Đồng bộ lại toàn bộ dữ liệu từ Server
+                                  loadData();
+                                  showToast("Đã đóng log bảo trì và mở khóa đối tượng vĩnh viễn!", "success");
+                                } catch (err: unknown) {
+                                  console.error(err);
+                                  showToast("Lỗi đồng bộ dữ liệu bảo trì về Server!", "error");
+                                }
+                              }
+                            }} 
+                            className="bg-slate-900 hover:bg-black text-white px-3 py-1.5 rounded-full text-xs font-bold transition-colors shadow-sm"
+                          >
+                            Kết thúc bảo trì
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                   )
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
   );
   // ================= GIAO DIỆN TRA CỨU THÔNG TIN (OMNI-LOOKUP) =================
   const renderLookup = () => {
@@ -2550,7 +2763,7 @@ const startObj = new Date(
           { id: "equipments", icon: Package, label: "Thiết Bị" },
           { id: "timeline", icon: CalendarDays, label: "Lịch Điều phối" },
           { id: "master-schedule", icon: CalendarRange, label: "Thời Khóa Biểu" },
-          { id: "reports", icon: FileText, label: "Báo cáo Sự cố" },
+          { id: "reports", icon: FileText, label: "Nhật ký Bảo trì" },
           { id: "lookup", icon: Search, label: "Tra cứu Thông tin" },
         ].map((item) => (
           <button
@@ -3155,9 +3368,9 @@ const startObj = new Date(
           )}
         </AnimatePresence>
 
-        {/* === MODAL BÁO CÁO BẢO TRÌ (ĐÃ CHUYỂN RA NGOÀI VÀ SẼ HIỂN THỊ Ở MỌI TAB) === */}
+        {/* === MODAL BẢO TRÌ NHANH (KÍCH HOẠT TỪ NÚT CỜ LÊ) === */}
         <AnimatePresence>
-          {reportModal.isOpen && (
+          {maintenanceModal.isOpen && (
             <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm z-[999]">
               <motion.div
                 initial={{ opacity: 0, scale: 0.95 }}
@@ -3165,70 +3378,56 @@ const startObj = new Date(
                 exit={{ opacity: 0, scale: 0.95 }}
                 className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col"
               >
-                <div className="bg-red-600 p-5 flex justify-between items-center text-white shrink-0">
+                <div className="bg-slate-900 p-5 flex justify-between items-center text-white shrink-0 border-b-4 border-amber-500">
                   <h3 className="font-black text-xl flex items-center gap-2">
-                    <Wrench className="w-5 h-5" /> Báo Cáo Sửa Chữa
+                    <Wrench className="w-5 h-5 text-amber-400" /> Lên Lịch Bảo Trì Nhanh
                   </h3>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setReportModal({ ...reportModal, isOpen: false })
-                    }
-                    className="hover:bg-red-700 p-1 rounded-full"
-                  >
-                    <X className="w-6 h-6" />
-                  </button>
+                  <button type="button" onClick={() => setMaintenanceModal({ ...maintenanceModal, isOpen: false })} className="hover:bg-slate-700 p-1 rounded-full"><X className="w-6 h-6" /></button>
                 </div>
-                <form onSubmit={handleReportSubmit} className="p-6 space-y-4">
-                  <div className="bg-red-50 p-3 rounded-lg border border-red-100">
-                    <p className="text-sm text-red-800 font-bold">
-                      Đối tượng: {reportModal.itemName}
+                <form onSubmit={handleMaintenanceSubmit} className="p-6 space-y-4">
+                  <div className="bg-amber-50 p-3 rounded-lg border border-amber-200">
+                    <p className="text-sm text-amber-900 font-bold flex items-center gap-2">
+                      {maintenanceModal.type === 'room' ? <DoorOpen className="w-4 h-4"/> : <Package className="w-4 h-4"/>} 
+                      Đang cài đặt cho: {maintenanceModal.itemName}
                     </p>
-                    <p className="text-xs text-red-600 mt-1">
-                      Hệ thống sẽ chuyển trạng thái của đối tượng này sang Bảo
-                      trì/Sửa chữa.
-                    </p>
+                    <p className="text-[11px] text-amber-700 mt-1 font-medium">Hệ thống sẽ TỰ ĐỘNG KHÓA ĐẶT LỊCH {maintenanceModal.type === 'room' ? 'phòng' : 'thiết bị'} này khi đến khung giờ bên dưới.</p>
                   </div>
+                  
+                  {/* BỘ CHỌN NGÀY GIỜ BẢO TRÌ */}
+                  <div className="grid grid-cols-2 gap-3 bg-gray-50 p-4 rounded-xl border border-gray-200">
+                     <div>
+                       <label className="block text-[10px] font-black text-gray-500 uppercase tracking-wider mb-1">Từ ngày</label>
+                       <input type="date" required value={maintenanceModal.startDate} onChange={e => setMaintenanceModal({...maintenanceModal, startDate: e.target.value})} className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg outline-none text-sm font-bold text-gray-800"/>
+                     </div>
+                     <div>
+                       <label className="block text-[10px] font-black text-gray-500 uppercase tracking-wider mb-1">Đến ngày</label>
+                       <input type="date" required value={maintenanceModal.endDate} min={maintenanceModal.startDate} onChange={e => setMaintenanceModal({...maintenanceModal, endDate: e.target.value})} className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg outline-none text-sm font-bold text-gray-800"/>
+                     </div>
+                     <div>
+                       <label className="block text-[10px] font-black text-gray-500 uppercase tracking-wider mb-1">Từ giờ</label>
+                       <input type="time" required value={maintenanceModal.startTime} onChange={e => setMaintenanceModal({...maintenanceModal, startTime: e.target.value})} className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg outline-none text-sm font-bold text-gray-800"/>
+                     </div>
+                     <div>
+                       <label className="block text-[10px] font-black text-gray-500 uppercase tracking-wider mb-1">Đến giờ</label>
+                       <input type="time" required value={maintenanceModal.endTime} onChange={e => setMaintenanceModal({...maintenanceModal, endTime: e.target.value})} className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg outline-none text-sm font-bold text-gray-800"/>
+                     </div>
+                  </div>
+
                   <div>
-                    <label className="block text-sm font-bold text-gray-700 mb-2">
-                      Mô tả tình trạng hỏng hóc *
-                    </label>
-                    <textarea
-                      required
-                      value={reportModal.reason}
-                      onChange={(e) =>
-                        setReportModal({
-                          ...reportModal,
-                          reason: e.target.value,
-                        })
-                      }
-                      rows={4}
-                      className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-red-500 resize-none"
-                      placeholder="Ví dụ: Điều hòa không mát, máy chiếu mờ..."
-                    ></textarea>
+                    <label className="block text-sm font-bold text-gray-700 mb-2">Mô tả / Lý do bảo trì *</label>
+                    <textarea required value={maintenanceModal.reason} onChange={(e) => setMaintenanceModal({...maintenanceModal, reason: e.target.value})} rows={2} className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-amber-500 resize-none font-medium" placeholder="VD: Nâng cấp máy lạnh, thay máy chiếu..."></textarea>
                   </div>
                   <div className="pt-2 flex justify-end gap-3">
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setReportModal({ ...reportModal, isOpen: false })
-                      }
-                      className="px-5 py-2.5 font-bold text-gray-500 hover:bg-gray-100 rounded-xl transition-colors"
-                    >
-                      Hủy
-                    </button>
-                    <button
-                      type="submit"
-                      className="px-6 py-2.5 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl shadow-md transition-all active:scale-95"
-                    >
-                      Xác nhận Báo hỏng
-                    </button>
+                    <button type="button" onClick={() => setMaintenanceModal({ ...maintenanceModal, isOpen: false })} className="px-5 py-2.5 font-bold text-gray-500 hover:bg-gray-100 rounded-xl transition-colors">Hủy</button>
+                    <button type="submit" className="px-6 py-2.5 bg-amber-500 hover:bg-amber-600 text-white font-black rounded-xl shadow-md transition-all active:scale-95">Lưu lịch Bảo trì</button>
                   </div>
                 </form>
               </motion.div>
             </div>
           )}
         </AnimatePresence>
+
+
         {/* ================= GIAO DIỆN XÁC NHẬN TỪ CHỐI ĐƠN ================= */}
         <AnimatePresence>
           {confirmCancel.isOpen && (
