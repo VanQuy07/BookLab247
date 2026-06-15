@@ -98,14 +98,24 @@ const STATUS_MAP: Record<string, StatusConfig> = {
   },
 };
 
-const TABS: { id: FilterTab; label: string }[] = [
-  { id: "ALL", label: "Tất cả" },
-  { id: "CHO_DUYET", label: "Chờ duyệt" },
-  { id: "DA_DUYET", label: "Đã duyệt" },
-  { id: "DANG_MUON", label: "Đang mượn" },
-  { id: "DA_XONG", label: "Đã xong" },
-  { id: "DA_TU_CHOI", label: "Bị từ chối" },
-  { id: "DA_HUY", label: "Đã hủy" },
+// const TABS: { id: FilterTab; label: string }[] = [
+//   { id: "ALL", label: "Tất cả" },
+//   { id: "CHO_DUYET", label: "Chờ duyệt" },
+//   { id: "DA_DUYET", label: "Đã duyệt" },
+//   { id: "DANG_MUON", label: "Đang mượn" },
+//   { id: "DA_XONG", label: "Đã xong" },
+//   { id: "DA_TU_CHOI", label: "Bị từ chối" },
+//   { id: "DA_HUY", label: "Đã hủy" },
+// ];
+
+const TABS: { id: FilterTab | "ALL"; label: string; matchStatuses: string[] }[] = [
+  { id: "ALL", label: "Tất cả", matchStatuses: [] },
+  { id: "CHO_DUYET", label: "Chờ duyệt", matchStatuses: ["pending", "CHO_DUYET"] },
+  { id: "DA_DUYET", label: "Đã duyệt", matchStatuses: ["confirmed", "DA_DUYET"] },
+  { id: "DANG_MUON", label: "Đang mượn", matchStatuses: ["DANG_MUON", "checked-in"] },
+  { id: "DA_XONG", label: "Đã xong", matchStatuses: ["DA_XONG", "completed"] },
+  { id: "DA_TU_CHOI", label: "Bị từ chối", matchStatuses: ["rejected", "DA_TU_CHOI"] },
+  { id: "DA_HUY", label: "Đã hủy", matchStatuses: ["cancelled", "DA_HUY"] },
 ];
 
 function computeEndTime(startTime: string, durationMins: number): string {
@@ -199,9 +209,17 @@ export default function UserBookingHistoryPage() {
     }
   };
 
+  // const filteredBookings = bookings.filter((b) => {
+  //   if (activeTab === "ALL") return true;
+  //   return b.status === activeTab;
+  // });
+
   const filteredBookings = bookings.filter((b) => {
     if (activeTab === "ALL") return true;
-    return b.status === activeTab;
+    
+    const currentTabConfig = TABS.find((t) => t.id === activeTab);
+    
+    return currentTabConfig?.matchStatuses.includes(b.status || "");
   });
 
   const getStatusInfo = (status: string): StatusConfig => {
@@ -284,11 +302,19 @@ export default function UserBookingHistoryPage() {
     return bookingDate > now;
   };
 
+  // const tabsForDisplay = TABS.map((tab) => {
+  //   const count =
+  //     tab.id === "ALL"
+  //       ? bookings.length
+  //       : bookings.filter((b) => b.status === tab.id).length;
+  //   return { ...tab, count };
+  // });
+
   const tabsForDisplay = TABS.map((tab) => {
     const count =
       tab.id === "ALL"
         ? bookings.length
-        : bookings.filter((b) => b.status === tab.id).length;
+        : bookings.filter((b) => tab.matchStatuses.includes(b.status || "")).length;
     return { ...tab, count };
   });
 

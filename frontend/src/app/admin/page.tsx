@@ -125,6 +125,7 @@ export default function AdvancedAdminDashboard() {
     inUseEquipments: 0,
     userRolesData: [] as any[],
     equipmentStatusData: [] as any[],
+    popular_labs_data: [] as any[],
   });
 
   // ================= STATES DỮ LIỆU CÁC TAB KHÁC =================
@@ -160,6 +161,10 @@ export default function AdvancedAdminDashboard() {
   // ================= STATES FORM =================
   const [showRoomForm, setShowRoomForm] = useState(false);
   const [showEqForm, setShowEqForm] = useState(false);
+  const [editingRoomId, setEditingRoomId] = useState<string | null>(null);
+  const [editingEqId, setEditingEqId] = useState<string | null>(null);
+  const [viewingRoom, setViewingRoom] = useState<any | null>(null);
+  const [viewingEq, setViewingEq] = useState<any | null>(null);
 
   const [newRoom, setNewRoom] = useState({
     name: "",
@@ -173,6 +178,7 @@ export default function AdvancedAdminDashboard() {
     defaultAmenities: "",
     imageUrl: "",
   });
+  const [bookings, setBookings] = useState<any[]>([]);
 
   const [newEq, setNewEq] = useState({
     name: "",
@@ -184,67 +190,86 @@ export default function AdvancedAdminDashboard() {
     status: "available",
     maintenanceAlertHours: 0,
     imageUrl: "",
+    roomId: "",       
+    pricePerHour: 0
   });
 
   // ================= FETCH DATA =================
   //const API_URL = "http://localhost:8000/api/v1";
-  const API_URL = "https://booklab247.onrender.com/api/v1";
+  //const API_URL = "https://booklab247.onrender.com/api/v1";
+  //const API_URL = `${process.env.NEXT_PUBLIC_API_URL}/api/v1`;
+ const API_URL = "https://booklab247.onrender.com/api/v1";
   useEffect(() => {
     fetchData();
   }, [activeMenu]);
+           
+  // const fetchData = async () => {
+  //   setLoading(true);
+  //   try {
+  //     if (activeMenu === "dashboard") {
+  //       // [SỬA LỖI]: Bắt buộc phải kéo dữ liệu cho Dashboard thay vì return
+  //       const [usersRes, labsRes, eqRes] = await Promise.all([
+  //         fetch(`${API_URL}/auth/users`),
+  //         fetch(`${API_URL}/labs`),
+  //         fetch(`${API_URL}/equipments`),
+  //       ]);
+
+  //       const users = await usersRes.json();
+  //       const labs = await labsRes.json();
+  //       const eqs = await eqRes.json();
+
+  //       // Tính toán số liệu thống kê thật để gán vào Dashboard
+  //       setDashboardStats({
+  //         totalUsers: users.length || 0,
+  //         totalLabs: labs.length || 0,
+  //         totalEquipments: eqs.reduce(
+  //           (sum: number, eq: any) => sum + eq.totalQuantity,
+  //           0,
+  //         ),
+  //         inUseEquipments: eqs.reduce(
+  //           (sum: number, eq: any) => sum + eq.inUseQuantity,
+  //           0,
+  //         ),
+  //         userRolesData: [
+  //           {
+  //             name: "STUDENT",
+  //             value: users.filter((u: any) => u.role === "STUDENT").length,
+  //           },
+  //           {
+  //             name: "MANAGER",
+  //             value: users.filter((u: any) => u.role === "MANAGER").length,
+  //           },
+  //           {
+  //             name: "ADMIN",
+  //             value: users.filter((u: any) => u.role === "ADMIN").length,
+  //           },
+  //         ],
+  //         equipmentStatusData: [], // Giữ nguyên mảng rỗng tạm thời
+  //       });
+  //     } else if (activeMenu === "rooms") {
 
   const fetchData = async () => {
     setLoading(true);
     try {
-      if (activeMenu === "dashboard") {
-        // [SỬA LỖI]: Bắt buộc phải kéo dữ liệu cho Dashboard thay vì return
-        const [usersRes, labsRes, eqRes] = await Promise.all([
-          fetch(`${API_URL}/auth/users`),
-          fetch(`${API_URL}/labs`),
-          fetch(`${API_URL}/equipments`),
-        ]);
+      const token = localStorage.getItem("access_token") || "";
+      const headers = { 
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}` 
+      };
 
-        const users = await usersRes.json();
-        const labs = await labsRes.json();
-        const eqs = await eqRes.json();
+      const [usersRes, labsRes, eqRes, bkRes] = await Promise.all([
+        fetch(`${API_URL}/auth/users`, { headers }),
+        fetch(`${API_URL}/labs`, { headers }),
+        fetch(`${API_URL}/equipments`, { headers }),
+        fetch(`${API_URL}/bookings`, { headers })
+      ]);
 
-        // Tính toán số liệu thống kê thật để gán vào Dashboard
-        setDashboardStats({
-          totalUsers: users.length || 0,
-          totalLabs: labs.length || 0,
-          totalEquipments: eqs.reduce(
-            (sum: number, eq: any) => sum + eq.totalQuantity,
-            0,
-          ),
-          inUseEquipments: eqs.reduce(
-            (sum: number, eq: any) => sum + eq.inUseQuantity,
-            0,
-          ),
-          userRolesData: [
-            {
-              name: "STUDENT",
-              value: users.filter((u: any) => u.role === "STUDENT").length,
-            },
-            {
-              name: "MANAGER",
-              value: users.filter((u: any) => u.role === "MANAGER").length,
-            },
-            {
-              name: "ADMIN",
-              value: users.filter((u: any) => u.role === "ADMIN").length,
-            },
-          ],
-          equipmentStatusData: [], // Giữ nguyên mảng rỗng tạm thời
-        });
-      } else if (activeMenu === "rooms") {
-        const res = await fetch(`${API_URL}/labs`);
-        setRooms(await res.json());
-      } else if (activeMenu === "equipments") {
-        const res = await fetch(`${API_URL}/equipments`);
-        setEquipments(await res.json());
-      } else if (activeMenu === "users") {
-        const res = await fetch(`${API_URL}/auth/users`);
-        setUsersList(await res.json());
+      if (usersRes.ok) setUsersList(await usersRes.json());
+      if (labsRes.ok) setRooms(await labsRes.json());
+      if (eqRes.ok) setEquipments(await eqRes.json());
+      if (bkRes.ok) {
+          const bkData = await bkRes.json();
+          setBookings(Array.isArray(bkData) ? bkData : bkData.data || []);
       }
     } catch (err) {
       console.error("Lỗi fetch data:", err);
@@ -276,38 +301,130 @@ export default function AdvancedAdminDashboard() {
     setUploadingImage(false);
   };
 
-  const handleAddRoom = async (e: React.FormEvent) => {
+  // const handleAddRoom = async (e: React.FormEvent) => {
+  //   e.preventDefault();
+  //   try {
+  //     const res = await fetch(`${API_URL}/labs`, {
+  //       method: "POST",
+  //       headers: { "Content-Type": "application/json" },
+  //       body: JSON.stringify(newRoom),
+  //     });
+  //     const data = await res.json();
+  //     setRooms([...rooms, data]);
+  //     setShowRoomForm(false);
+  //     alert("Thêm phòng thành công!");
+  //   } catch (err) {
+  //     alert("Lỗi thêm phòng");
+  //   }
+  // };
+
+  // const handleAddEquipment = async (e: React.FormEvent) => {
+  //   e.preventDefault();
+  //   try {
+  //     const res = await fetch(`${API_URL}/equipments`, {
+  //       method: "POST",
+  //       headers: { "Content-Type": "application/json" },
+  //       body: JSON.stringify(newEq),
+  //     });
+  //     const data = await res.json();
+  //     setEquipments([...equipments, data]);
+  //     setShowEqForm(false);
+  //     alert("Thêm thiết bị thành công!");
+  //   } catch (err) {
+  //     alert("Lỗi thêm thiết bị");
+  //   }
+  // };
+
+
+  const handleSubmitRoom = async (e: React.FormEvent) => {
     e.preventDefault();
+    const isEdit = !!editingRoomId;
+    const url = isEdit ? `${API_URL}/labs/${editingRoomId}` : `${API_URL}/labs`;
+    const method = isEdit ? "PUT" : "POST";
+    const payload = { ...newRoom, imageUrl: newRoom.imageUrl || "" };
+
     try {
-      const res = await fetch(`${API_URL}/labs`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(newRoom),
+      const res = await fetch(url, {
+        method, headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
       });
-      const data = await res.json();
-      setRooms([...rooms, data]);
-      setShowRoomForm(false);
-      alert("Thêm phòng thành công!");
-    } catch (err) {
-      alert("Lỗi thêm phòng");
-    }
+      if (res.ok) {
+        alert(isEdit ? "Cập nhật phòng thành công!" : "Thêm phòng thành công!");
+        setShowRoomForm(false);
+        setEditingRoomId(null);
+        fetchData();
+      } else {
+        const errData = await res.json();
+        alert("⚠️ Lỗi từ Backend: " + JSON.stringify(errData));
+      }
+    } catch (err) { alert("Lỗi mạng! Vui lòng kiểm tra lại kết nối Backend."); }
   };
 
-  const handleAddEquipment = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleEditRoom = (room: any) => {
+    const exactId = room.id || (room._id && room._id.$oid) || room._id;
+    setEditingRoomId(exactId);
+    setNewRoom({
+      name: room.name || "", building: room.building || "", floor: room.floor || "", type: room.type || "Phòng Thực hành",
+      capacity: room.capacity || 0, pricePerHour: room.pricePerHour || room.price || 0, bufferTimeMinutes: room.bufferTimeMinutes || 15,
+      maintenanceMode: room.maintenanceMode || false, defaultAmenities: room.defaultAmenities || "", imageUrl: room.imageUrl || ""
+    });
+    setShowRoomForm(true); 
+  };
+
+  const handleDeleteRoom = async (id: string) => {
+    if (!id) { alert("Lỗi: Không tìm thấy ID phòng!"); return; }
+    if (!confirm("Bạn có chắc chắn muốn xóa phòng này?")) return;
     try {
-      const res = await fetch(`${API_URL}/equipments`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(newEq),
+      const res = await fetch(`${API_URL}/labs/${id}`, { method: "DELETE" });
+      if (res.ok) fetchData(); 
+      else alert("⚠️ Không thể xóa. Vui lòng kiểm tra lại Backend.");
+    } catch (err) { alert("Lỗi mạng khi xóa phòng!"); }
+  };
+
+  const handleSubmitEquipment = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const isEdit = !!editingEqId;
+    const url = isEdit ? `${API_URL}/equipments/${editingEqId}` : `${API_URL}/equipments`;
+    const method = isEdit ? "PUT" : "POST";
+    const payload = { ...newEq, imageUrl: newEq.imageUrl || "" };
+
+    try {
+      const res = await fetch(url, {
+        method, headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
       });
-      const data = await res.json();
-      setEquipments([...equipments, data]);
-      setShowEqForm(false);
-      alert("Thêm thiết bị thành công!");
-    } catch (err) {
-      alert("Lỗi thêm thiết bị");
-    }
+      if (res.ok) {
+        alert(isEdit ? "Cập nhật thiết bị thành công!" : "Thêm thiết bị thành công!");
+        setShowEqForm(false);
+        setEditingEqId(null);
+        fetchData(); 
+      } else {
+        const errData = await res.json();
+        alert("⚠️ Lỗi từ Backend: " + JSON.stringify(errData));
+      }
+    } catch (err) { alert("Lỗi mạng! Vui lòng kiểm tra lại kết nối Backend."); }
+  };
+
+  const handleEditEquipment = (eq: any) => {
+    const exactId = eq.id || (eq._id && eq._id.$oid) || eq._id;
+    setEditingEqId(exactId);
+    setNewEq({
+      name: eq.name || "", category: eq.category || "Chung", managementType: eq.managementType || "pool",
+      serialNumber: eq.serialNumber || "", totalQuantity: eq.totalQuantity || 0, inUseQuantity: eq.inUseQuantity || 0,
+      status: eq.status || "available", maintenanceAlertHours: eq.maintenanceAlertHours || 0, imageUrl: eq.imageUrl || "",
+      roomId: eq.roomId || "", pricePerHour: eq.pricePerHour || eq.price || 0
+    });
+    setShowEqForm(true);
+  };
+
+  const handleDeleteEquipment = async (id: string) => {
+    if (!id) { alert("Lỗi: Không tìm thấy ID thiết bị!"); return; }
+    if (!confirm("Bạn có chắc chắn muốn xóa thiết bị này?")) return;
+    try {
+      const res = await fetch(`${API_URL}/equipments/${id}`, { method: "DELETE" });
+      if (res.ok) fetchData();
+      else alert("⚠️ Không thể xóa. Vui lòng kiểm tra lại Backend.");
+    } catch (err) { alert("Lỗi mạng khi xóa thiết bị!"); }
   };
 
   const handleLogout = () => {
@@ -329,7 +446,7 @@ export default function AdvancedAdminDashboard() {
           { id: "dashboard", icon: LayoutDashboard, label: "Tổng quan" },
           { id: "bookings", icon: CalendarDays, label: "Lịch Đặt phòng" },
           { id: "rooms", icon: DoorOpen, label: "Phòng Thực hành" },
-          { id: "equipments", icon: Cpu, label: "Tài sản & Kho" },
+          { id: "equipments", icon: Cpu, label: "Thiết bị" },
           { id: "users", icon: Users, label: "Người dùng" },
         ].map((item) => (
           <button
@@ -592,490 +709,169 @@ export default function AdvancedAdminDashboard() {
 
   // ================= DASHBOARD CÓ BỘ LỌC THỜI GIAN =================
   const renderDashboard = () => {
-    // 1. Kho dữ liệu ảo (Mock Data) thay đổi theo timeFilter
-    const dashboardData = {
-      yesterday: {
-        metrics: [
-          {
-            title: "Trạng thái phòng",
-            value: "60%",
-            subValue: "12/20 phòng sử dụng",
-            icon: Activity,
-            trend: "down" as const,
-            colorClass: "text-blue-600",
-            bgClass: "bg-blue-50",
-          },
-          {
-            title: "Đơn đặt lịch",
-            value: "85",
-            subValue: "Hoàn tất 85 đơn",
-            icon: CalendarDays,
-            trend: "down" as const,
-            colorClass: "text-emerald-600",
-            bgClass: "bg-emerald-50",
-          },
-          {
-            title: "Thiết bị cho mượn",
-            value: "24",
-            subValue: "Đã trả 5 thiết bị",
-            icon: MonitorPlay,
-            trend: "down" as const,
-            colorClass: "text-amber-600",
-            bgClass: "bg-amber-50",
-          },
-          {
-            title: "Doanh thu (Ngày)",
-            value: "2.1M",
-            subValue: "-5% so với hôm kia",
-            icon: CreditCard,
-            trend: "down" as const,
-            colorClass: "text-purple-600",
-            bgClass: "bg-purple-50",
-          },
-        ],
-        peakHours: [
-          { time: "07:00", bookings: 5 },
-          { time: "09:00", bookings: 25 },
-          { time: "11:00", bookings: 20 },
-          { time: "13:00", bookings: 35 },
-          { time: "15:00", bookings: 30 },
-          { time: "17:00", bookings: 10 },
-        ],
-        popularRooms: [
-          { name: "Lab Máy tính", value: 30 },
-          { name: "Lab Hóa - Sinh", value: 40 },
-          { name: "Phòng Hội thảo", value: 10 },
-          { name: "Không gian chung", value: 20 },
-        ],
-      },
-      today: {
-        metrics: [
-          {
-            title: "Trạng thái phòng",
-            value: "75%",
-            subValue: "15/20 phòng đang dùng",
-            icon: Activity,
-            trend: "up" as const,
-            colorClass: "text-blue-600",
-            bgClass: "bg-blue-50",
-          },
-          {
-            title: "Đơn đặt lịch",
-            value: "124",
-            subValue: "12 đơn chờ duyệt",
-            icon: CalendarDays,
-            trend: "up" as const,
-            colorClass: "text-emerald-600",
-            bgClass: "bg-emerald-50",
-          },
-          {
-            title: "Thiết bị cho mượn",
-            value: "45",
-            subValue: "Trong tổng số 320 TB",
-            icon: MonitorPlay,
-            trend: "neutral" as const,
-            colorClass: "text-amber-600",
-            bgClass: "bg-amber-50",
-          },
-          {
-            title: "Doanh thu (Ngày)",
-            value: "3.2M",
-            subValue: "+12.5% so với hôm qua",
-            icon: CreditCard,
-            trend: "up" as const,
-            colorClass: "text-purple-600",
-            bgClass: "bg-purple-50",
-          },
-        ],
-        peakHours: [
-          { time: "07:00", bookings: 12 },
-          { time: "09:00", bookings: 45 },
-          { time: "11:00", bookings: 30 },
-          { time: "13:00", bookings: 55 },
-          { time: "15:00", bookings: 60 },
-          { time: "17:00", bookings: 25 },
-        ],
-        popularRooms: [
-          { name: "Lab Máy tính", value: 45 },
-          { name: "Lab Hóa - Sinh", value: 25 },
-          { name: "Phòng Hội thảo", value: 20 },
-          { name: "Không gian chung", value: 10 },
-        ],
-      },
-      "7days": {
-        metrics: [
-          {
-            title: "Trạng thái phòng",
-            value: "82%",
-            subValue: "Trung bình 7 ngày",
-            icon: Activity,
-            trend: "up" as const,
-            colorClass: "text-blue-600",
-            bgClass: "bg-blue-50",
-          },
-          {
-            title: "Đơn đặt lịch",
-            value: "856",
-            subValue: "Tăng mạnh đầu tuần",
-            icon: CalendarDays,
-            trend: "up" as const,
-            colorClass: "text-emerald-600",
-            bgClass: "bg-emerald-50",
-          },
-          {
-            title: "Thiết bị cho mượn",
-            value: "120",
-            subValue: "Chưa thu hồi 15 TB",
-            icon: MonitorPlay,
-            trend: "neutral" as const,
-            colorClass: "text-amber-600",
-            bgClass: "bg-amber-50",
-          },
-          {
-            title: "Doanh thu (Tuần)",
-            value: "22.5M",
-            subValue: "+8% so với tuần trước",
-            icon: CreditCard,
-            trend: "up" as const,
-            colorClass: "text-purple-600",
-            bgClass: "bg-purple-50",
-          },
-        ],
-        peakHours: [
-          { time: "T2", bookings: 120 },
-          { time: "T3", bookings: 150 },
-          { time: "T4", bookings: 140 },
-          { time: "T5", bookings: 180 },
-          { time: "T6", bookings: 160 },
-          { time: "T7", bookings: 80 },
-          { time: "CN", bookings: 26 },
-        ],
-        popularRooms: [
-          { name: "Lab Máy tính", value: 300 },
-          { name: "Lab Hóa - Sinh", value: 150 },
-          { name: "Phòng Hội thảo", value: 250 },
-          { name: "Không gian chung", value: 156 },
-        ],
-      },
-      month: {
-        metrics: [
-          {
-            title: "Trạng thái phòng",
-            value: "68%",
-            subValue: "Trung bình tháng",
-            icon: Activity,
-            trend: "down" as const,
-            colorClass: "text-blue-600",
-            bgClass: "bg-blue-50",
-          },
-          {
-            title: "Đơn đặt lịch",
-            value: "3,240",
-            subValue: "Hoàn tất 98%",
-            icon: CalendarDays,
-            trend: "up" as const,
-            colorClass: "text-emerald-600",
-            bgClass: "bg-emerald-50",
-          },
-          {
-            title: "Thiết bị cho mượn",
-            value: "840",
-            subValue: "Mất/Hỏng 2 TB",
-            icon: MonitorPlay,
-            trend: "down" as const,
-            colorClass: "text-amber-600",
-            bgClass: "bg-amber-50",
-          },
-          {
-            title: "Doanh thu (Tháng)",
-            value: "86.4M",
-            subValue: "-2% so với tháng trước",
-            icon: CreditCard,
-            trend: "down" as const,
-            colorClass: "text-purple-600",
-            bgClass: "bg-purple-50",
-          },
-        ],
-        peakHours: [
-          { time: "Tuần 1", bookings: 800 },
-          { time: "Tuần 2", bookings: 950 },
-          { time: "Tuần 3", bookings: 820 },
-          { time: "Tuần 4", bookings: 670 },
-        ],
-        popularRooms: [
-          { name: "Lab Máy tính", value: 1200 },
-          { name: "Lab Hóa - Sinh", value: 800 },
-          { name: "Phòng Hội thảo", value: 600 },
-          { name: "Không gian chung", value: 640 },
-        ],
-      },
-    };
+    // ================= 1. TÍNH TOÁN SỐ LIỆU TỔNG QUAN =================
+    const totalUsers = usersList.length;
+    const studentCount = usersList.filter((u) => u.role === "STUDENT").length;
+    
+    const totalLabs = rooms.length;
+    const activeLabs = rooms.filter((r) => !r.maintenanceMode).length;
 
-    const currentData = dashboardData[timeFilter];
-    // 1. Lấy thêm một vài con số thật từ Backend để hiển thị chi tiết
-    const availableEq =
-      dashboardStats.totalEquipments - dashboardStats.inUseEquipments;
-    const studentCount =
-      dashboardStats.userRolesData.find((r: any) => r.name === "STUDENT")
-        ?.value || 0;
+    const totalEqs = equipments.reduce((sum, eq) => sum + (eq.totalQuantity || 0), 0);
+    const inUseEqs = equipments.reduce((sum, eq) => sum + (eq.inUseQuantity || 0), 0);
+    const maintenanceEqs = equipments.filter(eq => eq.status === 'maintenance').reduce((sum, eq) => sum + (eq.totalQuantity || 0), 0);
+    const availableEqs = totalEqs - inUseEqs - maintenanceEqs;
 
-    // 2. Cấu hình đoạn text nhỏ (subValue) linh hoạt theo Tab và DÙNG SỐ THẬT
-    let subValues = { users: "", labs: "", eq: "", inUse: "" };
+    // ================= 2. CHUẨN BỊ DỮ LIỆU BIỂU ĐỒ (ĐÃ NÂNG CẤP) =================
+    
+    // NÂNG CẤP BIỂU ĐỒ 1: Biểu đồ Cột Chồng (Stacked Bar) theo Danh mục thiết bị
+    const eqCategoryMap: Record<string, { name: string, available: number, inUse: number, maintenance: number }> = {};
 
-    switch (timeFilter) {
-      case "yesterday":
-        subValues = {
-          users: `Hệ thống có ${dashboardStats.totalUsers} tài khoản`,
-          labs: `Quản lý ${dashboardStats.totalLabs} phòng`,
-          eq: `Có sẵn ${availableEq} thiết bị`,
-          inUse: `Chưa thu hồi ${dashboardStats.inUseEquipments} TB`,
-        };
-        break;
-      case "today":
-        subValues = {
-          users: `Bao gồm ${studentCount} Sinh viên`,
-          labs: `${dashboardStats.totalLabs} phòng đang hoạt động`,
-          eq: `Sẵn sàng ${availableEq} thiết bị rảnh`,
-          inUse: `Đang xuất kho ${dashboardStats.inUseEquipments} TB`,
-        };
-        break;
-      case "7days":
-        subValues = {
-          users: `Tổng cộng ${dashboardStats.totalUsers} người dùng`,
-          labs: `Hỗ trợ ${dashboardStats.totalLabs} phòng lab`,
-          eq: `Tổng kho có ${dashboardStats.totalEquipments} TB`,
-          inUse: `Đã mượn ${dashboardStats.inUseEquipments} TB`,
-        };
-        break;
-      case "month":
-        subValues = {
-          users: `Ghi nhận ${dashboardStats.totalUsers} user`,
-          labs: `Theo dõi ${dashboardStats.totalLabs} phòng`,
-          eq: `Số lượng: ${dashboardStats.totalEquipments} thiết bị`,
-          inUse: `Đang dùng ${dashboardStats.inUseEquipments} TB`,
-        };
-        break;
-    }
+    equipments.forEach(eq => {
+      // Rút gọn tên danh mục cho biểu đồ đỡ bị tràn chữ
+      let cat = eq.category || "Khác";
+      if (cat.includes("Công nghệ thông tin")) cat = "CNTT";
+      if (cat.includes("Điện - Điện tử")) cat = "Điện tử";
+      if (cat.includes("Vật tư tiêu hao")) cat = "Tiêu hao";
 
-    // 3. Ghi đè cả TỔNG SỐ và ĐOẠN TEXT NHỎ bằng dữ liệu thật vào giao diện
-    currentData.metrics[0].title = "Tổng người dùng";
-    currentData.metrics[0].value = dashboardStats.totalUsers.toString();
-    currentData.metrics[0].subValue = subValues.users;
+      if (!eqCategoryMap[cat]) {
+        eqCategoryMap[cat] = { name: cat, available: 0, inUse: 0, maintenance: 0 };
+      }
+      
+      const total = eq.totalQuantity || 0;
+      const inUse = eq.inUseQuantity || 0;
+      
+      if (eq.status === 'maintenance') {
+         eqCategoryMap[cat].maintenance += total;
+      } else {
+         eqCategoryMap[cat].inUse += inUse;
+         eqCategoryMap[cat].available += (total - inUse);
+      }
+    });
+    const equipmentChartData = Object.values(eqCategoryMap);
 
-    currentData.metrics[1].title = "Tổng phòng Lab";
-    currentData.metrics[1].value = dashboardStats.totalLabs.toString();
-    currentData.metrics[1].subValue = subValues.labs;
+    // SỬA LỖI BIỂU ĐỒ 2: Xử lý triệt để "Phòng khác"
+    const roomBookingCounts: Record<string, number> = {};
+    bookings.forEach(b => {
+       if (b.status === 'cancelled' || b.status === 'rejected') return;
+       const roomId = b.room_id || b.roomId;
+       if (roomId) roomBookingCounts[roomId] = (roomBookingCounts[roomId] || 0) + 1;
+    });
 
-    currentData.metrics[2].title = "Tổng thiết bị kho";
-    currentData.metrics[2].value = dashboardStats.totalEquipments.toString();
-    currentData.metrics[2].subValue = subValues.eq;
+    const popularLabsData = Object.entries(roomBookingCounts).map(([roomId, count]) => {
+       const room = rooms.find(r => (r.id || r._id) === roomId);
+       return {
+          // Nếu phòng đã bị xóa, hiển thị ID viết tắt để Admin dễ nhận biết thay vì "Phòng khác"
+          name: room ? (room.name || room.title) : `Phòng đã xóa (${roomId.substring(0, 4)}...)`,
+          value: count
+       };
+    }).sort((a, b) => b.value - a.value).slice(0, 5); // Lấy Top 5 phòng
 
-    currentData.metrics[3].title = "Đang cho mượn";
-    currentData.metrics[3].value = dashboardStats.inUseEquipments.toString();
-    currentData.metrics[3].subValue = subValues.inUse;
     return (
-      <div className="space-y-8 pb-10">
-        {/* ================= BỘ LỌC THỜI GIAN NHANH ================= */}
+      <div className="space-y-8 pb-10 animate-in fade-in duration-300">
         <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4">
           <div>
-            <h2 className="text-3xl font-black text-gray-900">
-              Tổng quan Hệ thống
-            </h2>
-            <p className="text-gray-500 mt-1">
-              Nắm bắt nhanh tình hình hoạt động của BookLab247.
-            </p>
-          </div>
-
-          <div className="flex bg-gray-100/80 p-1 rounded-xl border border-gray-200">
-            {[
-              { id: "yesterday", label: "Hôm qua" },
-              { id: "today", label: "Hôm nay" },
-              { id: "7days", label: "7 ngày qua" },
-              { id: "month", label: "Tháng này" },
-            ].map((filter) => (
-              <button
-                key={filter.id}
-                onClick={() => setTimeFilter(filter.id as TimeFilter)}
-                className={`px-4 py-2 text-sm font-bold rounded-lg transition-all ${
-                  timeFilter === filter.id
-                    ? "bg-white text-blue-600 shadow-sm"
-                    : "text-gray-500 hover:text-gray-900 hover:bg-gray-200/50"
-                }`}
-              >
-                {filter.label}
-              </button>
-            ))}
+            <h2 className="text-3xl font-black text-gray-900">Tổng quan Hệ thống</h2>
+            <p className="text-gray-500 mt-1">Phân tích dữ liệu vận hành thực tế của BookLab247.</p>
           </div>
         </div>
 
-        {/* ================= HÀNG THỐNG KÊ (Thay đổi theo filter) ================= */}
+        {/* THẺ METRICS */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-          {currentData.metrics.map((metric, idx) => (
-            <motion.div
-              key={`${timeFilter}-metric-${idx}`} // Ép React re-render chạy animation khi đổi tab
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.2, delay: idx * 0.05 }}
-              className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm flex items-center gap-5 hover:shadow-md transition-shadow"
-            >
-              <div
-                className={`w-14 h-14 rounded-full flex items-center justify-center shrink-0 ${metric.bgClass}`}
-              >
-                <metric.icon className={`w-7 h-7 ${metric.colorClass}`} />
-              </div>
-              <div>
-                <p className="text-sm font-bold text-gray-500 mb-1">
-                  {metric.title}
-                </p>
-                <h3 className="text-2xl font-black text-gray-900 leading-none mb-2">
-                  {metric.value}
-                </h3>
-                <p className="text-xs font-semibold text-gray-400 flex items-center gap-1">
-                  {metric.trend === "up" && (
-                    <TrendingUp className="w-3 h-3 text-emerald-500" />
-                  )}
-                  {metric.trend === "down" && (
-                    <TrendingDown className="w-3 h-3 text-red-500" />
-                  )}
-                  {metric.subValue}
-                </p>
-              </div>
-            </motion.div>
-          ))}
-        </div>
-
-        {/* ================= BIỂU ĐỒ (Thay đổi theo filter) ================= */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <motion.div
-            key={`${timeFilter}-chart1`}
-            initial={{ opacity: 0, scale: 0.98 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ duration: 0.3 }}
-            className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm lg:col-span-2"
-          >
-            <div className="mb-6">
-              <h3 className="text-lg font-bold text-gray-900">
-                Tình trạng Thiết bị kho
-              </h3>
-              <p className="text-sm text-gray-500">
-                Giúp bố trí nhân sự kỹ thuật & lao công hợp lý.
-              </p>
+          <motion.div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm flex items-center gap-5 hover:shadow-md transition-shadow">
+            <div className="w-14 h-14 rounded-full flex items-center justify-center shrink-0 bg-blue-50">
+              <Users className="w-7 h-7 text-blue-600" />
             </div>
-            <div className="h-72 w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart
-                  data={dashboardStats.equipmentStatusData}
-                  margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
-                >
-                  <CartesianGrid
-                    strokeDasharray="3 3"
-                    vertical={false}
-                    stroke="#f1f5f9"
-                  />
-                  <XAxis
-                    dataKey="name"
-                    axisLine={false}
-                    tickLine={false}
-                    tick={{ fontSize: 12, fill: "#64748b" }}
-                    dy={10}
-                  />
-                  <YAxis
-                    axisLine={false}
-                    tickLine={false}
-                    tick={{ fontSize: 12, fill: "#64748b" }}
-                  />
-                  <RechartsTooltip
-                    cursor={{ fill: "#f8fafc" }}
-                    contentStyle={{
-                      borderRadius: "12px",
-                      border: "none",
-                      boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)",
-                    }}
-                  />
-                  <Bar
-                    dataKey="value"
-                    name="Số lượng"
-                    fill="#3b82f6"
-                    radius={[6, 6, 0, 0]}
-                    barSize={40}
-                  >
-                    {currentData.peakHours.map((entry, index) => (
-                      <Cell
-                        key={`cell-${index}`}
-                        fill={
-                          index ===
-                          currentData.peakHours.reduce(
-                            (maxIdx, current, idx, arr) =>
-                              current.bookings > arr[maxIdx].bookings
-                                ? idx
-                                : maxIdx,
-                            0,
-                          )
-                            ? "#2563eb"
-                            : "#93c5fd"
-                        }
-                      />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
+            <div>
+              <p className="text-sm font-bold text-gray-500 mb-1">Tổng người dùng</p>
+              <h3 className="text-2xl font-black text-gray-900 leading-none mb-2">{totalUsers}</h3>
+              <p className="text-xs font-semibold text-gray-400 flex items-center gap-1"><TrendingUp className="w-3 h-3 text-emerald-500" /> Bao gồm {studentCount} Sinh viên</p>
             </div>
           </motion.div>
 
-          <motion.div
-            key={`${timeFilter}-chart2`}
-            initial={{ opacity: 0, scale: 0.98 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ duration: 0.3, delay: 0.1 }}
-            className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm"
-          >
+          <motion.div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm flex items-center gap-5 hover:shadow-md transition-shadow">
+            <div className="w-14 h-14 rounded-full flex items-center justify-center shrink-0 bg-emerald-50">
+              <DoorOpen className="w-7 h-7 text-emerald-600" />
+            </div>
+            <div>
+              <p className="text-sm font-bold text-gray-500 mb-1">Tổng phòng Lab</p>
+              <h3 className="text-2xl font-black text-gray-900 leading-none mb-2">{totalLabs}</h3>
+              <p className="text-xs font-semibold text-gray-400 flex items-center gap-1"><TrendingUp className="w-3 h-3 text-emerald-500" /> {activeLabs} phòng đang hoạt động</p>
+            </div>
+          </motion.div>
+
+          <motion.div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm flex items-center gap-5 hover:shadow-md transition-shadow">
+            <div className="w-14 h-14 rounded-full flex items-center justify-center shrink-0 bg-amber-50">
+              <Package className="w-7 h-7 text-amber-600" />
+            </div>
+            <div>
+              <p className="text-sm font-bold text-gray-500 mb-1">Tổng thiết bị kho</p>
+              <h3 className="text-2xl font-black text-gray-900 leading-none mb-2">{totalEqs}</h3>
+              <p className="text-xs font-semibold text-gray-400 flex items-center gap-1">Sẵn sàng {availableEqs} món rảnh</p>
+            </div>
+          </motion.div>
+
+          <motion.div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm flex items-center gap-5 hover:shadow-md transition-shadow">
+            <div className="w-14 h-14 rounded-full flex items-center justify-center shrink-0 bg-purple-50">
+              <Activity className="w-7 h-7 text-purple-600" />
+            </div>
+            <div>
+              <p className="text-sm font-bold text-gray-500 mb-1">Thiết bị đang mượn</p>
+              <h3 className="text-2xl font-black text-gray-900 leading-none mb-2">{inUseEqs}</h3>
+              <p className="text-xs font-semibold text-gray-400 flex items-center gap-1"><TrendingUp className="w-3 h-3 text-emerald-500" /> Đang xuất kho {inUseEqs} món</p>
+            </div>
+          </motion.div>
+        </div>
+
+        {/* BIỂU ĐỒ PHÂN TÍCH */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <motion.div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm lg:col-span-2">
             <div className="mb-6">
-              <h3 className="text-lg font-bold text-gray-900">
-                Mức độ ưa chuộng
-              </h3>
-              <p className="text-sm text-gray-500">
-                Phân bổ tỷ lệ loại phòng được đặt.
-              </p>
+              <h3 className="text-lg font-bold text-gray-900">Phân bố Thiết bị theo Danh mục</h3>
+              <p className="text-sm text-gray-500">Thống kê số lượng, tỷ lệ rảnh/bận và rủi ro bảo trì theo từng loại.</p>
+            </div>
+            <div className="h-72 w-full">
+              {equipmentChartData.length === 0 ? (
+                 <div className="h-full flex items-center justify-center text-gray-400 text-sm">Chưa có thiết bị nào trong kho.</div>
+              ) : (
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={equipmentChartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                    <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: "#64748b", fontWeight: 600 }} dy={10} />
+                    <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: "#64748b" }} />
+                    <RechartsTooltip cursor={{ fill: "#f8fafc" }} contentStyle={{ borderRadius: "12px", border: "none", boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)" }} />
+                    <Legend verticalAlign="top" height={36} iconType="circle" wrapperStyle={{ fontSize: "12px", fontWeight: 600, color: "#475569" }} />
+                    
+                    {/* CÁC CỘT XẾP CHỒNG LÊN NHAU (STACKED BAR) */}
+                    <Bar dataKey="available" name="Sẵn sàng" stackId="a" fill="#3b82f6" radius={[0, 0, 4, 4]} barSize={45} />
+                    <Bar dataKey="inUse" name="Đang mượn" stackId="a" fill="#f59e0b" />
+                    <Bar dataKey="maintenance" name="Bảo trì" stackId="a" fill="#ef4444" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
+            </div>
+          </motion.div>
+
+          <motion.div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
+            <div className="mb-6">
+              <h3 className="text-lg font-bold text-gray-900">Mức độ ưa chuộng</h3>
+              <p className="text-sm text-gray-500">Top 5 phòng Lab được đặt nhiều nhất.</p>
             </div>
             <div className="h-72 w-full flex items-center justify-center">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={dashboardStats.userRolesData}
-                    cx="50%"
-                    cy="45%"
-                    innerRadius={60}
-                    outerRadius={90}
-                    paddingAngle={5}
-                    dataKey="value"
-                  >
-                    {currentData.popularRooms.map((entry, index) => (
-                      <Cell
-                        key={`cell-${index}`}
-                        fill={COLORS[index % COLORS.length]}
-                        stroke="none"
-                      />
-                    ))}
-                  </Pie>
-                  <RechartsTooltip
-                    contentStyle={{
-                      borderRadius: "12px",
-                      border: "none",
-                      boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)",
-                    }}
-                  />
-                  <Legend
-                    verticalAlign="bottom"
-                    height={36}
-                    iconType="circle"
-                    wrapperStyle={{
-                      fontSize: "12px",
-                      fontWeight: 600,
-                      color: "#475569",
-                    }}
-                  />
-                </PieChart>
-              </ResponsiveContainer>
+              {popularLabsData.length === 0 ? (
+                 <p className="text-sm text-gray-400 italic">Chưa có dữ liệu đặt phòng.</p>
+              ) : (
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie data={popularLabsData} cx="50%" cy="45%" innerRadius={60} outerRadius={90} paddingAngle={5} dataKey="value" labelLine={false}>
+                      {popularLabsData.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                      ))}
+                    </Pie>
+                    <RechartsTooltip contentStyle={{ borderRadius: "12px", border: "none", boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)" }} />
+                    <Legend verticalAlign="bottom" height={36} iconType="circle" wrapperStyle={{ fontSize: "12px", fontWeight: 600, color: "#475569" }} />
+                  </PieChart>
+                </ResponsiveContainer>
+              )}
             </div>
           </motion.div>
         </div>
@@ -1084,282 +880,229 @@ export default function AdvancedAdminDashboard() {
   };
 
   // ================= CÁC HÀM RENDER KHÁC (GIỮ NGUYÊN NHƯ CŨ) =================
-  const renderRooms = () => (
+ const renderRooms = () => (
     <div className="space-y-6">
       <div className="flex justify-between items-end">
         <div>
-          <h2 className="text-2xl font-black text-gray-900">
-            Quản lý Không gian
-          </h2>
-          <p className="text-gray-500 mt-1">
-            Thêm, sửa, xóa và kiểm soát trạng thái phòng Lab.
-          </p>
+          <h2 className="text-2xl font-black text-gray-900">Quản lý Phòng Lab</h2>
+          <p className="text-gray-500 mt-1">Thêm, sửa, xóa và kiểm soát trạng thái phòng Lab.</p>
         </div>
-        <button
-          onClick={() => setShowRoomForm(!showRoomForm)}
-          className="flex items-center gap-2 px-5 py-2.5 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 transition-colors shadow-md"
-        >
-          {showRoomForm ? (
-            <X className="w-5 h-5" />
-          ) : (
-            <Plus className="w-5 h-5" />
-          )}{" "}
-          Thêm Phòng
+        <button onClick={() => setShowRoomForm(!showRoomForm)} className="flex items-center gap-2 px-5 py-2.5 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 transition-colors shadow-md">
+          {showRoomForm ? <X className="w-5 h-5" /> : <Plus className="w-5 h-5" />} Thêm Phòng
         </button>
       </div>
 
       {showRoomForm && (
-        <form
-          onSubmit={handleAddRoom}
-          className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200"
-        >
+        <form onSubmit={handleSubmitRoom} className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
           <div className="grid grid-cols-3 gap-6">
             <div className="space-y-4">
-              <input
-                type="text"
-                placeholder="Tên phòng..."
-                className="w-full p-2 border rounded-lg"
-                onChange={(e) =>
-                  setNewRoom({ ...newRoom, name: e.target.value })
-                }
-              />
-              <input
-                type="text"
-                placeholder="Tòa nhà (VD: Tòa A)"
-                className="w-full p-2 border rounded-lg"
-                onChange={(e) =>
-                  setNewRoom({ ...newRoom, building: e.target.value })
-                }
-              />
-              <input
-                type="text"
-                placeholder="Tầng (VD: Tầng 3)"
-                className="w-full p-2 border rounded-lg"
-                onChange={(e) =>
-                  setNewRoom({ ...newRoom, floor: e.target.value })
-                }
-              />
+              <input value={newRoom.name || ""} type="text" placeholder="Tên phòng..." className="w-full p-2 border rounded-lg" onChange={e => setNewRoom({...newRoom, name: e.target.value})} />
+              <input value={newRoom.building || ""} type="text" placeholder="Tòa nhà (VD: Tòa A)" className="w-full p-2 border rounded-lg" onChange={e => setNewRoom({...newRoom, building: e.target.value})} />
+              <input value={newRoom.floor || ""} type="text" placeholder="Tầng (VD: Tầng 3)" className="w-full p-2 border rounded-lg" onChange={e => setNewRoom({...newRoom, floor: e.target.value})} />
             </div>
             <div className="space-y-4">
-              <input
-                type="number"
-                placeholder="Sức chứa"
-                className="w-full p-2 border rounded-lg"
-                onChange={(e) =>
-                  setNewRoom({ ...newRoom, capacity: parseInt(e.target.value) })
-                }
-              />
-              <input
-                type="number"
-                placeholder="Giá/Giờ"
-                className="w-full p-2 border rounded-lg"
-                onChange={(e) =>
-                  setNewRoom({
-                    ...newRoom,
-                    pricePerHour: parseInt(e.target.value),
-                  })
-                }
-              />
+              <input value={newRoom.capacity || ""} type="number" placeholder="Sức chứa" className="w-full p-2 border rounded-lg" onChange={e => setNewRoom({...newRoom, capacity: parseInt(e.target.value) || 0})} />
+              <input value={newRoom.pricePerHour || ""} type="number" placeholder="Giá/Giờ" className="w-full p-2 border rounded-lg" onChange={e => setNewRoom({...newRoom, pricePerHour: parseInt(e.target.value) || 0})} />
               <label className="flex items-center gap-2 text-red-600 font-bold p-2 border border-red-200 bg-red-50 rounded-lg">
-                <input
-                  type="checkbox"
-                  onChange={(e) =>
-                    setNewRoom({
-                      ...newRoom,
-                      maintenanceMode: e.target.checked,
-                    })
-                  }
-                />{" "}
-                Bật Bảo trì
+                <input checked={newRoom.maintenanceMode} type="checkbox" onChange={e => setNewRoom({...newRoom, maintenanceMode: e.target.checked})} /> Bật Bảo trì
               </label>
             </div>
             <div>
-              <input
-                type="file"
-                onChange={(e) => handleImageUpload(e, true)}
-                className="mb-2 w-full text-sm"
-              />
-              {newRoom.imageUrl && (
-                <img
-                  src={newRoom.imageUrl}
-                  className="h-32 rounded-lg object-cover w-full"
-                  alt="preview"
-                />
-              )}
+               <input type="file" onChange={e => handleImageUpload(e, true)} className="mb-2 w-full text-sm"/>
+               {newRoom.imageUrl && <img src={newRoom.imageUrl} className="h-32 rounded-lg object-cover w-full" alt="preview"/>}
             </div>
           </div>
-          <button className="mt-4 px-6 py-2 bg-gray-900 text-white font-bold rounded-lg hover:bg-black transition-colors">
-            Lưu Phòng
+          <button type="submit" className="mt-4 px-6 py-2 bg-gray-900 text-white font-bold rounded-lg hover:bg-black transition-colors">
+            {editingRoomId ? "Cập nhật Phòng" : "Lưu Phòng"}
           </button>
         </form>
       )}
 
       <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
-        <table className="w-full text-left text-sm">
+       <table className="w-full text-left text-sm">
           <thead className="bg-gray-50 border-b">
             <tr>
-              <th className="p-4">Phòng</th>
-              <th className="p-4">Vị trí</th>
-              <th className="p-4">Giá</th>
+              <th className="p-4">Thông tin Phòng</th>
+              <th className="p-4">Vị trí Phòng</th>
+              <th className="p-4">Giá / Giờ</th>
               <th className="p-4">Trạng thái</th>
+              <th className="p-4 text-center">Hành động</th>
             </tr>
           </thead>
           <tbody>
-            {rooms.map((r, index) => (
-              <tr key={r.id || r._id || index} className="border-b">
-                <td className="p-4 font-bold">{r.name}</td>
-                <td className="p-4">
-                  {r.building} - {r.floor}
-                </td>
-                <td className="p-4">
-                  {r.pricePerHour
-                    ? r.pricePerHour.toLocaleString()
-                    : r.price || 0}
-                  đ/h
-                </td>
-                <td className="p-4">
-                  {r.maintenanceMode ? (
-                    <span className="text-red-600 bg-red-50 px-2 py-1 rounded">
-                      Bảo trì
-                    </span>
-                  ) : (
-                    <span className="text-green-600 bg-green-50 px-2 py-1 rounded">
-                      Hoạt động
-                    </span>
-                  )}
-                </td>
-              </tr>
-            ))}
+            {rooms.map((r, index) => {
+              const roomId = r.id || (r._id && r._id.$oid) || r._id;
+              return (
+                <tr key={roomId || index} className="border-b hover:bg-gray-50 transition-colors">
+                  <td className="p-4 flex items-center gap-4 cursor-pointer hover:bg-blue-50/50 rounded-xl transition-colors" onClick={() => setViewingRoom(r)} title="Nhấn để xem chi tiết phòng">
+                    {r.imageUrl ? (
+                      <img src={r.imageUrl} alt={r.name} className="w-16 h-16 rounded-xl object-cover border border-gray-200 shadow-sm shrink-0" />
+                    ) : (
+                      <div className="w-16 h-16 rounded-xl bg-gray-100 flex items-center justify-center border border-gray-200 shadow-sm shrink-0"><ImageIcon className="w-6 h-6 text-gray-400" /></div>
+                    )}
+                    <div>
+                      <div className="font-bold text-gray-900 text-base">{r.name}</div>
+                      <div className="text-xs text-gray-500 mt-1 flex items-center gap-1 font-medium"><Users className="w-3.5 h-3.5" /> Sức chứa: {r.capacity || 0} người</div>
+                    </div>
+                  </td>
+                  <td className="p-4 font-medium text-gray-600">{r.building} - {r.floor}</td>
+                  <td className="p-4 font-bold text-blue-600">{(r.pricePerHour || r.price || 0).toLocaleString('vi-VN')}đ</td>
+                  <td className="p-4">
+                    {r.maintenanceMode ? <span className="text-red-600 bg-red-50 px-2.5 py-1 rounded-md font-bold text-xs border border-red-100">Bảo trì</span> : <span className="text-green-600 bg-green-50 px-2.5 py-1 rounded-md font-bold text-xs border border-green-100">Hoạt động</span>}
+                  </td>
+                  <td className="p-4">
+                    <div className="flex items-center justify-center gap-3">
+                      <button onClick={() => handleEditRoom(r)} className="text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 p-2 rounded-lg transition-colors" title="Sửa phòng"><Wrench className="w-4 h-4"/></button>
+                      <button onClick={() => handleDeleteRoom(roomId)} className="text-red-500 hover:text-red-700 bg-red-50 hover:bg-red-100 p-2 rounded-lg transition-colors" title="Xóa phòng"><Trash2 className="w-4 h-4"/></button>
+                    </div>
+                  </td>
+                </tr>
+              )
+            })}
           </tbody>
         </table>
       </div>
+
+      {viewingRoom && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-3xl p-6 w-full max-w-lg shadow-2xl relative animate-in fade-in zoom-in duration-200">
+            <button onClick={() => setViewingRoom(null)} className="absolute top-4 right-4 p-2 text-gray-400 hover:text-red-500 bg-gray-50 hover:bg-red-50 rounded-full transition-colors"><X className="w-5 h-5" /></button>
+            <h3 className="text-2xl font-black text-gray-900 mb-5 border-b border-gray-100 pb-4">Chi tiết Phòng Lab</h3>
+            <div className="space-y-5">
+              {viewingRoom.imageUrl ? <img src={viewingRoom.imageUrl} alt={viewingRoom.name} className="w-full h-56 object-cover rounded-2xl border border-gray-100 shadow-sm" /> : <div className="w-full h-56 bg-gray-50 rounded-2xl flex items-center justify-center border border-gray-100 shadow-sm"><ImageIcon className="w-12 h-12 text-gray-300" /></div>}
+              <div className="grid grid-cols-2 gap-y-4 gap-x-6 bg-gray-50 p-4 rounded-2xl border border-gray-100">
+                <div><p className="text-xs text-gray-500 font-bold uppercase tracking-wider">Tên phòng</p><p className="font-black text-lg text-gray-900 mt-1">{viewingRoom.name}</p></div>
+                <div><p className="text-xs text-gray-500 font-bold uppercase tracking-wider">Trạng thái</p><div className="mt-1">{viewingRoom.maintenanceMode ? <span className="text-red-600 bg-red-100 px-2.5 py-1 rounded-md font-bold text-xs">Bảo trì</span> : <span className="text-green-600 bg-green-100 px-2.5 py-1 rounded-md font-bold text-xs">Hoạt động</span>}</div></div>
+                <div><p className="text-xs text-gray-500 font-bold uppercase tracking-wider">Vị trí</p><p className="font-bold text-gray-700 mt-1">{viewingRoom.building} - {viewingRoom.floor}</p></div>
+                <div><p className="text-xs text-gray-500 font-bold uppercase tracking-wider">Sức chứa</p><p className="font-bold text-gray-700 mt-1">{viewingRoom.capacity || 0} người</p></div>
+                <div><p className="text-xs text-gray-500 font-bold uppercase tracking-wider">Giá thuê / Giờ</p><p className="font-black text-blue-600 mt-1">{(viewingRoom.pricePerHour || viewingRoom.price || 0).toLocaleString('vi-VN')}đ</p></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 
-  const renderEquipments = () => (
-    <div className="space-y-6">
-      <div className="flex justify-between items-end">
-        <div>
-          <h2 className="text-2xl font-black text-gray-900">Quản lý Tài sản</h2>
-          <p className="text-gray-500 mt-1">
-            Phân bổ Pool/Serial cho thiết bị mượn trả.
-          </p>
-        </div>
-        <button
-          onClick={() => setShowEqForm(!showEqForm)}
-          className="flex items-center gap-2 px-5 py-2.5 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 shadow-md transition-colors"
-        >
-          <Plus className="w-5 h-5" /> Thêm Thiết bị
-        </button>
-      </div>
 
-      {showEqForm && (
-        <form
-          onSubmit={handleAddEquipment}
-          className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200"
-        >
-          <div className="grid grid-cols-3 gap-6">
-            <div className="space-y-4">
-              <input
-                type="text"
-                placeholder="Tên thiết bị..."
-                className="w-full p-2 border rounded-lg"
-                onChange={(e) => setNewEq({ ...newEq, name: e.target.value })}
-              />
-              <select
-                className="w-full p-2 border rounded-lg"
-                onChange={(e) =>
-                  setNewEq({ ...newEq, managementType: e.target.value })
-                }
-              >
-                <option value="pool">Quản lý số lượng (Pool)</option>
-                <option value="serial">Quản lý Serial (Đơn chiếc)</option>
-              </select>
-              {newEq.managementType === "serial" && (
-                <input
-                  type="text"
-                  placeholder="Số Serial"
-                  className="w-full p-2 border rounded-lg"
-                  onChange={(e) =>
-                    setNewEq({ ...newEq, serialNumber: e.target.value })
-                  }
-                />
-              )}
-            </div>
-            <div className="space-y-4">
-              <input
-                type="number"
-                placeholder="Tổng số lượng"
-                className="w-full p-2 border rounded-lg"
-                onChange={(e) =>
-                  setNewEq({
-                    ...newEq,
-                    totalQuantity: parseInt(e.target.value),
-                  })
-                }
-              />
-              <input
-                type="number"
-                placeholder="Báo động bảo trì (Giờ)"
-                className="w-full p-2 border rounded-lg"
-                onChange={(e) =>
-                  setNewEq({
-                    ...newEq,
-                    maintenanceAlertHours: parseInt(e.target.value),
-                  })
-                }
-              />
+  const renderEquipments = () => (
+    <div className="w-full">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
+        <div className="lg:col-span-1 bg-white p-6 rounded-2xl shadow-sm border border-gray-100 sticky top-6">
+          <h2 className="text-lg font-bold text-blue-800 flex items-center gap-2 mb-6">
+            <Cpu className="w-5 h-5" /> {editingEqId ? "Cập Nhật Thiết Bị" : "Thêm Thiết Bị Mới"}
+          </h2>
+          <form onSubmit={handleSubmitEquipment} className="space-y-5">
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-1">Tên thiết bị *</label>
+              <input required value={newEq.name || ""} onChange={e => setNewEq({...newEq, name: e.target.value})} type="text" placeholder="VD: Máy chiếu Sony B" className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none transition-all" />
             </div>
             <div>
-              <input
-                type="file"
-                onChange={(e) => handleImageUpload(e, false)}
-                className="mb-2 w-full text-sm"
-              />
-              {newEq.imageUrl && (
-                <img
-                  src={newEq.imageUrl}
-                  className="h-32 rounded-lg object-cover w-full"
-                  alt="preview"
-                />
-              )}
+              <label className="block text-sm font-semibold text-gray-700 mb-1">Danh mục</label>
+              <select value={newEq.category || "Vật tư tiêu hao"} onChange={e => setNewEq({...newEq, category: e.target.value})} className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none transition-all">
+                <option value="Điện - Điện tử">Điện - Điện tử</option>
+                <option value="Công nghệ thông tin">Công nghệ thông tin</option>
+                <option value="Hóa - Sinh">Hóa - Sinh</option>
+                <option value="Vật tư tiêu hao">Vật tư tiêu hao</option>
+                <option value="Khác">Khác</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-1">Trạng thái hoạt động</label>
+              <select value={newEq.status || "available"} onChange={e => setNewEq({...newEq, status: e.target.value})} className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none transition-all">
+                <option value="available">Sẵn sàng sử dụng</option>
+                <option value="maintenance">Đang bảo trì</option>
+                <option value="liquidated">Đã thanh lý</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-1">Thuộc Phòng Lab</label>
+              <select value={newEq.roomId || ""} onChange={e => setNewEq({...newEq, roomId: e.target.value})} className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none transition-all">
+                <option value="">Để trong kho (Chưa gán phòng)</option>
+                {rooms.map(r => <option key={r.id || r._id} value={r.id || r._id}>{r.name} {r.building ? `(${r.building})` : ""}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-1">Giá thuê / Giờ (VNĐ)</label>
+              <input type="number" min="0" value={newEq.pricePerHour || ""} onChange={e => setNewEq({...newEq, pricePerHour: parseInt(e.target.value) || 0})} placeholder="VD: 50000" className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none transition-all" />
+            </div>
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-1">Số lượng thiết bị *</label>
+              <input required type="number" min="1" value={newEq.totalQuantity || ""} onChange={e => setNewEq({...newEq, totalQuantity: parseInt(e.target.value) || 1})} placeholder="VD: 10" className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none transition-all" />
+            </div>
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-1">Hình ảnh thiết bị</label>
+              <input type="file" onChange={e => handleImageUpload(e, false)} className="mb-3 w-full text-sm border border-gray-200 p-2 rounded-xl bg-gray-50 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 transition-all"/>
+              {newEq.imageUrl && <img src={newEq.imageUrl} className="h-40 rounded-xl object-cover w-full border border-gray-200 shadow-sm" alt="preview"/>}
+            </div>
+            <button type="submit" className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl uppercase tracking-wider transition-colors shadow-md shadow-blue-600/20 mt-4">
+              {editingEqId ? "LƯU CẬP NHẬT" : "LƯU THIẾT BỊ"}
+            </button>
+          </form>
+        </div>
+
+        <div className="lg:col-span-2 bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+          <h2 className="text-lg font-black text-gray-900 mb-4 border-b border-gray-100 pb-3">Danh Sách Thiết Bị Toàn Hệ Thống</h2>
+          <div className="space-y-3">
+            {equipments.map((eq, index) => {
+              const eqId = eq.id || (eq._id && eq._id.$oid) || eq._id;
+              const matchedRoom = rooms.find(r => (r.id || r._id) === eq.roomId);
+              const roomNameDisplay = matchedRoom ? matchedRoom.name : "Để trong kho";
+              return (
+                <div key={eqId || index} className="p-4 border border-gray-100 rounded-xl flex justify-between items-center hover:shadow-md transition-shadow bg-gray-50/50">
+                <div className="flex items-center gap-4 cursor-pointer hover:bg-blue-50/50 p-2 -ml-2 rounded-xl transition-colors flex-1" onClick={() => setViewingEq(eq)} title="Nhấn để xem chi tiết thiết bị">
+                    {eq.imageUrl ? <img src={eq.imageUrl} alt={eq.name} className="w-16 h-16 rounded-xl object-cover border border-gray-200 shadow-sm shrink-0" /> : <div className="w-16 h-16 rounded-xl bg-gray-100 flex items-center justify-center border border-gray-200 shadow-sm shrink-0"><ImageIcon className="w-6 h-6 text-gray-400" /></div>}
+                    <div>
+                      <h3 className="font-bold text-gray-900 text-base">{eq.name}</h3>
+                      <div className="flex flex-wrap items-center gap-2 mt-2">
+                        {eq.status === 'available' ? <span className="bg-green-500 text-white px-2 py-0.5 rounded text-[11px] uppercase font-bold shadow-sm">Available</span> : <span className="bg-amber-500 text-white px-2 py-0.5 rounded text-[11px] uppercase font-bold shadow-sm">Maintenance</span>}
+                        <span className="bg-gray-200 text-gray-600 px-2 py-0.5 rounded text-xs font-medium">Phòng: <span className="font-bold">{roomNameDisplay}</span></span>
+                        <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded text-xs font-bold border border-blue-200">Số lượng: {eq.totalQuantity || 0}</span>
+                        <span className="bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded text-xs font-bold border border-emerald-200">{(eq.pricePerHour || 0).toLocaleString('vi-VN')}đ/h</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button onClick={() => handleEditEquipment(eq)} className="p-2.5 text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors" title="Sửa"><Wrench className="w-4 h-4" /></button>
+                    <button onClick={() => handleDeleteEquipment(eqId)} className="p-2.5 text-red-500 hover:text-red-700 bg-red-50 hover:bg-red-100 rounded-lg transition-colors" title="Xóa"><Trash2 className="w-4 h-4" /></button>
+                  </div>
+                </div>
+              )
+            })}
+            {equipments.length === 0 && (
+               <div className="text-center text-gray-400 py-10 flex flex-col items-center justify-center"><Cpu className="w-10 h-10 mb-3 text-gray-200" /><p className="text-sm font-medium">Chưa có thiết bị nào trong hệ thống.</p></div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {viewingEq && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-3xl p-6 w-full max-w-lg shadow-2xl relative animate-in fade-in zoom-in duration-200">
+            <button onClick={() => setViewingEq(null)} className="absolute top-4 right-4 p-2 text-gray-400 hover:text-red-500 bg-gray-50 hover:bg-red-50 rounded-full transition-colors"><X className="w-5 h-5" /></button>
+            <h3 className="text-2xl font-black text-gray-900 mb-5 border-b border-gray-100 pb-4 flex items-center gap-2"><Cpu className="w-6 h-6 text-blue-600" /> Chi tiết Thiết bị</h3>
+            <div className="space-y-5">
+              {viewingEq.imageUrl ? <img src={viewingEq.imageUrl} alt={viewingEq.name} className="w-full h-56 object-cover rounded-2xl border border-gray-100 shadow-sm" /> : <div className="w-full h-56 bg-gray-50 rounded-2xl flex items-center justify-center border border-gray-100 shadow-sm"><ImageIcon className="w-12 h-12 text-gray-300" /></div>}
+              <div className="grid grid-cols-2 gap-y-4 gap-x-6 bg-gray-50 p-4 rounded-2xl border border-gray-100">
+                <div className="col-span-2 md:col-span-1"><p className="text-xs text-gray-500 font-bold uppercase tracking-wider">Tên thiết bị</p><p className="font-black text-lg text-gray-900 mt-1 leading-tight">{viewingEq.name}</p></div>
+                <div>
+                  <p className="text-xs text-gray-500 font-bold uppercase tracking-wider">Trạng thái</p>
+                  <div className="mt-1">
+                    {viewingEq.status === 'available' ? <span className="bg-green-500 text-white px-2.5 py-1 rounded-md font-bold text-xs uppercase shadow-sm">Sẵn sàng</span> : viewingEq.status === 'maintenance' ? <span className="bg-amber-500 text-white px-2.5 py-1 rounded-md font-bold text-xs uppercase shadow-sm">Bảo trì</span> : <span className="bg-gray-500 text-white px-2.5 py-1 rounded-md font-bold text-xs uppercase shadow-sm">Thanh lý</span>}
+                  </div>
+                </div>
+                <div className="col-span-2"><p className="text-xs text-gray-500 font-bold uppercase tracking-wider">Vị trí hiện tại</p><p className="font-bold text-blue-600 mt-1 text-base">{rooms.find(r => (r.id || r._id) === viewingEq.roomId)?.name || "Đang cất trong kho (Chưa gán phòng)"}</p></div>
+                <div><p className="text-xs text-gray-500 font-bold uppercase tracking-wider">Hình thức quản lý</p><p className="font-bold text-gray-700 mt-1">{viewingEq.managementType === 'pool' ? 'Số lượng (Pool)' : 'Serial (Đơn chiếc)'}</p></div>
+                {viewingEq.managementType === 'serial' ? (
+                  <div><p className="text-xs text-gray-500 font-bold uppercase tracking-wider">Số Serial</p><p className="font-black text-gray-900 mt-1">{viewingEq.serialNumber || "N/A"}</p></div>
+                ) : (
+                  <div><p className="text-xs text-gray-500 font-bold uppercase tracking-wider">Kho (Còn / Tổng)</p><p className="font-bold text-gray-700 mt-1"><span className="text-blue-600 font-black text-lg">{(viewingEq.totalQuantity || 0) - (viewingEq.inUseQuantity || 0)}</span> / {viewingEq.totalQuantity || 0} cái</p></div>
+                )}
+              </div>
             </div>
           </div>
-          <button className="mt-4 px-6 py-2 bg-gray-900 text-white font-bold rounded-lg hover:bg-black transition-colors">
-            Lưu Thiết bị
-          </button>
-        </form>
+        </div>
       )}
-
-      <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
-        <table className="w-full text-left text-sm">
-          <thead className="bg-gray-50 border-b">
-            <tr>
-              <th className="p-4">Thiết bị</th>
-              <th className="p-4">Phân loại</th>
-              <th className="p-4">Kho (Còn / Tổng)</th>
-            </tr>
-          </thead>
-          <tbody>
-            {equipments.map((eq, index) => (
-              <tr key={eq.id || eq._id || index} className="border-b">
-                <td className="p-4 font-bold">
-                  {eq.name} <br />
-                  <span className="text-xs text-gray-400">
-                    {eq.serialNumber}
-                  </span>
-                </td>
-                <td className="p-4">
-                  {eq.managementType === "pool" ? "Số lượng" : "Serial"}
-                </td>
-                <td className="p-4 font-bold text-blue-600">
-                  {eq.totalQuantity - eq.inUseQuantity} / {eq.totalQuantity}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
     </div>
   );
 
