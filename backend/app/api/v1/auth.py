@@ -6,9 +6,8 @@ from app.core.database import db
 from app.core.security import (
     get_password_hash,
     verify_password,
-)  # Hàm băm và kiểm tra password
+)
 
-# IMPORT THÊM CÁC THƯ VIỆN ĐỂ XỬ LÝ GOOGLE AUTH
 from google.oauth2 import id_token
 from google.auth.transport import requests as google_requests
 from bson import ObjectId
