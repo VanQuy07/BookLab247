@@ -302,28 +302,89 @@ export default function ManagerDashboardPage() {
   };
 
   // Hàm Xác nhận thanh toán & Hoàn thành ca
+  // ================= XỬ LÝ ĐỒNG BỘ SỐ LƯỢNG THIẾT BỊ TỒN KHO =================
+  const syncEquipmentStock = async (equipmentsToSync: BorrowedEquipment[], action: "borrow" | "return") => {
+    const token = localStorage.getItem("access_token");
+    if (!equipmentsToSync || equipmentsToSync.length === 0) return;
+
+    // 1. CẬP NHẬT GIAO DIỆN KHO NGAY LẬP TỨC CHO NGƯỜI DÙNG THẤY (Không cần chờ API)
+    setEquipments(prev => prev.map(e => {
+      const borrowed = equipmentsToSync.find(syncEq => syncEq.id === (e.id || e._id));
+      if (borrowed) {
+        const qtyChange = action === "borrow" ? Number(borrowed.quantity) : -Number(borrowed.quantity);
+        return { ...e, inUseQuantity: Math.max(0, (e.inUseQuantity || 0) + qtyChange) };
+      }
+      return e;
+    }));
+
+    // 2. GỬI API NGẦM XUỐNG BACKEND
+    for (const borrowed of equipmentsToSync) {
+      const eqId = borrowed.id;
+      const currentEq = equipments.find(e => (e.id || e._id) === eqId);
+      if (currentEq) {
+        const qtyChange = action === "borrow" ? Number(borrowed.quantity) : -Number(borrowed.quantity);
+        const newInUse = Math.max(0, (currentEq.inUseQuantity || 0) + qtyChange); 
+        try {
+          await fetch(`https://booklab247.onrender.com/api/v1/equipments/${eqId}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+            body: JSON.stringify({ ...currentEq, inUseQuantity: newInUse })
+          });
+        } catch (e) {
+          console.error("Lỗi đồng bộ kho cho thiết bị:", eqId, e);
+        }
+      }
+    }
+  };
+
+  // ================= XÁC NHẬN THANH TOÁN & HOÀN THÀNH CA MƯỢN =================
   const handleConfirmPayment = async (bookingId: string) => {
+    // 1. Khóa nút và bật hiệu ứng Đang xử lý (để tránh click đúp và báo cho user biết)
+    const btn = document.getElementById("btn-confirm-payment") as HTMLButtonElement;
+    if (btn) {
+      btn.disabled = true;
+      btn.innerHTML = `<div class="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div> Đang xử lý...`;
+    }
+
+    const targetBooking = bookings.find((b) => b.id === bookingId);
+
     try {
       const token = localStorage.getItem("access_token");
+      const API_URL = "https://booklab247.onrender.com/api/v1";
+
       const response = await fetch(`${API_URL}/bookings/${bookingId}/status`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        // Gửi cả cờ completed và trạng thái thanh toán
         body: JSON.stringify({ status: "completed", payment_status: "HOÀN THÀNH" })
       });
 
-      if (!response.ok) throw new Error("Lỗi khi cập nhật thanh toán");
-
-      // Cập nhật State nội bộ ngay lập tức
-      setBookings(prev => prev.map(b => b.id === bookingId ? { ...b, status: "completed", paymentStatus: "HOÀN THÀNH" } : b));
-      if (selectedBooking && selectedBooking.id === bookingId) {
-         setSelectedBooking({ ...selectedBooking, status: "completed", paymentStatus: "HOÀN THÀNH" });
+      if (!response.ok) {
+         const errData = await response.json().catch(() => ({}));
+         throw new Error(errData.detail || "Backend từ chối cập nhật trạng thái!");
       }
+
+      // 2. Gọi hàm Hoàn kho thiết bị
+      if (targetBooking && targetBooking.equipments && targetBooking.equipments.length > 0) {
+        await syncEquipmentStock(targetBooking.equipments, "return");
+      }
+
+      // 3. ĐÓNG MODAL NGAY LẬP TỨC CHO MƯỢT
+      setSelectedBooking(null);
       
-      showToast("Đã thu tiền và hoàn thành ca mượn!", "success");
-      setSelectedBooking(null); // Đóng modal
-    } catch (e) {
-      showToast("Lỗi kết nối khi thanh toán!", "error");
+      // 4. Cập nhật giao diện và gọi lại Data
+      setBookings(prev => prev.map(b => b.id === bookingId ? { ...b, status: "completed", paymentStatus: "HOÀN THÀNH" } : b));
+      showToast("✅ Đã nhận tiền, kết thúc ca và hoàn kho thiết bị!", "success");
+      loadData(true); 
+
+    } catch (e: any) {
+      // 🚨 Bật Alert đỏ để bạn bắt được chính xác lỗi từ Backend nếu có
+      alert(`⛔ LỖI SERVER:\n${e.message}\n(Hãy chụp màn hình lỗi này gửi cho Backend)`);
+    } finally {
+      // Mở khóa lại nút nếu lỗi
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-banknote"><rect width="20" height="12" x="2" y="6" rx="2"/><circle cx="12" cy="12" r="2"/><path d="M6 12h.01M18 12h.01"/></svg> Nhận tiền & Kết thúc`;
+      }
     }
   };
 
@@ -441,7 +502,7 @@ export default function ManagerDashboardPage() {
         showToast("Tạo Chuỗi Thời khóa biểu thành công!", "success");
       }
       setShowFixedModal(false);
-      loadData(); // Gọi lại loadData để cập nhật UI đồng bộ với Server
+      loadData(true); // Gọi lại loadData để cập nhật UI đồng bộ với Server
     } catch(e) {
       showToast("Lỗi khi lưu lịch cố định", "error");
     }
@@ -472,7 +533,7 @@ export default function ManagerDashboardPage() {
                 status: rule.status
               })
             });
-            loadData();
+            loadData(true);
             showToast(`Đã hủy lịch cố định ngày ${dateToCancel}`, "success");
           } catch(e) {}
         }
@@ -626,8 +687,9 @@ export default function ManagerDashboardPage() {
     else loadData();
   }, [router]);
 
-  const loadData = async () => {
-    setLoading(true);
+  const loadData = async (isSilent = false) => {
+    if (!isSilent) setLoading(true);
+    
     const token = localStorage.getItem("access_token");
     const API_URL = "https://booklab247.onrender.com/api/v1"; // Giữ nguyên link Cloud chạy đúng của bạn
 
@@ -784,7 +846,8 @@ export default function ManagerDashboardPage() {
       setEquipments([]);
     }
 
-    setLoading(false);
+    if (!isSilent) setLoading(false);
+  
   };
 
   const handleLogout = () => {
@@ -967,55 +1030,47 @@ const startObj = new Date(
       buffer_mins: 15,
       note: quickBookData.note,
       equipments: borrowedEquipments,
+      status: "confirmed", // 1. MANAGER ĐẶT LÀ TỰ ĐỘNG CHỐT DUYỆT LUÔN
+      payment_status: "CHƯA THANH TOÁN",
+      source: "MANAGER" // 2. Đánh dấu nguồn này từ nội bộ để Admin không cần duyệt lại
     };
 
     try {
-      const submitBtn = document.getElementById(
-        "btn-submit-quickbook",
-      ) as HTMLButtonElement;
+      const submitBtn = document.getElementById("btn-submit-quickbook") as HTMLButtonElement;
       if (submitBtn) {
         submitBtn.disabled = true;
         submitBtn.innerText = "Đang lưu...";
       }
+      
+      const token = localStorage.getItem("access_token");
 
+      // BƯỚC 1: GỬI LÊN DATABASE
       const response = await fetch(`${API_URL}/bookings`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify(payload),
       });
 
       if (!response.ok) throw new Error("Lỗi lưu Database");
 
       const responseData = await response.json();
+      const createdId = responseData.data?.id || responseData.id || responseData._id;
 
-      const newBooking: BookingItem = {
-        id: responseData.data?.id || `b${Date.now()}`,
-        roomId: targetId,
-        customerName: quickBookData.customerName,
-        phone: quickBookData.phone,
-        status: "checked-in",
-        date: quickBookData.startDate,
-        startTime: quickBookData.startTime,
-        durationMins: durationMins,
-        bufferMins: 15,
-        note: quickBookData.note,
-        equipments: borrowedEquipments,
-      };
+      // BƯỚC 2: ÉP CHỐT DUYỆT 
+      // (Bảo hiểm 100% không bị Backend ép ngược lại thành Pending)
+      if (createdId) {
+         await fetch(`${API_URL}/bookings/${createdId}/status`, {
+            method: "PATCH", 
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+            body: JSON.stringify({ status: "confirmed" })
+         }).catch(()=>{});
+      }
 
-      const updatedEquipments = equipments.map((eq) => {
-        const eqId = eq.id || eq._id || "";
-        if (quickBookData.equipments[eqId]) {
-          return {
-            ...eq,
-            inUseQuantity:
-              (eq.inUseQuantity || 0) + quickBookData.equipments[eqId].quantity,
-          };
-        }
-        return eq;
-      });
+      // BƯỚC 3: TẢI LẠI DỮ LIỆU SẠCH TỪ SERVER 
+      // (Sử dụng hàm loadData() có sẵn của Manager để timeline được đồng bộ)
+      loadData(true);
 
-      setEquipments(updatedEquipments);
-      setBookings([...bookings, newBooking]);
+      // BƯỚC 4: ĐÓNG MODAL VÀ RESET FORM
       setShowQuickBook(false);
       setQuickBookData({
         ...quickBookData,
@@ -1023,16 +1078,17 @@ const startObj = new Date(
         phone: "",
         equipments: {},
       });
-      alert("✅ Đã lưu ca đặt phòng thành công!");
+      
+      // Gọi thông báo xịn của Manager thay vì alert mặc định
+      showToast("Đã đặt phòng thành công (Tự động duyệt)!", "success");
+
     } catch (err: any) {
-      alert(`⛔ LỖI SERVER:\n${err.message}`);
+      showToast(`LỖI SERVER: ${err.message}`, "error");
     } finally {
-      const submitBtn = document.getElementById(
-        "btn-submit-quickbook",
-      ) as HTMLButtonElement;
+      const submitBtn = document.getElementById("btn-submit-quickbook") as HTMLButtonElement;
       if (submitBtn) {
         submitBtn.disabled = false;
-        submitBtn.innerText = "Xác nhận Check-in & Thanh toán";
+        submitBtn.innerText = "Xác nhận Check-in";
       }
     }
   };
@@ -1050,10 +1106,11 @@ const startObj = new Date(
   };
 
   const executeUpdateStatus = async (bookingId: string, newStatus: string) => {
+    const targetBooking = bookings.find((b) => b.id === bookingId);
+
     try {
       const token = localStorage.getItem("access_token");
       const API_URL = "https://booklab247.onrender.com/api/v1";
-      //const API_URL = "http://localhost:8000/api/v1";
 
       const response = await fetch(`${API_URL}/bookings/${bookingId}/status`, {
         method: "PATCH",
@@ -1069,6 +1126,12 @@ const startObj = new Date(
         throw new Error(errorData.detail || `Lỗi HTTP ${response.status}`);
       }
 
+      // 🚀 CHUẨN XÁC: NẾU TỪ CHỐI/HỦY ĐƠN -> HOÀN TRẢ THIẾT BỊ VỀ KHO
+      if (['cancelled', 'rejected'].includes(newStatus) && targetBooking?.equipments) {
+        await syncEquipmentStock(targetBooking.equipments, "return");
+        loadData(true); // Tải lại số lượng kho mới nhất
+      }
+
       // Cập nhật lại UI ngay lập tức
       setBookings((prevBookings) =>
         prevBookings.map((b) =>
@@ -1076,11 +1139,11 @@ const startObj = new Date(
         ),
       );
 
-      // Hiển thị thông báo nổi xịn sò
+      // Hiển thị thông báo nổi
       showToast(
         newStatus === "confirmed"
           ? "Đã duyệt đơn thành công!"
-          : "Đã từ chối đơn hàng.",
+          : "Đã từ chối đơn hàng và hoàn thiết bị.",
         "success",
       );
     } catch (error: any) {
@@ -1114,7 +1177,7 @@ const startObj = new Date(
       });
 
       // Tải lại dữ liệu từ DB
-      loadData();
+      loadData(true);
 
       const startMins = timeToMins(maintenanceModal.startTime);
       const endMins = timeToMins(maintenanceModal.endTime);
@@ -1235,7 +1298,7 @@ const startObj = new Date(
                             setRooms(rooms.map((roomItem) => 
                               (roomItem.id || roomItem._id) === currentRoomId ? { ...roomItem, maintenanceMode: false } : roomItem
                             ));
-                            loadData();
+                            loadData(true);
                             showToast("Phòng Lab đã sẵn sàng hoạt động trở lại!", "success");
                           } catch (err) {
                             showToast("Lỗi kết nối cơ sở dữ liệu khi hoàn tất bảo trì!", "error");
@@ -1380,7 +1443,7 @@ const startObj = new Date(
               )
             );
             setEquipments(equipments.map((e) => (e.id || e._id) === exactEqId ? { ...e, status: "available" } : e));
-            loadData();
+            loadData(true);
             showToast("Thiết bị đã được đưa về trạng thái Sẵn sàng!", "success");
           } catch (err) {
             showToast("Không thể cập nhật trạng thái thiết bị lên server!", "error");
@@ -1764,7 +1827,7 @@ const startObj = new Date(
                                   }
 
                                   // Đồng bộ lại toàn bộ dữ liệu từ Server
-                                  loadData();
+                                  loadData(true);
                                   showToast("Đã đóng log bảo trì và mở khóa đối tượng vĩnh viễn!", "success");
                                 } catch (err: unknown) {
                                   console.error(err);
