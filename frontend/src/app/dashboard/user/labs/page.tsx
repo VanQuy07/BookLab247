@@ -233,12 +233,7 @@ export default function UserLabsPage() {
             <Link href="/dashboard/user/labs" className="text-blue-600">
               Danh sách phòng
             </Link>
-            <Link
-              href="/dashboard/user/device"
-              className="hover:text-blue-600 transition-colors"
-            >
-              Thiết bị
-            </Link>
+            
             <Link
               href="/dashboard/user/history"
               className="hover:text-blue-600 transition-colors"

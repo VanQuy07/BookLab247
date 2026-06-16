@@ -249,9 +249,7 @@ export default function UserDevicesPage() {
             >
               Danh sách phòng
             </Link>
-            <Link href="/dashboard/user/device" className="text-blue-600">
-              Thiết bị
-            </Link>
+            
             <Link
               href="/dashboard/user/history"
               className="hover:text-blue-600 transition-colors"
