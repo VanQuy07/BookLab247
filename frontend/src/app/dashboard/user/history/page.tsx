@@ -20,6 +20,7 @@ import {
   RefreshCw,
   GitBranch,
   ChevronDown,
+  ChevronRight,
 } from "lucide-react";
 import { getMyBookings, cancelMyBooking, Booking } from "../../../../services/booking";
 
@@ -143,6 +144,7 @@ export default function UserBookingHistoryPage() {
   );
   const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null);
   const [expandedTimeline, setExpandedTimeline] = useState<string | null>(null);
+  const [expandedBooking, setExpandedBooking] = useState<string | null>(null);
 
   const getUserId = useCallback((): string => {
     // Ưu tiên user_id từ localStorage (nếu có)
@@ -597,7 +599,7 @@ export default function UserBookingHistoryPage() {
             </div>
           ) : (
             /* GRID ĐƠN */
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+            <div className="grid grid-cols-1 gap-5">
               <AnimatePresence>
                 {filteredBookings.map((booking) => {
                   const runtimeStatus = getRuntimeStatus(booking);
@@ -632,7 +634,7 @@ export default function UserBookingHistoryPage() {
                       className="bg-white rounded-3xl p-5 border border-gray-200 shadow-sm hover:shadow-md transition-shadow flex flex-col"
                     >
                       {/* TOP ROW: Tên phòng + Badge trạng thái */}
-                      <div className="flex justify-between items-start mb-3">
+                      {/* <div className="flex justify-between items-start mb-3">
                         <div className="min-w-0 mr-3">
                           <h3 className="text-base font-black text-gray-900 truncate">
                             {booking.room?.name || "Phòng Lab"}
@@ -651,7 +653,51 @@ export default function UserBookingHistoryPage() {
                           <StatusIcon className="w-3.5 h-3.5" />
                           {si.text}
                         </span>
+                      </div> */}
+
+                      {/* //Sửa Badge thành đoạn sau: */}
+                      <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <button
+                          onClick={() =>
+                            setExpandedBooking(
+                              expandedBooking === bookingId
+                                ? null
+                                : bookingId
+                            )
+                          }
+                          className="p-1 rounded-lg hover:bg-gray-100"
+                        >
+                          <ChevronRight
+                            className={`w-5 h-5 transition-transform ${
+                              expandedBooking === bookingId
+                                ? "rotate-90"
+                                : ""
+                            }`}
+                          />
+                        </button>
+
+                        <div className="min-w-0">
+                          <h3 className="text-base font-black text-gray-900 truncate">
+                            {booking.room?.name || "Phòng Lab"}
+                          </h3>
+
+                          <p className="text-xs text-gray-500 flex items-center gap-1 mt-0.5">
+                            <MapPin className="w-3.5 h-3.5 shrink-0" />
+                            {booking.room?.building || "—"}
+                            {booking.room?.floor &&
+                              ` • Tầng ${booking.room.floor}`}
+                          </p>
+                        </div>
                       </div>
+
+                      <span
+                        className={`shrink-0 flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold border ${si.bgColor} ${si.color}`}
+                      >
+                        <StatusIcon className="w-3.5 h-3.5" />
+                        {si.text}
+                      </span>
+                    </div>
 
                       {/* THÔNG TIN NGÀY/GIỜ */}
                       <div className="bg-gray-50 rounded-2xl p-3.5 mb-3 grid grid-cols-2 gap-3">
@@ -674,6 +720,16 @@ export default function UserBookingHistoryPage() {
                           </p>
                         </div>
                       </div>
+
+                      <AnimatePresence>
+                    {expandedBooking === bookingId && (
+                      <motion.div
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: "auto", opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        transition={{ duration: 0.2 }}
+                        className="overflow-hidden"
+                      >
 
                       {/* THIẾT BỊ MƯỢN KÈM */}
                       {booking.equipments && booking.equipments.length > 0 && (
@@ -826,6 +882,9 @@ export default function UserBookingHistoryPage() {
                           )}
                         </div>
                       </div>
+                      </motion.div>
+                      )}
+                    </AnimatePresence>
                     </motion.div>
                   );
                 })}

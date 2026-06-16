@@ -203,9 +203,16 @@ async def create_booking(booking: BookingCreate):
             "date": booking.date,
             "start_time_mins": {"$lt": new_end_with_buffer},
             "end_time_with_buffer_mins": {"$gt": new_start},
+            # "status": {
+            #     "$in": ["pending", "confirmed", "CHO_DUYET", "DA_DUYET", "DANG_MUON"]
+            # },
             "status": {
-                "$in": ["pending", "confirmed", "CHO_DUYET", "DA_DUYET", "DANG_MUON"]
-            },
+                "$in": [
+                    "CHO_DUYET",
+                    "DA_DUYET",
+                    "DANG_MUON"
+                ]
+            }
         }
     )
     if overlapping:
@@ -217,7 +224,8 @@ async def create_booking(booking: BookingCreate):
     new_booking_data = booking.model_dump()
     new_booking_data["start_time_mins"] = new_start
     new_booking_data["end_time_with_buffer_mins"] = new_end_with_buffer
-    new_booking_data["status"] = "pending"
+    # new_booking_data["status"] = "pending"
+    new_booking_data["status"] = "CHO_DUYET"
     new_booking_data["rejection_reason"] = None
     new_booking_data["cancel_reason"] = None
     new_booking_data["created_at"] = datetime.now(timezone.utc)
@@ -286,10 +294,27 @@ async def update_booking_status(
         raise HTTPException(status_code=400, detail="ID đơn không hợp lệ")
 
     normalized = status_update.status.strip().lower()
-    if normalized in ("confirmed", "duyệt", "đã duyệt", "approved"):
-        new_status = "confirmed"
-    elif normalized in ("rejected", "từ chối", "bị từ chối", "bi_tu_choi"):
-        new_status = "rejected"
+    # if normalized in ("confirmed", "duyệt", "đã duyệt", "approved"):
+    #     new_status = "confirmed"
+    # elif normalized in ("rejected", "từ chối", "bị từ chối", "bi_tu_choi"):
+    #     new_status = "rejected"
+    normalized = status_update.status.strip().lower()
+
+    if normalized in (
+        "confirmed",
+        "duyệt",
+        "đã duyệt",
+        "approved"
+    ):
+        new_status = "DA_DUYET"
+
+    elif normalized in (
+        "rejected",
+        "từ chối",
+        "bị từ chối",
+        "bi_tu_choi"
+    ):
+        new_status = "DA_TU_CHOI"
     else:
         new_status = status_update.status
 
@@ -297,7 +322,8 @@ async def update_booking_status(
         "status": new_status,
         "updated_at": datetime.now(timezone.utc),
     }
-    if new_status == "rejected":
+    # if new_status == "rejected":
+    if new_status == "DA_TU_CHOI":
         update_data["rejection_reason"] = status_update.status
 
     if status_update.payment_status:
@@ -347,7 +373,8 @@ async def cancel_booking(
         {"_id": ObjectId(booking_id)},
         {
             "$set": {
-                "status": "cancelled",
+                # "status": "cancelled",
+                "status": "DA_HUY",
                 "cancel_reason": cancel_reason,
                 "cancelled_at": datetime.now(timezone.utc),
                 "updated_at": datetime.now(timezone.utc),
