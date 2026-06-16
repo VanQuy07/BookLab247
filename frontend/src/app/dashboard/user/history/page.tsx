@@ -167,6 +167,10 @@ export default function UserBookingHistoryPage() {
       const data = await getMyBookings(userId);
       setBookings(data);
       setIsLoggedIn(true);
+      console.log(
+        "BOOKINGS DATA",
+        JSON.stringify(data, null, 2)
+      );
     } catch (err: any) {
       console.error("Lỗi tải lịch sử:", err);
       setBookings([]);
@@ -606,6 +610,12 @@ export default function UserBookingHistoryPage() {
                     booking.duration_mins,
                     booking.buffer_mins
                   );
+                  console.log("BOOKING DEBUG:", {
+                    id: booking.id,
+                    status: booking.status,
+                    rejection_reason: booking.rejection_reason,
+                    cancel_reason: (booking as any).cancel_reason,
+                  });
                   const hasRejection = !!(
                     booking.rejection_reason &&
                     ["DA_TU_CHOI", "DA_HUY"].includes(
@@ -959,16 +969,17 @@ export default function UserBookingHistoryPage() {
                 </div>
 
                 {/* Lý do từ chối */}
-                {selectedBooking.rejection_reason && (
-                  <div className="bg-red-50 border border-red-100 rounded-xl p-4">
-                    <p className="text-xs font-bold text-red-500 uppercase mb-1">
-                      Lý do từ chối / hủy
-                    </p>
-                    <p className="text-sm text-red-700 leading-relaxed">
-                      {selectedBooking.rejection_reason}
-                    </p>
-                  </div>
-                )}
+                {selectedBooking.rejection_reason &&
+              ["DA_TU_CHOI", "DA_HUY"].includes(normalizeStatus(selectedBooking.status)) && (
+              <div className="bg-red-50 border border-red-100 rounded-xl p-4">
+                <p className="text-xs font-bold text-red-500 uppercase mb-1">
+                  Lý do từ chối / hủy
+                </p>
+                <p className="text-sm text-red-700 leading-relaxed">
+                  {selectedBooking.rejection_reason}
+                </p>
+              </div>
+            )}
 
                 {/* TIMELINE THEO DÕI */}
                 <div>
