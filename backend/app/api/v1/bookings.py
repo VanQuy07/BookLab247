@@ -35,6 +35,18 @@ class BookingCancelRequest(BaseModel):
     cancel_reason: str = ""
 
 
+class MaintenanceLogCreate(BaseModel):
+    type: str
+    item_id: str
+    item_name: str
+    reason: str
+    start_date: str
+    start_time: str
+    end_date: str
+    end_time: str
+    status: str = "pending"
+
+
 class FixedBookingCreate(BaseModel):
     room_id: str
     title: str
@@ -191,12 +203,48 @@ async def delete_fixed_booking(rule_id: str):
     return {"success": True}
 
 
+# ================== 0.5. QUẢN LÝ BẢO TRÌ ==================
+@router.post("/maintenance")
+async def create_maintenance(log: MaintenanceLogCreate):
+    data = log.model_dump()
+    data["created_at"] = datetime.now(timezone.utc)
+    result = await db["maintenance_logs"].insert_one(data)
+    created = await db["maintenance_logs"].find_one({"_id": result.inserted_id})
+    created["id"] = str(created["_id"])
+    created.pop("_id", None)
+    return created
+
+
+@router.get("/maintenance")
+async def get_maintenance_logs():
+    cursor = db["maintenance_logs"].find().sort("created_at", -1)
+    logs_list = await cursor.to_list(length=500)
+    results = []
+    for doc in logs_list:
+        doc["id"] = str(doc["_id"])
+        doc.pop("_id", None)
+        results.append(doc)
+    return results
+
+
+@router.put("/maintenance/{log_id}")
+async def update_maintenance(log_id: str, status_data: dict):
+    if not ObjectId.is_valid(log_id):
+        raise HTTPException(status_code=400, detail="ID không hợp lệ")
+    await db["maintenance_logs"].update_one(
+        {"_id": ObjectId(log_id)},
+        {"$set": {"status": status_data.get("status", "completed")}},
+    )
+    return {"success": True}
+
+
 # ================== 1. TẠO ĐƠN ==================
 @router.post("")
 async def create_booking(booking: BookingCreate):
     new_start = time_to_mins(booking.start_time)
     new_end_with_buffer = new_start + booking.duration_mins + booking.buffer_mins
 
+    # 1. KIỂM TRA TRÙNG LỊCH ĐẶT LẺ
     overlapping = await db["bookings"].find_one(
         {
             "room_id": booking.room_id,
@@ -218,9 +266,34 @@ async def create_booking(booking: BookingCreate):
     if overlapping:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Phòng đã có người đặt vào khung giờ này!",
+            detail="Phòng đã có khách đặt lẻ vào khung giờ này!",
         )
 
+    # 2. NÂNG CẤP 1A: KIỂM TRA TRÙNG LỊCH CỐ ĐỊNH (FIXED BOOKINGS)
+    target_date_obj = datetime.strptime(booking.date, "%Y-%m-%d")
+    js_day = (
+        target_date_obj.weekday() + 1
+    ) % 7  # Chuyển sang chuẩn getDay() của JS (0=CN, 1=T2)
+
+    overlapping_fixed = await db["fixed_bookings"].find_one(
+        {
+            "room_id": booking.room_id,
+            "status": "active",
+            "start_date": {"$lte": booking.date},
+            "end_date": {"$gte": booking.date},
+            "days_of_week": js_day,
+            "exception_dates": {"$ne": booking.date},
+        }
+    )
+
+    if overlapping_fixed:
+        f_start = time_to_mins(overlapping_fixed.get("start_time", "00:00"))
+        f_end = time_to_mins(overlapping_fixed.get("end_time", "00:00"))
+        if new_start < f_end and new_end_with_buffer > f_start:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Phòng đang có Lịch cố định ({overlapping_fixed.get('title')}) vào khung giờ này!",
+            )
     new_booking_data = booking.model_dump()
     new_booking_data["start_time_mins"] = new_start
     new_booking_data["end_time_with_buffer_mins"] = new_end_with_buffer
@@ -238,7 +311,6 @@ async def create_booking(booking: BookingCreate):
     return created
 
 
-# ================== 2. LẤY TẤT CẢ (ADMIN) ==================
 @router.get("")
 async def get_bookings(
     authorization: str | None = Header(default=None),
@@ -247,24 +319,60 @@ async def get_bookings(
 
     bookings_cursor = db["bookings"].find().sort("created_at", -1)
     bookings_list = await bookings_cursor.to_list(length=500)
+
+    today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    confirmed_statuses = [
+        "confirmed",
+        "checked-in",
+        "CHO_DUYET",
+        "DA_DUYET",
+        "DANG_MUON",
+    ]
+    confirmed_bookings = [
+        b for b in bookings_list if b.get("status") in confirmed_statuses
+    ]
+
     results = []
     for doc in bookings_list:
         doc = _serialize_booking(doc)
         room = await _get_room_info(doc.get("room_id", ""))
         doc["room"] = room
+
+        doc["is_urgent"] = doc.get("date") == today_str
+        doc["is_conflict"] = False
+        doc["conflict_with"] = ""
+
+        if doc.get("status") in ["pending", "CHO_DUYET"]:
+            b_start = doc.get("start_time_mins", 0)
+            b_end = doc.get("end_time_with_buffer_mins", 0)
+
+            for cb in confirmed_bookings:
+                if cb.get("room_id") == doc.get("room_id") and cb.get(
+                    "date"
+                ) == doc.get("date"):
+                    cb_start = cb.get("start_time_mins", 0)
+                    cb_end = cb.get("end_time_with_buffer_mins", 0)
+
+                    if b_start < cb_end and b_end > cb_start:
+                        doc["is_conflict"] = True
+                        doc["conflict_with"] = cb.get("customer_name", "Khách ẩn danh")
+                        break
+
         results.append(doc)
+
     return results
 
 
-# ================== 3. LẤY ĐƠN CỦA USER ĐANG ĐĂNG NHẬP ==================
-@router.get("/me")
-async def get_my_bookings(
-    user_id: str,
-    authorization: str | None = Header(default=None),
-):
-    if not user_id or not user_id.strip():
-        raise HTTPException(status_code=400, detail="Thiếu user_id")
+# ================== 3. API DUYỆT / TỪ CHỐI ĐƠN - ĐÃ MERGE ==================
+class BookingStatusUpdate(BaseModel):
+    status: str
+    payment_status: str | None = None
+    cancel_reason: str = ""
 
+
+# ================== 3.5. API LẤY LỊCH SỬ ĐẶT CỦA USER ==================
+@router.get("/user/{user_id}")
+async def get_user_bookings(user_id: str):
     await _auto_update_booking_statuses()
 
     uid = user_id.strip()
@@ -293,12 +401,32 @@ async def update_booking_status(
     if not ObjectId.is_valid(booking_id):
         raise HTTPException(status_code=400, detail="ID đơn không hợp lệ")
 
-    normalized = status_update.status.strip().lower()
+    # Chuẩn hóa status của Master + Frontend của Hằng đang gửi "cancelled"
+    # normalized = status_update.status.strip().lower()
     # if normalized in ("confirmed", "duyệt", "đã duyệt", "approved"):
     #     new_status = "confirmed"
     # elif normalized in ("rejected", "từ chối", "bị từ chối", "bi_tu_choi"):
     #     new_status = "rejected"
     normalized = status_update.status.strip().lower()
+
+    #Trước khi sửa lúc 14h38 18062026
+    # if normalized in (
+    #     "confirmed",
+    #     "duyệt",
+    #     "đã duyệt",
+    #     "approved"
+    # ):
+    #     new_status = "DA_DUYET"
+
+    # elif normalized in (
+    #     "rejected",
+    #     "từ chối",
+    #     "bị từ chối",
+    #     "bi_tu_choi"
+    # ):
+    #     new_status = "DA_TU_CHOI"
+    # else:
+    #     new_status = status_update.status
 
     if normalized in (
         "confirmed",
@@ -315,6 +443,14 @@ async def update_booking_status(
         "bi_tu_choi"
     ):
         new_status = "DA_TU_CHOI"
+
+    elif normalized in (
+        "cancelled",
+        "hủy",
+        "da_huy"
+    ):
+        new_status = "DA_HUY"
+
     else:
         new_status = status_update.status
 
@@ -323,8 +459,11 @@ async def update_booking_status(
         "updated_at": datetime.now(timezone.utc),
     }
     # if new_status == "rejected":
-    if new_status == "DA_TU_CHOI":
+    if new_status in ("DA_TU_CHOI", "DA_HUY"):
         update_data["rejection_reason"] = status_update.status
+
+        if status_update.cancel_reason:
+            update_data["cancel_reason"] = status_update.cancel_reason
 
     if status_update.payment_status:
         update_data["payment_status"] = status_update.payment_status
@@ -333,9 +472,11 @@ async def update_booking_status(
         {"_id": ObjectId(booking_id)},
         {"$set": update_data},
     )
+
     if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="Không tìm thấy đơn đặt phòng")
 
+    # Trả về data đầy đủ để Master không bị lỗi
     updated = await db["bookings"].find_one({"_id": ObjectId(booking_id)})
     updated = _serialize_booking(updated)
     updated["room"] = await _get_room_info(updated.get("room_id", ""))
@@ -343,6 +484,7 @@ async def update_booking_status(
 
 
 # ================== 5. USER TỰ HỦY ĐƠN ==================
+# Giữ nguyên API này của nhánh Master vì nó phục vụ trang User
 @router.patch("/{booking_id}/cancel")
 async def cancel_booking(
     booking_id: str,
@@ -384,5 +526,6 @@ async def cancel_booking(
 
     updated = await db["bookings"].find_one({"_id": ObjectId(booking_id)})
     updated = _serialize_booking(updated)
+
     updated["room"] = await _get_room_info(updated.get("room_id", ""))
     return updated

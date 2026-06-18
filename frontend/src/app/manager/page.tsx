@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -28,7 +28,12 @@ import {
   CalendarRange,
   Lock,
   SkipForward,
-  Edit
+  Edit,
+  UserCircle,
+  Tag,
+  History,
+  Info,
+  Sparkles
 } from "lucide-react";
 
 import { labService } from "../../services/lab";
@@ -46,6 +51,7 @@ interface ManagerRoom {
   maintenanceMode?: boolean;
   isBooked?: boolean;
   price?: number;
+  pricePerHour?: number;
 }
 
 interface EquipmentItem {
@@ -81,7 +87,15 @@ interface BookingItem {
   note: string;
   equipments?: BorrowedEquipment[];
   date?: string;
+ 
+  is_urgent?: boolean;
+  is_conflict?: boolean;
+  conflict_with?: string;
+  cancel_reason?: string;
+
+  paymentStatus?: "CHƯA THANH TOÁN" | "ĐANG CHỜ DUYỆT" | "HOÀN THÀNH";
 }
+
 interface FixedBookingRule {
   id: string;
   roomId: string;
@@ -97,9 +111,49 @@ interface FixedBookingRule {
   exceptionDates?: string[];
 }
 
+// --- YÊU CẦU: STRICT TYPE CHO TRA CỨU ---
+interface CustomerProfile {
+  phone: string;
+  fullName: string;
+  totalBookings: number;
+  completed: number;
+  cancelled: number;
+  tags: ("VIP" | "Warning" | "Regular")[];
+  internalNote: string;
+  bookingHistory: BookingItem[];
+}
+interface MaintenanceLog {
+  id: string;
+  type: "room" | "equipment";
+  itemId: string;
+  itemName: string;
+  reason: string;
+  startDate: string;
+  startTime: string;
+  endDate: string;
+  endTime: string;
+  status: "pending" | "completed";
+}
+
+interface EquipmentTrackingInfo {
+  equipmentId: string;
+  name: string;
+  inStock: number;
+  total: number;
+  currentlyBorrowedBy: {
+    bookingId: string;
+    roomName: string;
+    customerName: string;
+    quantity: number;
+    expectedReturnTime: string;
+    isOverdue: boolean;
+    originalBooking: BookingItem;
+  }[];
+}
+
 type MenuTab =
   | "dashboard"
-  |  "master-schedule"
+  | "master-schedule"
   | "labs"
   | "equipments"
   | "timeline"
@@ -137,9 +191,19 @@ const INITIAL_BOOKINGS: BookingItem[] = [
   },
 ];
 
+const SectionHeader = ({ title, description, action }: { title: string, description: string, action?: React.ReactNode }) => (
+  <div className="flex justify-between items-end mb-6">
+    <div>
+      <h2 className="text-2xl font-black text-gray-900 tracking-tight">{title}</h2>
+      <p className="text-gray-500 font-medium text-sm mt-1">{description}</p>
+    </div>
+    {action && <div>{action}</div>}
+  </div>
+);
+
 export default function ManagerDashboardPage() {
   const router = useRouter();
-  const [activeMenu, setActiveMenu] = useState<MenuTab>("timeline");
+  const [activeMenu, setActiveMenu] = useState<MenuTab>("dashboard");
   const [loading, setLoading] = useState<boolean>(true);
 
   const [timeFilter, setTimeFilter] = useState<TimeFilter>("today");
@@ -150,7 +214,30 @@ export default function ManagerDashboardPage() {
   const [currentTime, setCurrentTime] = useState(new Date());
 
   const [rooms, setRooms] = useState<ManagerRoom[]>([]);
-  const [bookings, setBookings] = useState<BookingItem[]>(INITIAL_BOOKINGS);
+  //const [bookings, setBookings] = useState<BookingItem[]>(INITIAL_BOOKINGS);
+  const [bookings, setBookings] = useState<BookingItem[]>([]);
+
+  const prevPendingCountRef = useRef(0);
+  const pendingCount = bookings.filter((b) => b.status === "pending" || b.status === "CHO_DUYET").length;
+
+  // useEffect(() => {
+  //   if (pendingCount > prevPendingCountRef.current) {
+  //     const audio = new Audio("https://actions.google.com/sounds/v1/alarms/beep_short.ogg");
+      
+  //     audio.play().catch(e => console.log("Trình duyệt chặn tự động phát âm thanh, cần user click vào trang trước."));
+  //   }
+  //   prevPendingCountRef.current = pendingCount;
+  // }, [pendingCount]);
+
+  useEffect(() => {
+    if (pendingCount > prevPendingCountRef.current) {
+      
+      const audio = new Audio("https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3");
+      audio.play().catch(e => console.log("Trình duyệt chặn tự động phát âm thanh, cần user click vào trang trước."));
+    }
+    prevPendingCountRef.current = pendingCount;
+  }, [pendingCount]);
+
   const [equipments, setEquipments] = useState<EquipmentItem[]>([]);
   const [buildingFilter, setBuildingFilter] = useState<string>("all");
   const [roomSearchQuery, setRoomSearchQuery] = useState("");
@@ -201,6 +288,105 @@ export default function ManagerDashboardPage() {
   const [selectedBooking, setSelectedBooking] = useState<BookingItem | null>(
     null,
   );
+
+  // ================= STATES THÔNG MINH & THANH TOÁN =================
+  const [todaySearchQuery, setTodaySearchQuery] = useState<string>("");
+
+  // Hàm tính tổng tiền cho Modal
+  const calculateBookingTotal = (booking: BookingItem): number => {
+    const room = rooms.find(r => (r.id === booking.roomId || r._id === booking.roomId));
+    const roomPrice = Number(room?.price || 0);
+    const roomTotal = (booking.durationMins / 60) * roomPrice;
+    const eqTotal = (booking.equipments || []).reduce((sum, eq) => sum + (eq.price * eq.quantity), 0);
+    return roomTotal + eqTotal;
+  };
+
+  // Hàm Xác nhận thanh toán & Hoàn thành ca
+  // ================= XỬ LÝ ĐỒNG BỘ SỐ LƯỢNG THIẾT BỊ TỒN KHO =================
+  const syncEquipmentStock = async (equipmentsToSync: BorrowedEquipment[], action: "borrow" | "return") => {
+    const token = localStorage.getItem("access_token");
+    if (!equipmentsToSync || equipmentsToSync.length === 0) return;
+
+    // 1. CẬP NHẬT GIAO DIỆN KHO NGAY LẬP TỨC CHO NGƯỜI DÙNG THẤY (Không cần chờ API)
+    setEquipments(prev => prev.map(e => {
+      const borrowed = equipmentsToSync.find(syncEq => syncEq.id === (e.id || e._id));
+      if (borrowed) {
+        const qtyChange = action === "borrow" ? Number(borrowed.quantity) : -Number(borrowed.quantity);
+        return { ...e, inUseQuantity: Math.max(0, (e.inUseQuantity || 0) + qtyChange) };
+      }
+      return e;
+    }));
+
+    // 2. GỬI API NGẦM XUỐNG BACKEND
+    for (const borrowed of equipmentsToSync) {
+      const eqId = borrowed.id;
+      const currentEq = equipments.find(e => (e.id || e._id) === eqId);
+      if (currentEq) {
+        const qtyChange = action === "borrow" ? Number(borrowed.quantity) : -Number(borrowed.quantity);
+        const newInUse = Math.max(0, (currentEq.inUseQuantity || 0) + qtyChange); 
+        try {
+          await fetch(`https://booklab247.onrender.com/api/v1/equipments/${eqId}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+            body: JSON.stringify({ ...currentEq, inUseQuantity: newInUse })
+          });
+        } catch (e) {
+          console.error("Lỗi đồng bộ kho cho thiết bị:", eqId, e);
+        }
+      }
+    }
+  };
+
+  // ================= XÁC NHẬN THANH TOÁN & HOÀN THÀNH CA MƯỢN =================
+  const handleConfirmPayment = async (bookingId: string) => {
+    // 1. Khóa nút và bật hiệu ứng Đang xử lý (để tránh click đúp và báo cho user biết)
+    const btn = document.getElementById("btn-confirm-payment") as HTMLButtonElement;
+    if (btn) {
+      btn.disabled = true;
+      btn.innerHTML = `<div class="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div> Đang xử lý...`;
+    }
+
+    const targetBooking = bookings.find((b) => b.id === bookingId);
+
+    try {
+      const token = localStorage.getItem("access_token");
+      const API_URL = "https://booklab247.onrender.com/api/v1";
+
+      const response = await fetch(`${API_URL}/bookings/${bookingId}/status`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ status: "completed", payment_status: "HOÀN THÀNH" })
+      });
+
+      if (!response.ok) {
+         const errData = await response.json().catch(() => ({}));
+         throw new Error(errData.detail || "Backend từ chối cập nhật trạng thái!");
+      }
+
+      // 2. Gọi hàm Hoàn kho thiết bị
+      if (targetBooking && targetBooking.equipments && targetBooking.equipments.length > 0) {
+        await syncEquipmentStock(targetBooking.equipments, "return");
+      }
+
+      // 3. ĐÓNG MODAL NGAY LẬP TỨC CHO MƯỢT
+      setSelectedBooking(null);
+      
+      // 4. Cập nhật giao diện và gọi lại Data
+      setBookings(prev => prev.map(b => b.id === bookingId ? { ...b, status: "completed", paymentStatus: "HOÀN THÀNH" } : b));
+      showToast("✅ Đã nhận tiền, kết thúc ca và hoàn kho thiết bị!", "success");
+      loadData(true); 
+
+    } catch (e: any) {
+      // 🚨 Bật Alert đỏ để bạn bắt được chính xác lỗi từ Backend nếu có
+      alert(`⛔ LỖI SERVER:\n${e.message}\n(Hãy chụp màn hình lỗi này gửi cho Backend)`);
+    } finally {
+      // Mở khóa lại nút nếu lỗi
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-banknote"><rect width="20" height="12" x="2" y="6" rx="2"/><circle cx="12" cy="12" r="2"/><path d="M6 12h.01M18 12h.01"/></svg> Nhận tiền & Kết thúc`;
+      }
+    }
+  };
 
   // ================= STATES THỜI KHÓA BIỂU CỐ ĐỊNH =================
   const [fixedBookings, setFixedBookings] = useState<FixedBookingRule[]>([]);
@@ -258,7 +444,6 @@ export default function ManagerDashboardPage() {
   };
 
   // HÀM CHỐT TẠO / CẬP NHẬT LỊCH CỐ ĐỊNH
-  // HÀM CHỐT TẠO / CẬP NHẬT LỊCH CỐ ĐỊNH LÊN DATABASE
   const handleCreateFixedRule = async (mode: "skip" | "override") => {
     let exceptions = editingRuleId ? fixedBookings.find(r => r.id === editingRuleId)?.exceptionDates || [] : [];
 
@@ -317,7 +502,7 @@ export default function ManagerDashboardPage() {
         showToast("Tạo Chuỗi Thời khóa biểu thành công!", "success");
       }
       setShowFixedModal(false);
-      loadData(); // Gọi lại loadData để cập nhật UI đồng bộ với Server
+      loadData(true); // Gọi lại loadData để cập nhật UI đồng bộ với Server
     } catch(e) {
       showToast("Lỗi khi lưu lịch cố định", "error");
     }
@@ -325,7 +510,6 @@ export default function ManagerDashboardPage() {
 
 
   // HÀM TÙY CHỈNH: HỦY 1 NGÀY BẤT KỲ TRONG CHUỖI LỊCH CỐ ĐỊNH
-  // HÀM TÙY CHỈNH: HỦY 1 NGÀY BẤT KỲ TRONG CHUỖI LỊCH CỐ ĐỊNH (UPDATE LÊN DATABASE)
   const handleCancelFixedDate = async (ruleId: string, dateToCancel: string) => {
     if (confirm(`Bạn có chắc chắn muốn HỦY lịch cố định của ngày ${dateToCancel.split('-').reverse().join('/')} không?\nLưu ý: Chỉ hủy riêng ngày này, các ngày khác trong chuỗi vẫn giữ nguyên.`)) {
       const rule = fixedBookings.find(r => r.id === ruleId);
@@ -349,7 +533,7 @@ export default function ManagerDashboardPage() {
                 status: rule.status
               })
             });
-            loadData();
+            loadData(true);
             showToast(`Đã hủy lịch cố định ngày ${dateToCancel}`, "success");
           } catch(e) {}
         }
@@ -357,16 +541,140 @@ export default function ManagerDashboardPage() {
     }
   };
 
-  // ================= STATES MAINTENANCE REPORT =================
-  const [reportModal, setReportModal] = useState<{
-    isOpen: boolean;
-    type: "room" | "equipment";
-    itemId: string;
-    itemName: string;
-    reason: string;
-  }>({ isOpen: false, type: "room", itemId: "", itemName: "", reason: "" });
+  // ================= STATES TRA CỨU THÔNG TIN (LOOKUP) =================
+  const [lookupTab, setLookupTab] = useState<"customer" | "room" | "equipment">("customer");
+  const [lookupSearch, setLookupSearch] = useState<string>("");
+  
+  // State cho Smart Room Search (Reverse Lookup)
+  const [smartRoomForm, setSmartRoomForm] = useState({
+    date: selectedDate,
+    startTime: "08:00",
+    endTime: "11:30",
+    minCapacity: 10,
+    equipmentId: "" // Bộ lọc thiết bị mở rộng
+  });
 
-  const API_URL = "https://booklab247.onrender.com/api/v1";
+  // ================= HỆ THỐNG CẢNH BÁO QUÁ HẠN TỰ ĐỘNG =================
+  const notifiedOverdues = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    let hasNewOverdue = false;
+    bookings.forEach(b => {
+      // Chỉ kiểm tra các ca Đang mượn (Checked-in) và có thiết bị
+      if (b.status === "checked-in" && b.equipments && b.equipments.length > 0) {
+        const bDate = b.date || selectedDate;
+        const endMins = timeToMins(b.startTime) + b.durationMins;
+        const endH = Math.floor(endMins / 60) % 24;
+        const endM = endMins % 60;
+        const returnDateTime = new Date(`${bDate}T${endH.toString().padStart(2,'0')}:${endM.toString().padStart(2,'0')}:00`);
+
+        // Nếu thời gian hiện tại vượt quá giờ trả dự kiến & chưa từng thông báo
+        if (currentTime > returnDateTime && !notifiedOverdues.current.has(b.id)) {
+          hasNewOverdue = true;
+          notifiedOverdues.current.add(b.id);
+        }
+      }
+    });
+
+    if (hasNewOverdue) {
+      showToast("Cảnh báo: Có thiết bị mượn đã quá giờ trả!", "error");
+    }
+  }, [currentTime, bookings]);
+
+  // Mô phỏng lưu trữ ghi chú Khách hàng tại Local (Vì chưa có DB Customer riêng)
+  const [customerNotes, setCustomerNotes] = useState<Record<string, { tags: ("VIP"|"Warning"|"Regular")[], note: string }>>({});
+
+  // ================= STATES MAINTENANCE REPORT =================
+  // ================= STATES BẢO TRÌ NHANH & SỰ CỐ =================
+  const [maintenanceLogs, setMaintenanceLogs] = useState<MaintenanceLog[]>([]);
+  const [maintenanceModal, setMaintenanceModal] = useState<{
+    isOpen: boolean; type: "room" | "equipment"; itemId: string; itemName: string; reason: string;
+    startDate: string; startTime: string; endDate: string; endTime: string;
+  }>({ 
+    isOpen: false, type: "room", itemId: "", itemName: "", reason: "", 
+    startDate: selectedDate, startTime: "08:00", endDate: selectedDate, endTime: "17:00" 
+  });
+
+  // ================= HỆ THỐNG TỰ ĐỘNG CHUYỂN TRẠNG THÁI BẢO TRÌ =================
+  useEffect(() => {
+    const nowMs = currentTime.getTime();
+    let shouldUpdateRooms = false;
+    let shouldUpdateEqs = false;
+    let updatedLogs = false;
+
+    const newRooms = [...rooms];
+    const newEqs = [...equipments];
+    const newLogs = [...maintenanceLogs];
+
+    newLogs.forEach(log => {
+      if (log.status === "pending") {
+        const startMs = new Date(`${log.startDate}T${log.startTime}:00`).getTime();
+        const endMs = new Date(`${log.endDate}T${log.endTime}:00`).getTime();
+
+        if (nowMs >= startMs && nowMs <= endMs) {
+          // TỚI GIỜ BẢO TRÌ -> Tự động bật trạng thái bảo trì
+          if (log.type === "room") {
+            const rIdx = newRooms.findIndex(r => (r.id || r._id) === log.itemId);
+            if (rIdx !== -1 && !newRooms[rIdx].maintenanceMode) {
+              newRooms[rIdx] = { ...newRooms[rIdx], maintenanceMode: true };
+              shouldUpdateRooms = true;
+            }
+          } else {
+            const eIdx = newEqs.findIndex(e => (e.id || e._id) === log.itemId);
+            if (eIdx !== -1 && newEqs[eIdx].status !== "maintenance") {
+              newEqs[eIdx] = { ...newEqs[eIdx], status: "maintenance" };
+              shouldUpdateEqs = true;
+            }
+          }
+        } else if (nowMs > endMs) {
+          // HẾT GIỜ BẢO TRÌ -> Tự động hoàn thành
+          log.status = "completed";
+          updatedLogs = true;
+
+          // Gửi API ngầm để cập nhật trạng thái trong Database
+          fetch(`https://booklab247.onrender.com/api/v1/bookings/maintenance/${log.id}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("access_token")}` },
+            body: JSON.stringify({ status: "completed" })
+          }).catch(()=>{});
+
+          // Mở lại phòng/thiết bị
+          if (log.type === "room") {
+            const rIdx = newRooms.findIndex(r => (r.id || r._id) === log.itemId);
+            if (rIdx !== -1 && newRooms[rIdx].maintenanceMode) {
+              newRooms[rIdx] = { ...newRooms[rIdx], maintenanceMode: false };
+              shouldUpdateRooms = true;
+            }
+          } else {
+            const eIdx = newEqs.findIndex(e => (e.id || e._id) === log.itemId);
+            if (eIdx !== -1 && newEqs[eIdx].status === "maintenance") {
+              newEqs[eIdx] = { ...newEqs[eIdx], status: "available" };
+              shouldUpdateEqs = true;
+            }
+          }
+        }
+      }
+    });
+
+    if (shouldUpdateRooms) setRooms(newRooms);
+    if (shouldUpdateEqs) setEquipments(newEqs);
+    if (updatedLogs) setMaintenanceLogs(newLogs);
+  }, [currentTime, maintenanceLogs]);
+
+
+  const [reportModal, setReportModal] = useState<{
+    isOpen: boolean; type: "room" | "equipment"; itemId: string; itemName: string; reason: string;
+    startDate: string; startTime: string; endDate: string; endTime: string;
+  }>({ 
+    isOpen: false, type: "room", itemId: "", itemName: "", reason: "", 
+    startDate: selectedDate, startTime: "08:00", endDate: selectedDate, endTime: "17:00" 
+  });
+
+  //const API_URL = `${process.env.NEXT_PUBLIC_API_URL}/api/v1`;
+  //const API_URL = //"https://booklab247.onrender.com/api/v1";
+  const API_URL = "http://127.0.0.1:8000/api/v1";
+  
+
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 60000);
@@ -379,10 +687,12 @@ export default function ManagerDashboardPage() {
     else loadData();
   }, [router]);
 
-  const loadData = async () => {
-    setLoading(true);
+  const loadData = async (isSilent = false) => {
+    if (!isSilent) setLoading(true);
+    
     const token = localStorage.getItem("access_token");
     const API_URL = "https://booklab247.onrender.com/api/v1"; // Giữ nguyên link Cloud chạy đúng của bạn
+
 
     // ==========================================
     // 1. LUỒNG TẢI LỊCH ĐẶT PHÒNG (BOOKINGS) -> ĐÃ BỔ SUNG
@@ -398,19 +708,25 @@ export default function ManagerDashboardPage() {
         const bkData = await bkRes.json();
         const rawBookings = Array.isArray(bkData) ? bkData : bkData.data || [];
 
-        const formattedBookings = rawBookings.map((b: any) => ({
-          id: b.id || b._id,
-          roomId: b.room_id || b.roomId,
-          customerName:
-            b.customer_name || b.customerName || "Khách chưa rõ tên",
-          phone: b.phone || "",
-          status: b.status || "pending",
-          date: b.date || "",
-          startTime: b.start_time || b.startTime || "00:00",
+        // Ép kiểu chuẩn xác, không dùng any
+        const formattedBookings = rawBookings.map((b: Record<string, unknown>): BookingItem => ({
+          id: String(b.id || b._id || ""),
+          roomId: String(b.room_id || b.roomId || ""),
+          customerName: String(b.customer_name || b.customerName || "Khách chưa rõ tên"),
+          phone: String(b.phone || ""),
+          status: String(b.status || "pending"),
+          date: String(b.date || ""),
+          startTime: String(b.start_time || b.startTime || "00:00"),
           durationMins: Number(b.duration_mins || b.durationMins || 0),
           bufferMins: Number(b.buffer_mins || b.bufferMins || 15),
-          note: b.note || "",
-          equipments: b.equipments || [],
+
+          note: String(b.note || ""),
+          equipments: (b.equipments as BorrowedEquipment[]) || [],
+          is_urgent: Boolean(b.is_urgent || false),
+          is_conflict: Boolean(b.is_conflict || false),
+          conflict_with: String(b.conflict_with || ""),
+          cancel_reason: String(b.cancel_reason || ""),
+          paymentStatus: (b.payment_status as "CHƯA THANH TOÁN" | "ĐANG CHỜ DUYỆT" | "HOÀN THÀNH") || "CHƯA THANH TOÁN",
         }));
         setBookings(formattedBookings);
       } else {
@@ -483,6 +799,32 @@ export default function ManagerDashboardPage() {
     }
 
     // ==========================================
+    // 2.8. LUỒNG TẢI LỊCH BẢO TRÌ TỪ DATABASE
+    // ==========================================
+    try {
+      const mtRes = await fetch(`${API_URL}/bookings/maintenance`, {
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }
+      });
+      if (mtRes.ok) {
+        const mtData = await mtRes.json();
+        setMaintenanceLogs(mtData.map((m: any) => ({
+          id: m.id,
+          type: m.type,
+          itemId: m.item_id,
+          itemName: m.item_name,
+          reason: m.reason,
+          startDate: m.start_date,
+          startTime: m.start_time,
+          endDate: m.end_date,
+          endTime: m.end_time,
+          status: m.status
+        })));
+      }
+    } catch (err) {
+      console.error("Lỗi tải lịch bảo trì:", err);
+    }
+
+    // ==========================================
     // 3. LUỒNG TẢI THIẾT BỊ 
     // ==========================================
     try {
@@ -504,7 +846,8 @@ export default function ManagerDashboardPage() {
       setEquipments([]);
     }
 
-    setLoading(false);
+    if (!isSilent) setLoading(false);
+  
   };
 
   const handleLogout = () => {
@@ -542,22 +885,24 @@ export default function ManagerDashboardPage() {
   };
 
   const calculateTotalCost = () => {
-    const startObj = new Date(
-      `${quickBookData.startDate}T${quickBookData.startTime}`,
+const startObj = new Date(
+      `${quickBookData.startDate}T${quickBookData.startTime}`
     );
     const endObj = new Date(
-      `${quickBookData.endDate}T${quickBookData.endTime}`,
+      `${quickBookData.endDate}T${quickBookData.endTime}`
     );
     const diffMins = Math.max(
       0,
-      (endObj.getTime() - startObj.getTime()) / 60000,
+      (endObj.getTime() - startObj.getTime()) / 60000
     );
 
     const selectedRoom = rooms.find(
-      (r) => (r.id || r._id) === quickBookData.roomId,
+      (r) => (r.id || r._id) === quickBookData.roomId
     );
-    const roomPricePerHour = Number(selectedRoom?.price || 100000);
-
+    // Giữ lại logic ưu tiên lấy pricePerHour của bạn
+    const roomPricePerHour = Number(
+      selectedRoom?.pricePerHour || selectedRoom?.price || 100000
+    );
     const roomTotal = (diffMins / 60) * roomPricePerHour;
     const eqTotal = Object.values(quickBookData.equipments).reduce(
       (sum, eq) => sum + eq.price * eq.quantity,
@@ -566,6 +911,7 @@ export default function ManagerDashboardPage() {
 
     return roomTotal + eqTotal;
   };
+
 
   const updateEqQuantity = (eqId: string, delta: number) => {
     const currentEqs = { ...quickBookData.equipments };
@@ -634,6 +980,45 @@ export default function ManagerDashboardPage() {
       quantity: data.quantity,
       price: data.price,
     }));
+    // LỖI 1A: KIỂM TRA TRÙNG VỚI LỊCH CỐ ĐỊNH Ở FRONTEND
+    const targetDayOfWeek = startDateTime.getDay();
+    const isConflictFixed = fixedBookings.some(fb => {
+      if (fb.roomId !== targetId || fb.status !== "active") return false;
+      if (fb.exceptionDates?.includes(quickBookData.startDate)) return false;
+      if (!fb.daysOfWeek.includes(targetDayOfWeek)) return false;
+      if (quickBookData.startDate < fb.startDate || quickBookData.startDate > fb.endDate) return false;
+      const fStartMs = new Date(`${quickBookData.startDate}T${fb.startTime}`).getTime();
+      const fEndMs = new Date(`${quickBookData.startDate}T${fb.endTime}`).getTime();
+      return newStartMs < fEndMs && newEndMsWithBuffer > fStartMs;
+    });
+
+    if (isConflictFixed) return alert("⛔ LỖI TRÙNG LỊCH!\nPhòng đang có Lịch cố định hoạt động vào khung giờ này.");
+
+    // LỖI 3C: KIỂM TRA TRÙNG VỚI LỊCH BẢO TRÌ CỦA PHÒNG
+    const isConflictMaintenance = maintenanceLogs.some(mt => {
+      if (mt.type === "room" && mt.itemId === targetId && mt.status !== "completed") {
+         if (quickBookData.startDate >= mt.startDate && quickBookData.startDate <= mt.endDate) {
+             const mtStartMs = new Date(`${quickBookData.startDate}T${mt.startTime}`).getTime();
+             const mtEndMs = new Date(`${quickBookData.startDate}T${mt.endTime}`).getTime();
+             return newStartMs < mtEndMs && newEndMsWithBuffer > mtStartMs;
+         }
+      }
+      return false;
+    });
+    if (isConflictMaintenance) return alert("⛔ LỖI BẢO TRÌ!\nPhòng đang được Lên lịch Sửa chữa trong khung giờ này. Vui lòng chọn giờ khác!");
+
+    // LỖI 3D: KIỂM TRA TRÙNG BẢO TRÌ THIẾT BỊ MƯỢN KÈM
+    const eqConflict = maintenanceLogs.find(mt => {
+      if (mt.type === "equipment" && mt.status !== "completed" && quickBookData.equipments[mt.itemId]) {
+          if (quickBookData.startDate >= mt.startDate && quickBookData.startDate <= mt.endDate) {
+              const mtStartMs = new Date(`${quickBookData.startDate}T${mt.startTime}`).getTime();
+              const mtEndMs = new Date(`${quickBookData.startDate}T${mt.endTime}`).getTime();
+              return newStartMs < mtEndMs && newEndMsWithBuffer > mtStartMs;
+          }
+      }
+      return false;
+    });
+    if (eqConflict) return alert(`⛔ LỖI BẢO TRÌ THIẾT BỊ!\nThiết bị [${eqConflict.itemName}] đang được lên lịch sửa chữa trong khung giờ này. Vui lòng bỏ chọn thiết bị này!`);
 
     const payload = {
       room_id: targetId,
@@ -645,55 +1030,47 @@ export default function ManagerDashboardPage() {
       buffer_mins: 15,
       note: quickBookData.note,
       equipments: borrowedEquipments,
+      status: "confirmed", // 1. MANAGER ĐẶT LÀ TỰ ĐỘNG CHỐT DUYỆT LUÔN
+      payment_status: "CHƯA THANH TOÁN",
+      source: "MANAGER" // 2. Đánh dấu nguồn này từ nội bộ để Admin không cần duyệt lại
     };
 
     try {
-      const submitBtn = document.getElementById(
-        "btn-submit-quickbook",
-      ) as HTMLButtonElement;
+      const submitBtn = document.getElementById("btn-submit-quickbook") as HTMLButtonElement;
       if (submitBtn) {
         submitBtn.disabled = true;
         submitBtn.innerText = "Đang lưu...";
       }
+      
+      const token = localStorage.getItem("access_token");
 
+      // BƯỚC 1: GỬI LÊN DATABASE
       const response = await fetch(`${API_URL}/bookings`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify(payload),
       });
 
       if (!response.ok) throw new Error("Lỗi lưu Database");
 
       const responseData = await response.json();
+      const createdId = responseData.data?.id || responseData.id || responseData._id;
 
-      const newBooking: BookingItem = {
-        id: responseData.data?.id || `b${Date.now()}`,
-        roomId: targetId,
-        customerName: quickBookData.customerName,
-        phone: quickBookData.phone,
-        status: "checked-in",
-        date: quickBookData.startDate,
-        startTime: quickBookData.startTime,
-        durationMins: durationMins,
-        bufferMins: 15,
-        note: quickBookData.note,
-        equipments: borrowedEquipments,
-      };
+      // BƯỚC 2: ÉP CHỐT DUYỆT 
+      // (Bảo hiểm 100% không bị Backend ép ngược lại thành Pending)
+      if (createdId) {
+         await fetch(`${API_URL}/bookings/${createdId}/status`, {
+            method: "PATCH", 
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+            body: JSON.stringify({ status: "confirmed" })
+         }).catch(()=>{});
+      }
 
-      const updatedEquipments = equipments.map((eq) => {
-        const eqId = eq.id || eq._id || "";
-        if (quickBookData.equipments[eqId]) {
-          return {
-            ...eq,
-            inUseQuantity:
-              (eq.inUseQuantity || 0) + quickBookData.equipments[eqId].quantity,
-          };
-        }
-        return eq;
-      });
+      // BƯỚC 3: TẢI LẠI DỮ LIỆU SẠCH TỪ SERVER 
+      // (Sử dụng hàm loadData() có sẵn của Manager để timeline được đồng bộ)
+      loadData(true);
 
-      setEquipments(updatedEquipments);
-      setBookings([...bookings, newBooking]);
+      // BƯỚC 4: ĐÓNG MODAL VÀ RESET FORM
       setShowQuickBook(false);
       setQuickBookData({
         ...quickBookData,
@@ -701,21 +1078,22 @@ export default function ManagerDashboardPage() {
         phone: "",
         equipments: {},
       });
-      alert("✅ Đã lưu ca đặt phòng thành công!");
+      
+      // Gọi thông báo xịn của Manager thay vì alert mặc định
+      showToast("Đã đặt phòng thành công (Tự động duyệt)!", "success");
+
     } catch (err: any) {
-      alert(`⛔ LỖI SERVER:\n${err.message}`);
+      showToast(`LỖI SERVER: ${err.message}`, "error");
     } finally {
-      const submitBtn = document.getElementById(
-        "btn-submit-quickbook",
-      ) as HTMLButtonElement;
+      const submitBtn = document.getElementById("btn-submit-quickbook") as HTMLButtonElement;
       if (submitBtn) {
         submitBtn.disabled = false;
-        submitBtn.innerText = "Xác nhận Check-in & Thanh toán";
+        submitBtn.innerText = "Xác nhận Check-in";
       }
     }
   };
 
-  // ================= XỬ LÝ DUYỆT / TỪ CHỐI ĐƠN =================
+  
   // ================= XỬ LÝ DUYỆT / TỪ CHỐI ĐƠN =================
   const handleUpdateStatus = (bookingId: string, newStatus: string) => {
     // Nếu bấm từ chối, mở bảng Xác nhận đẹp thay vì dùng window.confirm
@@ -728,6 +1106,8 @@ export default function ManagerDashboardPage() {
   };
 
   const executeUpdateStatus = async (bookingId: string, newStatus: string) => {
+    const targetBooking = bookings.find((b) => b.id === bookingId);
+
     try {
       const token = localStorage.getItem("access_token");
       const API_URL = "https://booklab247.onrender.com/api/v1";
@@ -746,6 +1126,12 @@ export default function ManagerDashboardPage() {
         throw new Error(errorData.detail || `Lỗi HTTP ${response.status}`);
       }
 
+      // 🚀 CHUẨN XÁC: NẾU TỪ CHỐI/HỦY ĐƠN -> HOÀN TRẢ THIẾT BỊ VỀ KHO
+      if (['cancelled', 'rejected'].includes(newStatus) && targetBooking?.equipments) {
+        await syncEquipmentStock(targetBooking.equipments, "return");
+        loadData(true); // Tải lại số lượng kho mới nhất
+      }
+
       // Cập nhật lại UI ngay lập tức
       setBookings((prevBookings) =>
         prevBookings.map((b) =>
@@ -753,11 +1139,11 @@ export default function ManagerDashboardPage() {
         ),
       );
 
-      // Hiển thị thông báo nổi xịn sò
+      // Hiển thị thông báo nổi
       showToast(
         newStatus === "confirmed"
           ? "Đã duyệt đơn thành công!"
-          : "Đã từ chối đơn hàng.",
+          : "Đã từ chối đơn hàng và hoàn thiết bị.",
         "success",
       );
     } catch (error: any) {
@@ -765,31 +1151,56 @@ export default function ManagerDashboardPage() {
     }
   };
 
-  // ================= XỬ LÝ BÁO CÁO BẢO TRÌ =================
-  const handleReportSubmit = (e: React.FormEvent) => {
+  // ================= XỬ LÝ LÊN LỊCH BẢO TRÌ NHANH LÊN DATABASE =================
+  const handleMaintenanceSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!reportModal.reason.trim()) return alert("Vui lòng nhập lý do!");
+    if (!maintenanceModal.reason.trim()) return alert("Vui lòng nhập lý do!");
 
-    if (reportModal.type === "room") {
-      setRooms(
-        rooms.map((r) =>
-          r.id === reportModal.itemId || r._id === reportModal.itemId
-            ? { ...r, maintenanceMode: true }
-            : r,
-        ),
-      );
-    } else {
-      setEquipments(
-        equipments.map((eq) =>
-          eq.id === reportModal.itemId || eq._id === reportModal.itemId
-            ? { ...eq, status: "maintenance" }
-            : eq,
-        ),
-      );
+    const payload = {
+      type: maintenanceModal.type,
+      item_id: maintenanceModal.itemId,
+      item_name: maintenanceModal.itemName,
+      reason: maintenanceModal.reason,
+      start_date: maintenanceModal.startDate,
+      start_time: maintenanceModal.startTime,
+      end_date: maintenanceModal.endDate,
+      end_time: maintenanceModal.endTime,
+      status: "pending"
+    };
+
+    try {
+      const token = localStorage.getItem("access_token");
+      await fetch(`https://booklab247.onrender.com/api/v1/bookings/maintenance`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify(payload)
+      });
+
+      // Tải lại dữ liệu từ DB
+      loadData(true);
+
+      const startMins = timeToMins(maintenanceModal.startTime);
+      const endMins = timeToMins(maintenanceModal.endTime);
+      const conflicts = bookings.filter(b => {
+        if (b.status === "cancelled") return false;
+        if (maintenanceModal.type === "room" && b.roomId !== maintenanceModal.itemId) return false;
+        if (b.date && b.date >= maintenanceModal.startDate && b.date <= maintenanceModal.endDate) {
+           const bStart = timeToMins(b.startTime);
+           const bEnd = bStart + b.durationMins;
+           return startMins < bEnd && endMins > bStart;
+        }
+        return false;
+      });
+
+      if (conflicts.length > 0) {
+        alert(`⚠️ CẢNH BÁO VA CHẠM LỊCH!\nCó ${conflicts.length} đơn đặt của khách bị dính vào giờ bảo trì này.\nHệ thống đã lưu lại, hãy vào tab "Nhật ký Bảo trì" để lấy SĐT báo Hủy cho khách nhé.`);
+      }
+
+      showToast(`✅ Đã lên lịch bảo trì cho: ${maintenanceModal.itemName}`, "success");
+      setMaintenanceModal({ ...maintenanceModal, isOpen: false, reason: "" });
+    } catch(err) {
+      showToast("Lỗi khi lưu lịch bảo trì!", "error");
     }
-
-    alert(`✅ Đã gửi báo cáo bảo trì cho: ${reportModal.itemName}`);
-    setReportModal({ ...reportModal, isOpen: false, reason: "" });
   };
 
   const changeDate = (days: number) => {
@@ -800,6 +1211,13 @@ export default function ManagerDashboardPage() {
 
   // ================= GIAO DIỆN LABS & EQUIPMENTS =================
   const renderLabsTable = () => (
+    <>
+    <div className="flex justify-between items-end mb-6">
+        <div>
+          <h2 className="text-2xl font-black text-gray-900 tracking-tight">Quản lý Phòng Lab</h2>
+          <p className="text-gray-500 font-medium text-sm mt-1">Kiểm soát trạng thái phòng Lab của hệ thống.</p>
+        </div>
+      </div>
     <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden animate-in fade-in duration-300">
       <div className="overflow-x-auto">
         <table className="w-full text-left border-collapse">
@@ -858,43 +1276,54 @@ export default function ManagerDashboardPage() {
                   )}
                 </td>
                 <td className="p-4 text-center">
-                  {/* YÊU CẦU 4: Bật/Tắt bảo trì cho Phòng */}
                   {room.maintenanceMode ? (
                     <button
-                      onClick={() => {
-                        if (
-                          confirm(
-                            `Xác nhận hoàn tất bảo trì phòng ${room.name || room.title}?`,
-                          )
-                        ) {
-                          const currentRoomId = room.id || room._id;
-                          setRooms(
-                            rooms.map((r) =>
-                              (r.id || r._id) === currentRoomId
-                                ? { ...r, maintenanceMode: false }
-                                : r,
-                            ),
+                      onClick={async (): Promise<void> => {
+                        if (confirm(`Xác nhận hoàn tất sửa chữa và đưa phòng ${room.title || room.name} trở lại hoạt động?`)) {
+                          const currentRoomId: string = String(room.id || room._id || "");
+                          const activeLogs = maintenanceLogs.filter(
+                            (m) => m.type === "room" && m.itemId === currentRoomId && m.status === "pending"
                           );
+                          try {
+                            const token: string | null = localStorage.getItem("access_token");
+                            await Promise.all(
+                              activeLogs.map((log) =>
+                                fetch(`https://booklab247.onrender.com/api/v1/bookings/maintenance/${log.id}`, {
+                                  method: "PUT",
+                                  headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+                                  body: JSON.stringify({ status: "completed" }),
+                                })
+                              )
+                            );
+                            setRooms(rooms.map((roomItem) => 
+                              (roomItem.id || roomItem._id) === currentRoomId ? { ...roomItem, maintenanceMode: false } : roomItem
+                            ));
+                            loadData(true);
+                            showToast("Phòng Lab đã sẵn sàng hoạt động trở lại!", "success");
+                          } catch (err) {
+                            showToast("Lỗi kết nối cơ sở dữ liệu khi hoàn tất bảo trì!", "error");
+                          }
                         }
                       }}
                       className="p-2 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
-                      title="Hoàn tất bảo trì"
+                      title="Hoàn tất sửa chữa phòng"
                     >
                       <CheckCircle2 className="w-5 h-5" />
                     </button>
                   ) : (
                     <button
                       onClick={() =>
-                        setReportModal({
+                        setMaintenanceModal({
+                          ...maintenanceModal,
                           isOpen: true,
                           type: "room",
-                          itemId: room.id || room._id || "",
-                          itemName: room.title || room.name || "",
+                          itemId: String(room.id || room._id || ""),
+                          itemName: String(room),
                           reason: "",
                         })
                       }
-                      className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-                      title="Báo cáo bảo trì/sửa chữa"
+                      className="p-2 text-gray-400 hover:text-amber-500 hover:bg-amber-50 rounded-lg transition-colors"
+                      title="Bảo trì / Sửa chữa nhanh"
                     >
                       <Wrench className="w-5 h-5" />
                     </button>
@@ -906,9 +1335,18 @@ export default function ManagerDashboardPage() {
         </table>
       </div>
     </div>
+  </>
   );
 
   const renderEquipmentsTable = () => (
+    <>
+    
+    <div className="flex justify-between items-end mb-6">
+      <div>
+        <h2 className="text-2xl font-black text-gray-900 tracking-tight">Quản lý Thiết bị</h2>
+        <p className="text-gray-500 font-medium text-sm mt-1">Kiểm soát trạng thái Thiết bị của hệ thống.</p>
+      </div>
+    </div>
     <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden animate-in fade-in duration-300">
       <div className="overflow-x-auto">
         <table className="w-full text-left border-collapse">
@@ -961,15 +1399,9 @@ export default function ManagerDashboardPage() {
                   </td>
 
                   <td className="p-4">
-                    {eq.managementType === "pool" ? (
-                      <span className="inline-flex items-center gap-1.5 bg-blue-50 text-blue-700 px-3 py-1 rounded-full text-xs font-bold border border-blue-100">
-                        Còn: {availableQty}/{eq.totalQuantity}
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center gap-1.5 bg-gray-100 text-gray-700 px-3 py-1 rounded-full text-xs font-bold border border-gray-200">
-                        Đơn chiếc (Serial)
-                      </span>
-                    )}
+                    <span className="inline-flex items-center gap-1.5 bg-blue-50 text-blue-700 px-3 py-1 rounded-full text-xs font-bold border border-blue-100">
+                      Còn: {availableQty}/{eq.totalQuantity}
+                    </span>
                   </td>
 
                   <td className="p-4">
@@ -991,48 +1423,57 @@ export default function ManagerDashboardPage() {
                     <MapPin className="w-4 h-4 text-gray-400" /> {roomName}
                   </td>
                   <td className="p-4 text-center">
-                    {/* YÊU CẦU 4: Bật/Tắt sửa chữa cho Thiết bị */}
-                    {eq.status === "maintenance" ? (
-                      <button
-                        onClick={() => {
-                          if (
-                            confirm(
-                              `Xác nhận hoàn tất sửa chữa thiết bị ${eq.name}?`,
-                            )
-                          ) {
-                            const currentEqId = eq.id || eq._id;
-                            setEquipments(
-                              equipments.map((e) =>
-                                (e.id || e._id) === currentEqId
-                                  ? { ...e, status: "available" }
-                                  : e,
-                              ),
-                            );
-                          }
-                        }}
-                        className="p-2 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
-                        title="Hoàn tất sửa chữa"
-                      >
-                        <CheckCircle2 className="w-5 h-5" />
-                      </button>
-                    ) : (
-                      <button
-                        onClick={() =>
-                          setReportModal({
-                            isOpen: true,
-                            type: "equipment",
-                            itemId: eq.id || eq._id || "",
-                            itemName: eq.name,
-                            reason: "",
-                          })
-                        }
-                        className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-                        title="Báo cáo bảo trì/sửa chữa"
-                      >
-                        <Wrench className="w-5 h-5" />
-                      </button>
-                    )}
-                  </td>
+  {eq.status === 'maintenance' ? (
+    <button
+      onClick={async (): Promise<void> => {
+        const exactEqId: string = String(eq.id || eq._id || "");
+        if (confirm(`Xác nhận thiết bị [${eq.name}] đã sửa chữa xong và nhập lại kho?`)) {
+          const activeLogs = maintenanceLogs.filter(
+            (m) => m.type === "equipment" && m.itemId === exactEqId && m.status === "pending"
+          );
+          try {
+            const token: string | null = localStorage.getItem("access_token");
+            await Promise.all(
+              activeLogs.map((log) =>
+                fetch(`https://booklab247.onrender.com/api/v1/bookings/maintenance/${log.id}`, {
+                  method: "PUT",
+                  headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+                  body: JSON.stringify({ status: "completed" }),
+                })
+              )
+            );
+            setEquipments(equipments.map((e) => (e.id || e._id) === exactEqId ? { ...e, status: "available" } : e));
+            loadData(true);
+            showToast("Thiết bị đã được đưa về trạng thái Sẵn sàng!", "success");
+          } catch (err) {
+            showToast("Không thể cập nhật trạng thái thiết bị lên server!", "error");
+          }
+        }
+      }}
+      className="p-2 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
+      title="Hoàn tất sửa chữa"
+    >
+      <CheckCircle2 className="w-5 h-5" />
+    </button>
+  ) : (
+    <button
+      onClick={() =>
+        setMaintenanceModal({
+          ...maintenanceModal,
+          isOpen: true,
+          type: "equipment",
+          itemId: String(eq.id || eq._id || ""),
+          itemName: String(eq.name || ""),
+          reason: "",
+        })
+      }
+      className="p-2 text-gray-400 hover:text-amber-500 hover:bg-amber-50 rounded-lg transition-colors"
+      title="Bảo trì / Sửa chữa nhanh"
+    >
+      <Wrench className="w-5 h-5" />
+    </button>
+  )}
+</td>
                 </tr>
               );
             })}
@@ -1040,137 +1481,113 @@ export default function ManagerDashboardPage() {
         </table>
       </div>
     </div>
+    </>
   );
 
   const renderDashboard = () => {
-    // 1. TÍNH TOÁN CÁC CHỈ SỐ THỐNG KÊ
-    const usedRoomsCount = rooms.filter((l) => l.isBooked).length;
-    const maintenanceRoomsCount = rooms.filter((l) => l.maintenanceMode).length;
-    const maintenanceEqsCount = equipments.filter(
-      (e) => e.status === "maintenance",
-    ).length;
-    const totalMaintenance = maintenanceRoomsCount + maintenanceEqsCount;
-    const itemsOut = equipments.reduce(
-      (sum, eq) => sum + (eq.inUseQuantity || 0),
-      0,
-    );
+    // 1. TÍNH SỐ PHÒNG ĐANG SỬ DỤNG
+    const usedRoomsCount = rooms.filter(room => {
+       const roomIdStr = room.id || room._id || "";
+       return bookings.some(b => b.roomId === roomIdStr && b.date === selectedDate && ['checked-in', 'confirmed', 'DANG_MUON'].includes(b.status));
+    }).length;
 
-    // 2. HÀM TÌM TÊN PHÒNG CHO ĐƠN ĐẶT
-    const getRoomName = (bookingRoomId: string) => {
-      if (!bookingRoomId) return "Phòng chưa xác định";
-      const cleanBookingId = String(bookingRoomId).trim();
-      const foundRoom = rooms.find(
-        (r) => String(r.id || r._id).trim() === cleanBookingId,
-      );
-      return foundRoom
-        ? foundRoom.title || foundRoom.name
-        : "Phòng chưa xác định";
-    };
+    // 2. TÍNH TỔNG SỰ CỐ BẢO TRÌ (Phòng + Thiết bị) BÁM SÁT NGÀY ĐANG CHỌN
+    const maintenanceRoomsCount = maintenanceLogs.filter(m => m.type === "room" && m.status === "pending" && selectedDate >= m.startDate && selectedDate <= m.endDate).length;
+    const maintenanceEqsCount = maintenanceLogs.filter(m => m.type === "equipment" && m.status === "pending" && selectedDate >= m.startDate && selectedDate <= m.endDate).length;
+    const totalMaintenance = maintenanceRoomsCount + maintenanceEqsCount;
+    
+    // 3. TÍNH CHÍNH XÁC THIẾT BỊ RỜI KHO (Cộng trực tiếp từ các Đơn đặt đang chạy)
+    let itemsOut = 0;
+    bookings.forEach(b => {
+      if ((b.date === selectedDate || !b.date) && ['checked-in', 'confirmed', 'DANG_MUON'].includes(b.status)) {
+        if (b.equipments && Array.isArray(b.equipments)) {
+          b.equipments.forEach(eq => {
+             itemsOut += Number(eq.quantity || 0);
+          });
+        }
+      }
+    });
+
+    
 
     // 3. LỌC ĐƠN HÀNG CHỜ DUYỆT VÀ CA HÔM NAY
-    const pendingBookings = bookings.filter((b) => b.status === "pending");
+    const pendingBookings = bookings.filter((b) => b.status === "pending" || b.status === "CHO_DUYET");
     const pendingCount = pendingBookings.length;
 
     const todayStr = new Date().toISOString().split("T")[0];
     const upcomingBookings = bookings
-      .filter(
-        (b) =>
-          (b.date === todayStr || !b.date) &&
-          (b.status === "confirmed" || b.status === "checked-in"),
-      )
+      .filter((b) => (b.date === selectedDate || !b.date) && (b.status === "confirmed" || b.status === "checked-in" || b.status === "completed"))
+      .filter(b => {
+         if (!todaySearchQuery) return true;
+         const q = todaySearchQuery.toLowerCase();
+         return b.customerName.toLowerCase().includes(q) || b.phone.includes(q);
+      })
       .sort((a, b) => timeToMins(a.startTime) - timeToMins(b.startTime));
+    const getRoomName = (bookingRoomId: string) => {
+      const foundRoom = rooms.find((r) => String(r.id || r._id).trim() === String(bookingRoomId).trim());
+      return foundRoom ? foundRoom.title || foundRoom.name : "Phòng chưa xác định";
+    };
 
     return (
       <div className="space-y-6 pb-10">
-        {/* THANH TOP BAR */}
+        {/* THANH TOP BAR CÓ CHỌN NGÀY */}
         <div className="flex flex-col xl:flex-row justify-between items-start xl:items-end gap-4 bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
           <div>
-            <h2 className="text-2xl font-black text-gray-900">
-              Giám sát Trực tiếp
-            </h2>
-            <p className="text-gray-500 text-sm mt-1">
-              Cập nhật trạng thái phòng và thiết bị realtime.
-            </p>
+            <h2 className="text-2xl font-black text-gray-900">Giám sát Trực tiếp</h2>
+            <p className="text-gray-500 text-sm mt-1">Cập nhật trạng thái phòng theo mốc thời gian.</p>
           </div>
           <div className="flex flex-wrap items-center gap-3 w-full xl:w-auto">
-            <button className="flex-1 sm:flex-none flex items-center justify-center gap-2 bg-slate-900 text-white px-4 py-2.5 rounded-xl text-sm font-bold shadow-md hover:bg-black transition-colors">
-              <QrCode className="w-4 h-4" /> Quét mã QR
-            </button>
-            <div className="flex bg-gray-100 p-1 rounded-xl border border-gray-200 w-full sm:w-auto items-center overflow-x-auto scrollbar-hide">
-              {[
-                { id: "today", label: "Hôm nay" },
-                { id: "yesterday", label: "Hôm qua" },
-                { id: "7days", label: "7 Ngày" },
-              ].map((f) => (
-                <button
-                  key={f.id}
-                  onClick={() => {
-                    setTimeFilter(f.id as TimeFilter);
-                    setCustomDate("");
-                  }}
-                  className={`px-4 py-1.5 text-sm font-bold rounded-lg whitespace-nowrap transition-all ${timeFilter === f.id && !customDate ? "bg-white text-emerald-600 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}
-                >
-                  {f.label}
-                </button>
-              ))}
-              <div className="h-4 w-px bg-gray-300 mx-2"></div>
-              <input
-                type="date"
-                value={customDate}
-                onChange={(e) => {
-                  setCustomDate(e.target.value);
-                  setTimeFilter("custom");
-                }}
-                className={`px-3 py-1 text-sm font-bold rounded-lg bg-transparent outline-none cursor-pointer ${customDate ? "text-emerald-600 bg-white shadow-sm" : "text-gray-500"}`}
-              />
+            {/* THÊM BỘ CHỌN NGÀY CHUYỂN TIẾP TRỰC QUAN */}
+            <div className="flex items-center bg-gray-50 border border-gray-200 rounded-xl overflow-hidden shadow-sm">
+              <button onClick={() => changeDate(-1)} className="p-2 hover:bg-gray-200 text-gray-500"><ChevronLeft className="w-5 h-5" /></button>
+              <input type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} className="px-3 py-1.5 text-sm font-bold outline-none cursor-pointer bg-transparent text-emerald-600" />
+              <button onClick={() => changeDate(1)} className="p-2 hover:bg-gray-200 text-gray-500"><ChevronRight className="w-5 h-5" /></button>
             </div>
+            <button onClick={() => setSelectedDate(new Date().toISOString().split("T")[0])} className="px-4 py-2 bg-slate-900 text-white font-bold rounded-xl text-sm hover:bg-black shadow-md">
+               Về Hôm nay
+            </button>
           </div>
         </div>
-
+        
         {/* THỐNG KÊ TỔNG QUAN */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 animate-in fade-in duration-300">
           <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
-            <p className="text-xs font-bold text-gray-500 mb-1">ĐANG SỬ DỤNG</p>
-            <h3 className="text-2xl font-black text-emerald-600">
-              {usedRoomsCount}/{rooms.length}{" "}
-              <span className="text-sm font-medium text-gray-400">Phòng</span>
-            </h3>
+            <p className="text-xs font-bold text-gray-500 mb-1">ĐANG DÙNG (NGÀY {selectedDate.split('-')[2]})</p>
+            <h3 className="text-2xl font-black text-emerald-600">{usedRoomsCount}/{rooms.length} <span className="text-sm font-medium text-gray-400">Phòng</span></h3>
           </div>
           <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
-            <p className="text-xs font-bold text-gray-500 mb-1">CHỜ DUYỆT</p>
-            <h3 className="text-2xl font-black text-amber-500">
-              {pendingCount}{" "}
-              <span className="text-sm font-medium text-gray-400">Đơn</span>
-            </h3>
+            <p className="text-xs font-bold text-gray-500 mb-1">ĐƠN CHỜ DUYỆT</p>
+            <h3 className="text-2xl font-black text-amber-500">{pendingCount} <span className="text-sm font-medium text-gray-400">Đơn mới</span></h3>
           </div>
           <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
-            <p className="text-xs font-bold text-gray-500 mb-1">
-              THIẾT BỊ RỜI KHO
-            </p>
-            <h3 className="text-2xl font-black text-blue-600">
-              {itemsOut}{" "}
-              <span className="text-sm font-medium text-gray-400">Món</span>
-            </h3>
+            <p className="text-xs font-bold text-gray-500 mb-1">THIẾT BỊ RỜI KHO</p>
+            <h3 className="text-2xl font-black text-blue-600">{itemsOut} <span className="text-sm font-medium text-gray-400">Món</span></h3>
           </div>
           <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
-            <p className="text-xs font-bold text-gray-500 mb-1">
-              BẢO TRÌ ĐỘT XUẤT
-            </p>
-            <h3 className="text-2xl font-black text-red-500">
-              {totalMaintenance}{" "}
-              <span className="text-sm font-medium text-gray-400">Sự cố</span>
-            </h3>
+            <p className="text-xs font-bold text-gray-500 mb-1">ĐANG BẢO TRÌ</p>
+            <h3 className="text-2xl font-black text-red-500">{totalMaintenance} <span className="text-sm font-medium text-gray-400">Sự cố</span></h3>
           </div>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 animate-in fade-in duration-300">
           {/* CỘT 1: LỊCH CA HÔM NAY */}
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm flex flex-col h-[350px]">
-            <div className="p-4 border-b border-gray-100">
+            <div className="p-4 border-b border-gray-100 flex flex-col gap-3 shrink-0">
               <h3 className="font-bold text-gray-900 flex items-center gap-2">
-                <Clock className="w-5 h-5 text-emerald-500" /> Các ca hoạt động
-                hôm nay
+                <Clock className="w-5 h-5 text-emerald-500" /> Các ca hoạt động 
               </h3>
+
+              {/* SMART SEARCH BAR */}
+              <div className="relative">
+                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                <input
+                  type="text"
+                  placeholder="Tìm Tên hoặc SĐT (Ví dụ: 098...)"
+                  value={todaySearchQuery}
+                  onChange={(e) => setTodaySearchQuery(e.target.value)}
+                  className="w-full pl-9 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm outline-none focus:border-emerald-500 transition-colors"
+                />
+              </div>
             </div>
             <div className="p-4 overflow-y-auto space-y-3">
               {upcomingBookings.length === 0 ? (
@@ -1197,10 +1614,20 @@ export default function ManagerDashboardPage() {
                           </span>
                         </p>
                       </div>
-                      <div className="text-right">
+                      <div className="text-right flex flex-col items-end gap-2 shrink-0">
                         <span className="font-black text-emerald-600 bg-emerald-50 px-2 py-1 rounded-lg text-sm shadow-sm">
                           {booking.startTime}
                         </span>
+                        {/* TAG TRẠNG THÁI THANH TOÁN */}
+                        {booking.paymentStatus === "HOÀN THÀNH" ? (
+                          <span className="flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full border border-emerald-200">
+                             <CheckCircle2 className="w-3 h-3"/> Đã thu
+                          </span>
+                        ) : (
+                          <span className="flex items-center gap-1 text-[10px] font-bold text-red-600 bg-red-100 px-2 py-0.5 rounded-full border border-red-200">
+                             <AlertTriangle className="w-3 h-3"/> Nợ
+                          </span>
+                        )}
                       </div>
                     </div>
                   );
@@ -1209,67 +1636,104 @@ export default function ManagerDashboardPage() {
             </div>
           </div>
 
-          {/* CỘT 2: ĐƠN CHỜ DUYỆT KHẨN */}
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm flex flex-col h-[350px]">
-            <div className="p-4 border-b border-gray-100">
+
+          {/* CỘT 2: ĐƠN CHỜ DUYỆT KHẨN (Hiển thị Tag Khẩn cấp & Cảnh báo trùng lịch) */}
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm flex flex-col h-[350px] overflow-hidden">
+            <div className="p-4 border-b border-gray-100 flex justify-between items-center bg-amber-50/30">
               <h3 className="font-bold text-gray-900 flex items-center gap-2">
-                <AlertTriangle className="w-5 h-5 text-amber-500" /> Đơn chờ
-                duyệt khẩn
+                <AlertTriangle className={`w-5 h-5 text-amber-500 ${pendingCount > 0 ? "animate-pulse" : ""}`} /> 
+                Đơn chờ duyệt
               </h3>
+              
+              {/* BADGE THÔNG BÁO ĐỎ CÓ SỐ LƯỢNG */}
+              {pendingCount > 0 && (
+                <span className="bg-red-500 text-white px-3 py-1 rounded-full text-xs font-black shadow-md shadow-red-500/30 animate-bounce">
+                  {pendingCount} đơn mới
+                </span>
+              )}
             </div>
             <div className="p-4 overflow-y-auto space-y-3">
               {pendingBookings.length === 0 ? (
-                <div className="text-center text-sm text-gray-500 py-10">
-                  Không có đơn chờ duyệt.
-                </div>
+                <div className="text-center text-sm text-gray-500 py-10">Không có đơn chờ duyệt.</div>
               ) : (
                 pendingBookings.map((booking) => {
                   const roomName = getRoomName(booking.roomId);
+                  
+                  // 1. TÍNH TOÁN GIỜ KẾT THÚC CHÍNH XÁC
+                  const endTimeStr = minsToTime(timeToMins(booking.startTime) + booking.durationMins);
+
                   return (
-                    <div
-                      key={booking.id}
-                      className="bg-amber-50 border border-amber-100 p-3 rounded-xl flex flex-col gap-3"
-                    >
-                      <div
-                        className="flex justify-between items-start cursor-pointer hover:opacity-80"
-                        onClick={() => setSelectedBooking(booking)}
-                      >
-                        <div>
-                          <p className="font-bold text-gray-900 text-sm">
-                            {booking.customerName}
+                    <div key={booking.id} className={`p-5 rounded-2xl flex flex-col gap-4 relative overflow-hidden transition-all ${
+                      booking.is_conflict 
+                        ? "bg-red-50 border border-red-200" 
+                        : "bg-white border border-slate-200 shadow-sm hover:shadow-md hover:border-slate-300"
+                    }`}>
+                      {booking.is_urgent && (
+                        <div className="absolute top-0 right-0 bg-red-500 text-white text-[10px] font-black px-3 py-1 rounded-bl-xl animate-pulse shadow-sm">
+                          DÙNG HÔM NAY
+                        </div>
+                      )}
+                      
+                      <div className="flex justify-between items-start">
+                        <div className="w-full">
+                          {/* 2. HIỂN THỊ TÊN NGƯỜI ĐẶT (To, rõ và đậm hơn) */}
+                          <p className="font-black text-slate-900 text-lg">
+                            {booking.customerName || "Khách chưa có tên"}
                           </p>
-                          <p className="text-xs text-gray-500 mt-0.5">
-                            {booking.date} |{" "}
-                            <span className="font-bold text-amber-600">
-                              {booking.startTime}
-                            </span>{" "}
-                            ({booking.durationMins}p)
-                          </p>
-                          <p className="text-xs text-gray-500 mt-0.5">
-                            Phòng:{" "}
-                            <span className="font-bold text-gray-700">
-                              {roomName}
+                          
+                          {/* 3. HIỂN THỊ NGÀY VÀ KHOẢNG THỜI GIAN (Tăng size, thêm Icon) */}
+                          <p className="text-sm font-medium text-slate-500 mt-2 flex items-center gap-1.5 flex-wrap">
+                            <CalendarDays className="w-4 h-4 text-slate-400" /> {booking.date} 
+                            <span className="text-slate-300 mx-1">|</span> 
+                            <span className="font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-md border border-blue-100/50 flex items-center gap-1">
+                              <Clock className="w-3.5 h-3.5" /> {booking.startTime} - {endTimeStr}
                             </span>
                           </p>
+                          
+                          <p className="text-sm font-medium text-slate-500 mt-2 flex items-center gap-1.5">
+                            <MapPin className="w-4 h-4 text-slate-400" />
+                            Phòng: <span className="font-black text-slate-800">{roomName}</span>
+                          </p>
+
+                          {/* 4. HIỂN THỊ DANH SÁCH THIẾT BỊ MƯỢN KÈM (Tăng size tag) */}
+                          {booking.equipments && booking.equipments.length > 0 && (
+                            <div className="mt-4 pt-4 border-t border-slate-100">
+                              <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2.5">Thiết bị mượn kèm:</p>
+                              <div className="flex flex-wrap gap-2">
+                                {booking.equipments.map((eq: any, idx: number) => (
+                                  <span key={idx} className="bg-slate-50 border border-slate-200 text-slate-700 text-xs px-2.5 py-1.5 rounded-lg font-bold flex items-center gap-1.5 shadow-sm">
+                                    <Package className="w-3.5 h-3.5 text-slate-500" />
+                                    {eq.name} <span className="font-black text-blue-600 ml-0.5">x{eq.quantity}</span>
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          )}
                         </div>
-                        <span className="bg-amber-100 text-amber-700 text-[10px] px-2 py-1 rounded-md font-bold uppercase tracking-wider">
-                          Chờ duyệt
-                        </span>
                       </div>
-                      <div className="flex gap-2 mt-1">
+
+                      {/* Cảnh báo trùng lịch */}
+                      {booking.is_conflict && (
+                        <div className="bg-red-50 text-red-700 text-sm p-3 rounded-xl font-medium border border-red-200 mt-1">
+                          <AlertTriangle className="w-4 h-4 inline mr-1.5 -mt-0.5" />
+                          <b>Trùng lịch:</b> Khung giờ này đã được duyệt cho khách <b>{booking.conflict_with}</b>.
+                        </div>
+                      )}
+
+                      {/* Nút hành động (To hơn, bo góc mạnh hơn) */}
+                      <div className="flex gap-3 mt-2 pt-2">
                         <button
-                          onClick={() =>
-                            handleUpdateStatus(booking.id, "confirmed")
-                          }
-                          className="flex-1 bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-bold py-2 rounded-lg transition-colors shadow-sm"
+                          onClick={() => handleUpdateStatus(booking.id, "confirmed")}
+                          disabled={booking.is_conflict}
+                          className={`flex-1 text-white text-sm font-black py-3 rounded-xl transition-all shadow-sm ${
+                            booking.is_conflict ? "bg-slate-300 cursor-not-allowed" : "bg-emerald-500 hover:bg-emerald-600 hover:shadow-md active:scale-95"
+                          }`}
                         >
                           Duyệt đơn
                         </button>
                         <button
-                          onClick={() =>
-                            handleUpdateStatus(booking.id, "cancelled")
-                          }
-                          className="flex-1 bg-white hover:bg-red-50 text-red-500 border border-red-200 text-xs font-bold py-2 rounded-lg transition-colors shadow-sm"
+                          onClick={() => handleUpdateStatus(booking.id, "cancelled")}
+                          className="flex-1 bg-white hover:bg-red-50 text-red-600 border-2 border-red-100 hover:border-red-200 text-sm font-black py-3 rounded-xl transition-all shadow-sm hover:shadow-md active:scale-95"
                         >
                           Từ chối
                         </button>
@@ -1285,15 +1749,459 @@ export default function ManagerDashboardPage() {
     );
   };
   const renderReports = () => (
-    <div className="p-6 bg-white rounded-2xl border border-gray-100 text-center py-20 text-gray-400">
-      Giao diện Báo cáo sự cố
-    </div>
+      <div className="space-y-6 animate-in fade-in duration-300">
+        <div className="flex justify-between items-end bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
+          <div>
+            <h2 className="text-2xl font-black text-gray-900">Quản lý Bảo trì & Sự cố</h2>
+            <p className="text-gray-500 text-sm mt-1">Theo dõi các phòng và thiết bị đang được phong tỏa để sửa chữa.</p>
+          </div>
+        </div>
+
+        <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
+          <table className="w-full text-left">
+            <thead className="bg-gray-50 border-b border-gray-200">
+              <tr>
+                <th className="p-4 font-bold text-gray-600 text-sm">Đối tượng</th>
+                <th className="p-4 font-bold text-gray-600 text-sm">Loại</th>
+                <th className="p-4 font-bold text-gray-600 text-sm">Tình trạng hỏng / Ghi chú</th>
+                <th className="p-4 font-bold text-gray-600 text-sm">Thời gian phong tỏa</th>
+                <th className="p-4 font-bold text-gray-600 text-sm text-center">Tình trạng</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {maintenanceLogs.length === 0 ? (
+                <tr><td colSpan={5} className="p-8 text-center text-gray-400">Không có lịch bảo trì nào đang diễn ra.</td></tr>
+              ) : (
+                maintenanceLogs.map(log => {
+                   // Quét lại xem có đơn nào của khách bị dính vào lịch này không để hiện Cảnh báo
+                   const conflicts = bookings.filter(b => {
+                      if (b.status === "cancelled") return false;
+                      if (log.type === "room" && b.roomId !== log.itemId) return false;
+                      if (b.date && b.date >= log.startDate && b.date <= log.endDate) {
+                         const bStart = timeToMins(b.startTime);
+                         const bEnd = bStart + b.durationMins;
+                         return timeToMins(log.startTime) < bEnd && timeToMins(log.endTime) > bStart;
+                      }
+                      return false;
+                   });
+
+                   return (
+                    <tr key={log.id} className="hover:bg-gray-50">
+                      <td className="p-4 font-black text-gray-900">{log.itemName}</td>
+                      <td className="p-4"><span className={`px-2 py-1 rounded text-xs font-bold ${log.type === 'room' ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700'}`}>{log.type === 'room' ? 'Phòng Lab' : 'Thiết bị'}</span></td>
+                      <td className="p-4 text-sm text-gray-700 font-medium">
+                        {log.reason}
+                        {conflicts.length > 0 && (
+                           <div className="mt-3 p-2 bg-red-50 border border-red-100 rounded-lg shadow-sm">
+                              <p className="text-[10px] font-black text-red-600 uppercase mb-1 flex items-center gap-1"><AlertTriangle className="w-3 h-3"/> Cần liên hệ hủy đơn:</p>
+                              {conflicts.map(c => <p key={c.id} className="text-xs font-semibold text-red-700">• {c.customerName} - {c.phone} (Đặt lúc {c.startTime})</p>)}
+                           </div>
+                        )}
+                      </td>
+                      <td className="p-4 text-sm text-gray-600 font-bold">{log.startDate.split('-').reverse().join('/')} <span className="mx-1">đến</span> {log.endDate.split('-').reverse().join('/')}<br/><span className="text-red-500">{log.startTime} - {log.endTime}</span></td>
+                      <td className="p-4 text-center">
+                        {log.status === 'completed' ? (
+                          <span className="bg-emerald-100 text-emerald-700 px-3 py-1 rounded-full text-xs font-bold">Đã hoàn tất</span>
+                        ) : (
+                          <button 
+                            onClick={async (): Promise<void> => {
+                              if (confirm(`Xác nhận kết thúc đợt bảo trì phong tỏa cho: ${log.itemName}?`)) {
+                                try {
+                                  const token: string | null = localStorage.getItem("access_token");
+                                  const response: Response = await fetch(`https://booklab247.onrender.com/api/v1/bookings/maintenance/${log.id}`, {
+                                    method: "PUT",
+                                    headers: { 
+                                      "Content-Type": "application/json", 
+                                      Authorization: `Bearer ${token}` 
+                                    },
+                                    body: JSON.stringify({ status: "completed" })
+                                  });
+
+                                  if (!response.ok) throw new Error("API phản hồi lỗi");
+
+                                  // Đồng bộ trực tiếp mở khóa lại đối tượng tương ứng trên UI
+                                  if (log.type === "room") {
+                                    setRooms(rooms.map((r) => (r.id || r._id) === log.itemId ? { ...r, maintenanceMode: false } : r));
+                                  } else {
+                                    setEquipments(equipments.map((e) => (e.id || e._id) === log.itemId ? { ...e, status: "available" } : e));
+                                  }
+
+                                  // Đồng bộ lại toàn bộ dữ liệu từ Server
+                                  loadData(true);
+                                  showToast("Đã đóng log bảo trì và mở khóa đối tượng vĩnh viễn!", "success");
+                                } catch (err: unknown) {
+                                  console.error(err);
+                                  showToast("Lỗi đồng bộ dữ liệu bảo trì về Server!", "error");
+                                }
+                              }
+                            }} 
+                            className="bg-slate-900 hover:bg-black text-white px-3 py-1.5 rounded-full text-xs font-bold transition-colors shadow-sm"
+                          >
+                            Kết thúc bảo trì
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                   )
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
   );
-  const renderLookup = () => (
-    <div className="p-6 bg-white rounded-2xl border border-gray-100 text-center py-20 text-gray-400">
-      Giao diện Tra cứu thông tin
-    </div>
-  );
+  // ================= GIAO DIỆN TRA CỨU THÔNG TIN (OMNI-LOOKUP) =================
+  const renderLookup = () => {
+    // 1. DATA: KHÁCH HÀNG (Giữ nguyên)
+    const generateCustomerProfiles = (): CustomerProfile[] => {
+      const profileMap: Record<string, CustomerProfile> = {};
+      bookings.forEach(b => {
+        const phone = b.phone || "Không có SĐT";
+        if (!profileMap[phone]) {
+          const savedData = customerNotes[phone] || { tags: ["Regular"], note: "" };
+          profileMap[phone] = {
+            phone, fullName: b.customerName,
+            totalBookings: 0, completed: 0, cancelled: 0,
+            tags: savedData.tags, internalNote: savedData.note, bookingHistory: []
+          };
+        }
+        profileMap[phone].totalBookings += 1;
+        if (b.status === "completed") profileMap[phone].completed += 1;
+        if (b.status === "cancelled" || b.status === "rejected") profileMap[phone].cancelled += 1;
+        profileMap[phone].bookingHistory.push(b);
+        profileMap[phone].fullName = b.customerName; 
+      });
+      return Object.values(profileMap).filter(c => !lookupSearch || c.phone.includes(lookupSearch) || c.fullName.toLowerCase().includes(lookupSearch.toLowerCase()));
+    };
+
+    // 2. DATA: TRUY VẾT THIẾT BỊ (ĐÃ FIX GOM NHÓM & TRẠNG THÁI)
+    const generateEquipmentTracking = (): EquipmentTrackingInfo[] => {
+      // BƯỚC 1: Gom nhóm thiết bị trong kho theo TÊN (tránh hiển thị 3 dòng Máy Chiếu bị tách rời)
+      const groupedEqs: Record<string, EquipmentItem> = {};
+      equipments.forEach(eq => {
+        const name = eq.name.trim();
+        if (!groupedEqs[name]) {
+          groupedEqs[name] = { ...eq };
+        } else {
+          groupedEqs[name].totalQuantity = (groupedEqs[name].totalQuantity || 0) + (eq.totalQuantity || 0);
+          // Lưu gộp các ID lại để lát nữa quét xem khách mượn ID nào cũng tính
+          groupedEqs[name].id = `${groupedEqs[name].id || groupedEqs[name]._id},${eq.id || eq._id}`;
+        }
+      });
+
+      // BƯỚC 2: Quét tìm người mượn
+      return Object.values(groupedEqs).filter(eq => !lookupSearch || eq.name.toLowerCase().includes(lookupSearch.toLowerCase())).map(eq => {
+        const eqIds = String(eq.id || "").split(','); // Danh sách các ID của thiết bị này
+        const borrowerMap: Record<string, EquipmentTrackingInfo["currentlyBorrowedBy"][0]> = {};
+        let actualInUse = 0; 
+        
+        // Quét các booking đang mượn (Bao gồm cả 'checked-in' và 'DANG_MUON' từ Backend)
+        bookings.filter(b => ["checked-in", "DANG_MUON", "confirmed"].includes(b.status)).forEach(b => {
+          // Tìm xem booking này có mượn món đồ nào khớp với danh sách ID không
+          const usedEq = b.equipments?.find(e => eqIds.includes(String(e.id || (e as any)._id || "")));
+          
+          if (usedEq && usedEq.quantity > 0) {
+            actualInUse += Number(usedEq.quantity);
+            const rName = rooms.find(r => String(r.id || r._id) === String(b.roomId))?.title || "Chưa rõ";
+            
+            const bDate = b.date || selectedDate;
+            const endMs = timeToMins(b.startTime) + b.durationMins;
+            const endH = Math.floor(endMs / 60) % 24;
+            const endM = endMs % 60;
+            const returnTimeStr = `${endH.toString().padStart(2,'0')}:${endM.toString().padStart(2,'0')}`;
+            const [yyyy, mm, dd] = bDate.split('-');
+            const displayTime = `${dd}/${mm} - ${returnTimeStr}`; 
+            
+            const returnDateTime = new Date(`${bDate}T${returnTimeStr}:00`);
+            const isOverdue = currentTime > returnDateTime;
+
+            if (borrowerMap[b.id]) {
+              borrowerMap[b.id].quantity += Number(usedEq.quantity);
+            } else {
+              borrowerMap[b.id] = {
+                bookingId: b.id,
+                roomName: rName,
+                customerName: b.customerName,
+                quantity: Number(usedEq.quantity),
+                expectedReturnTime: displayTime,
+                isOverdue: isOverdue,
+                originalBooking: b
+              };
+            }
+          }
+        });
+
+        return {
+          equipmentId: eqIds[0],
+          name: eq.name,
+          inStock: Math.max(0, (eq.totalQuantity || 0) - actualInUse), // Trừ chính xác
+          total: eq.totalQuantity || 0,
+          currentlyBorrowedBy: Object.values(borrowerMap)
+        };
+      });
+    };
+
+    // 3. DATA: TÌM PHÒNG THÔNG MINH
+    const generateAvailableRooms = () => {
+      const searchStartMins = timeToMins(smartRoomForm.startTime);
+      const searchEndMins = timeToMins(smartRoomForm.endTime);
+      if (searchEndMins <= searchStartMins) return []; // Auto chặn các case lỗi giờ (ví dụ 12h - 02h)
+
+      // Lọc thiết bị nếu có yêu cầu
+      if (smartRoomForm.equipmentId) {
+        const requiredEq = equipments.find(e => (e.id || e._id) === smartRoomForm.equipmentId);
+        const eqAvailable = (requiredEq?.totalQuantity || 0) - (requiredEq?.inUseQuantity || 0);
+        if (eqAvailable <= 0) return []; // Kho hết đồ -> Không trả ra phòng nào
+      }
+
+      return rooms.filter(room => {
+        if (room.maintenanceMode) return false;
+        if (Number(room.capacity || 0) < smartRoomForm.minCapacity) return false;
+        const roomIdStr = room.id || room._id;
+        
+        const isConflictNormal = bookings.some(b => {
+          if (b.roomId !== roomIdStr || b.status === "cancelled") return false;
+          if ((b.date || selectedDate) !== smartRoomForm.date) return false;
+          const bStartMins = timeToMins(b.startTime);
+          const bEndMins = bStartMins + b.durationMins + b.bufferMins;
+          return searchStartMins < bEndMins && searchEndMins > bStartMins;
+        });
+        if (isConflictNormal) return false;
+
+        const isConflictFixed = fixedBookings.some(fb => {
+          if (fb.roomId !== roomIdStr || fb.status !== "active") return false;
+          if (fb.exceptionDates?.includes(smartRoomForm.date)) return false;
+          const targetDayNum = new Date(smartRoomForm.date + "T00:00:00").getDay();
+          if (!fb.daysOfWeek.includes(targetDayNum)) return false;
+          if (smartRoomForm.date < fb.startDate || smartRoomForm.date > fb.endDate) return false;
+
+          const fStartMins = timeToMins(fb.startTime);
+          const fEndMins = timeToMins(fb.endTime);
+          return searchStartMins < fEndMins && searchEndMins > fStartMins;
+        });
+        return !isConflictFixed;
+      });
+    };
+
+    return (
+      <div className="space-y-6 animate-in fade-in duration-300">
+        {/* THANH OMNIBOX (Giữ nguyên) */}
+        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex flex-col gap-6">
+          <div className="relative w-full max-w-3xl mx-auto">
+            <Search className="w-6 h-6 absolute left-4 top-1/2 -translate-y-1/2 text-blue-500" />
+            <input 
+              type="text" 
+              placeholder="Gõ SĐT khách hàng hoặc Tên thiết bị để tra cứu nhanh..." 
+              value={lookupSearch}
+              onChange={(e) => {
+                setLookupSearch(e.target.value);
+                if (/[0-9]{3}/.test(e.target.value)) setLookupTab("customer");
+                else if (e.target.value) setLookupTab("equipment");
+              }}
+              className="w-full pl-12 pr-4 py-4 bg-gray-50 border-2 border-gray-200 rounded-2xl text-lg font-bold outline-none focus:border-blue-500 focus:bg-white transition-all shadow-inner"
+            />
+          </div>
+          <div className="flex justify-center gap-2">
+            {[ { id: "customer", label: "Khách hàng (CRM)" }, { id: "room", label: "Tìm Phòng (Smart)" }, { id: "equipment", label: "Truy vết Thiết bị" } ].map(t => (
+              <button 
+                key={t.id} onClick={() => setLookupTab(t.id as any)}
+                className={`px-6 py-2 rounded-xl text-sm font-bold transition-all ${lookupTab === t.id ? "bg-slate-900 text-white shadow-md" : "bg-white text-gray-500 border border-gray-200 hover:bg-gray-50"}`}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* TAB 1: KHÁCH HÀNG (Giữ nguyên HTML cũ) */}
+        {lookupTab === "customer" && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {generateCustomerProfiles().length === 0 ? (
+              <div className="col-span-full py-10 text-center text-gray-400 bg-white rounded-2xl border border-gray-100">Không tìm thấy khách hàng nào khớp với tìm kiếm.</div>
+            ) : generateCustomerProfiles().map(customer => (
+              <div key={customer.phone} className="bg-white rounded-2xl border border-gray-200 shadow-sm p-5 flex flex-col gap-4">
+                <div className="flex justify-between items-start">
+                  <div>
+                    <h3 className="text-lg font-black text-gray-900 flex items-center gap-2"><UserCircle className="w-5 h-5 text-blue-500"/> {customer.fullName}</h3>
+                    <p className="text-gray-500 font-bold text-sm mt-0.5">{customer.phone}</p>
+                  </div>
+                  <div className="flex gap-1">
+                    {customer.tags.map(tag => (
+                      <span key={tag} className={`px-2 py-1 rounded-md text-[10px] font-black uppercase tracking-wider ${tag==='VIP'?'bg-amber-100 text-amber-700':tag==='Warning'?'bg-red-100 text-red-700':'bg-gray-100 text-gray-600'}`}>{tag}</span>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-3 gap-2 bg-gray-50 p-3 rounded-xl border border-gray-100 text-center">
+                  <div><p className="text-xl font-black text-blue-600">{customer.totalBookings}</p><p className="text-[10px] font-bold text-gray-400 uppercase">Tổng ca</p></div>
+                  <div><p className="text-xl font-black text-emerald-600">{customer.completed}</p><p className="text-[10px] font-bold text-gray-400 uppercase">Hoàn thành</p></div>
+                  <div><p className="text-xl font-black text-red-500">{customer.cancelled}</p><p className="text-[10px] font-bold text-gray-400 uppercase">Hủy / Bùng</p></div>
+                </div>
+
+                <div>
+                  <p className="text-xs font-bold text-gray-700 mb-1 flex items-center gap-1"><Tag className="w-3 h-3"/> Ghi chú nội bộ</p>
+                  <textarea 
+                    className="w-full text-sm p-2 bg-yellow-50/50 border border-yellow-200 rounded-lg outline-none focus:border-yellow-400 text-yellow-900 placeholder:text-yellow-400" 
+                    rows={2} placeholder="Thêm ghi chú riêng về khách này..."
+                    defaultValue={customer.internalNote}
+                    onBlur={(e) => {
+                      setCustomerNotes({...customerNotes, [customer.phone]: { ...customerNotes[customer.phone], tags: customer.tags, note: e.target.value }})
+                    }}
+                  />
+                </div>
+
+                <div className="max-h-40 overflow-y-auto border border-gray-100 rounded-xl">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-slate-100 sticky top-0"><tr><th className="p-2 font-bold text-slate-600">Ngày</th><th className="p-2 font-bold text-slate-600">Phòng</th><th className="p-2 font-bold text-slate-600 text-right">Tình trạng</th></tr></thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {customer.bookingHistory.sort((a,b)=> new Date(b.date||"").getTime() - new Date(a.date||"").getTime()).map(h => {
+                         const rName = rooms.find(r=>(r.id||r._id) === h.roomId)?.title || "Phòng";
+                         return (
+                           <tr key={h.id} className="hover:bg-slate-50">
+                             <td className="p-2 text-gray-600 font-medium">{h.date?.split('-').reverse().join('/')}</td>
+                             <td className="p-2 font-bold text-gray-800 capitalize">{rName}</td>
+                             <td className="p-2 text-right">
+                               <span className={`px-2 py-0.5 rounded-md font-bold text-[10px] ${h.paymentStatus==='HOÀN THÀNH'?'bg-emerald-50 text-emerald-600':h.status==='cancelled'?'bg-red-50 text-red-500':'bg-amber-50 text-amber-600'}`}>
+                                  {h.paymentStatus==='HOÀN THÀNH' ? 'Đã thu' : h.status==='cancelled' ? 'Hủy' : 'Chưa thu'}
+                               </span>
+                             </td>
+                           </tr>
+                         )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* TAB 2: TÌM PHÒNG THÔNG MINH (Đã cải thiện Độ Tương Phản & Bổ sung Dropdown Thiết Bị) */}
+        {lookupTab === "room" && (
+          <div className="space-y-6">
+            <div className="bg-gradient-to-r from-blue-600 to-indigo-700 p-6 rounded-2xl shadow-md flex flex-wrap gap-4 items-end">
+               <div className="flex-1 min-w-[200px]">
+                  <label className="block text-xs font-bold text-blue-200 mb-1.5 uppercase tracking-wider">Ngày cần thuê</label>
+                  <input type="date" value={smartRoomForm.date} onChange={e => setSmartRoomForm({...smartRoomForm, date: e.target.value})} className="w-full px-4 py-2.5 bg-white border border-gray-200 rounded-xl outline-none text-gray-900 font-bold" />
+               </div>
+               <div className="w-full md:w-32">
+                  <label className="block text-xs font-bold text-blue-200 mb-1.5 uppercase tracking-wider">Từ giờ</label>
+                  <input type="time" value={smartRoomForm.startTime} onChange={e => setSmartRoomForm({...smartRoomForm, startTime: e.target.value})} className="w-full px-4 py-2.5 bg-white border border-gray-200 rounded-xl outline-none text-gray-900 font-bold" />
+               </div>
+               <div className="w-full md:w-32">
+                  <label className="block text-xs font-bold text-blue-200 mb-1.5 uppercase tracking-wider">Đến giờ</label>
+                  <input type="time" value={smartRoomForm.endTime} onChange={e => setSmartRoomForm({...smartRoomForm, endTime: e.target.value})} className="w-full px-4 py-2.5 bg-white border border-gray-200 rounded-xl outline-none text-gray-900 font-bold" />
+               </div>
+               <div className="w-full md:w-32">
+                  <label className="block text-xs font-bold text-blue-200 mb-1.5 uppercase tracking-wider">Sức chứa &ge;</label>
+                  <input type="number" min={1} value={smartRoomForm.minCapacity} onChange={e => setSmartRoomForm({...smartRoomForm, minCapacity: Number(e.target.value)})} className="w-full px-4 py-2.5 bg-white border border-gray-200 rounded-xl outline-none text-gray-900 font-bold" />
+               </div>
+               {/* Ô DROPDOWN TÌM THIẾT BỊ MỞ RỘNG */}
+               <div className="w-full md:w-48">
+                  <label className="block text-xs font-bold text-blue-200 mb-1.5 uppercase tracking-wider">Thiết bị kèm theo</label>
+                  <select value={smartRoomForm.equipmentId} onChange={e => setSmartRoomForm({...smartRoomForm, equipmentId: e.target.value})} className="w-full px-4 py-2.5 bg-white border border-gray-200 rounded-xl outline-none text-gray-900 font-bold">
+                     <option value="">Không yêu cầu</option>
+                     {equipments.map(eq => <option key={eq.id || eq._id} value={eq.id || eq._id}>{eq.name}</option>)}
+                  </select>
+               </div>
+            </div>
+
+            {timeToMins(smartRoomForm.endTime) <= timeToMins(smartRoomForm.startTime) && (
+              <div className="bg-amber-50 text-amber-700 p-3 rounded-lg text-sm font-bold border border-amber-200 flex items-center gap-2">
+                 <AlertTriangle className="w-5 h-5"/> Giờ kết thúc đang nhỏ hơn hoặc bằng giờ bắt đầu. Vui lòng nhập định dạng 24h (Ví dụ: 14:30 thay vì 02:30).
+              </div>
+            )}
+
+            <h3 className="font-black text-gray-900 text-lg">Kết quả: {generateAvailableRooms().length} phòng trống</h3>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {generateAvailableRooms().map(room => (
+                <div key={room.id||room._id} className="bg-white border border-emerald-200 rounded-2xl p-5 shadow-sm hover:shadow-md transition-shadow relative overflow-hidden">
+                   <div className="absolute top-0 right-0 bg-emerald-500 text-white text-[10px] font-black px-3 py-1 rounded-bl-xl">Trống lịch</div>
+                   <h4 className="font-black text-lg text-gray-900 mt-2 capitalize">{room.title||room.name}</h4>
+                   <p className="text-sm text-gray-500 font-medium mt-1"><MapPin className="w-3.5 h-3.5 inline text-gray-400"/> {room.building} - {room.floor}</p>
+                   <p className="text-sm text-gray-500 font-medium mt-1"><Users className="w-3.5 h-3.5 inline text-gray-400"/> Sức chứa: <span className="font-bold text-gray-800">{room.capacity}</span> người</p>
+                   <div className="mt-4 pt-4 border-t border-gray-100 flex justify-between items-center">
+                      <span className="font-black text-emerald-600">{Number(room.price||0).toLocaleString()}đ<span className="text-xs text-gray-400 font-medium">/h</span></span>
+                      
+                      {/* FIX UX QUICK BOOK: Auto Fill Data */}
+                      <button onClick={() => {
+                         setQuickBookData({
+                           ...quickBookData, 
+                           roomId: String(room.id||room._id), 
+                           startDate: smartRoomForm.date, 
+                           endDate: smartRoomForm.date,
+                           startTime: smartRoomForm.startTime, 
+                           endTime: smartRoomForm.endTime,
+                           equipments: {} // Có thể bổ sung auto check thiết bị ở đây nếu muốn
+                         });
+                         setShowQuickBook(true);
+                      }} className="px-4 py-2 bg-emerald-50 text-emerald-600 hover:bg-emerald-600 hover:text-white font-bold rounded-xl text-sm transition-colors">
+                        Book ngay
+                      </button>
+                   </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* TAB 3: TRUY VẾT THIẾT BỊ (Đã nâng cấp Cảnh báo Đỏ & Clickable UI) */}
+        {lookupTab === "equipment" && (
+          <div className="space-y-4">
+             {generateEquipmentTracking().map(eq => (
+               <div key={eq.equipmentId} className="bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-sm">
+                  <div className="bg-slate-50 p-4 flex justify-between items-center border-b border-gray-200">
+                     <h3 className="font-black text-lg text-gray-900 flex items-center gap-2"><Package className="w-5 h-5 text-indigo-500"/> {eq.name}</h3>
+                     <div className="flex gap-4 text-sm font-bold">
+                        <span className="text-gray-500">Tổng: {eq.total}</span>
+                        <span className={eq.inStock > 0 ? "text-emerald-600" : "text-red-500"}>Sẵn sàng: {eq.inStock}</span>
+                     </div>
+                  </div>
+                  <div className="p-4">
+                     {eq.currentlyBorrowedBy.length === 0 ? (
+                       <p className="text-sm text-gray-500 italic flex items-center gap-2"><Info className="w-4 h-4"/> Tất cả thiết bị đang nằm trong kho.</p>
+                     ) : (
+                       <table className="w-full text-left text-sm">
+                         <thead><tr className="text-gray-400"><th className="pb-2">Đang mượn bởi</th><th className="pb-2">Phòng sử dụng</th><th className="pb-2 text-center">Số lượng</th><th className="pb-2 text-right">Giờ trả dự kiến</th></tr></thead>
+                         <tbody className="divide-y divide-gray-100">
+                            {eq.currentlyBorrowedBy.sort((a,b)=> timeToMins(a.expectedReturnTime.split('- ')[1]) - timeToMins(b.expectedReturnTime.split('- ')[1])).map((b, i) => (
+                              <tr key={i}>
+                                <td className="py-3 font-bold text-gray-900">{b.customerName}</td>
+                                <td className="py-3">
+                                   {/* Room Clickable -> Mở Modal Chi tiết */}
+                                   <button 
+                                      onClick={() => setSelectedBooking(b.originalBooking)}
+                                      className="text-indigo-600 hover:text-indigo-800 hover:underline font-bold bg-indigo-50 hover:bg-indigo-100 px-2 py-1 rounded-lg transition-colors capitalize"
+                                   >
+                                      {b.roomName}
+                                   </button>
+                                </td>
+                                <td className="py-3 text-center font-black">{b.quantity}</td>
+                                <td className="py-3 text-right">
+                                   {/* UI Cảnh báo Đỏ nếu quá hạn */}
+                                   {b.isOverdue ? (
+                                     <span className="text-red-600 font-bold bg-red-50 px-3 py-1.5 rounded-lg border border-red-200 inline-flex items-center gap-1 shadow-sm animate-pulse">
+                                       <AlertTriangle className="w-3.5 h-3.5"/> Quá hạn ({b.expectedReturnTime})
+                                     </span>
+                                   ) : (
+                                     <span className="text-amber-600 font-bold bg-amber-50 px-3 py-1 rounded-lg border border-amber-200">
+                                       <Clock className="w-3.5 h-3.5 inline mr-1"/> {b.expectedReturnTime}
+                                     </span>
+                                   )}
+                                </td>
+                              </tr>
+                            ))}
+                         </tbody>
+                       </table>
+                     )}
+                  </div>
+               </div>
+             ))}
+          </div>
+        )}
+      </div>
+    );
+  };
 
   // ================= GIAO DIỆN MASTER SCHEDULE (THỜI KHÓA BIỂU) =================
   const renderMasterSchedule = () => {
@@ -1918,7 +2826,7 @@ export default function ManagerDashboardPage() {
           { id: "equipments", icon: Package, label: "Thiết Bị" },
           { id: "timeline", icon: CalendarDays, label: "Lịch Điều phối" },
           { id: "master-schedule", icon: CalendarRange, label: "Thời Khóa Biểu" },
-          { id: "reports", icon: FileText, label: "Báo cáo Sự cố" },
+          { id: "reports", icon: FileText, label: "Nhật ký Bảo trì" },
           { id: "lookup", icon: Search, label: "Tra cứu Thông tin" },
         ].map((item) => (
           <button
@@ -1945,20 +2853,48 @@ export default function ManagerDashboardPage() {
     <div className="flex h-screen bg-slate-50 font-sans overflow-hidden">
       {renderSidebar()}
 
-      <main className="flex-1 overflow-y-auto p-4 md:p-8 lg:p-10 relative">
-        {/* Mobile Header */}
-        <div className="md:hidden flex justify-between items-center mb-6 bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
-          <h1 className="text-xl font-black flex items-center gap-2">
-            <ShieldCheck className="w-6 h-6 text-emerald-500" /> Manager
-            <span className="text-emerald-500">Ops</span>
-          </h1>
-          <button
-            onClick={handleLogout}
-            className="p-2 text-red-500 bg-red-50 rounded-lg"
-          >
-            <LogOut className="w-5 h-5" />
-          </button>
+      <main className="flex-1 overflow-y-auto p-4 md:p-8 lg:p-10 relative bg-slate-50/50">
+        {/* ================= TIÊU ĐỀ GIAO DIỆN LUNG LINH ================= */}
+        <div className="mb-6 md:mb-8 relative rounded-3xl overflow-hidden shadow-2xl border border-white/20 bg-gradient-to-r from-blue-600 via-violet-600 to-fuchsia-600 animate-in fade-in slide-in-from-top-4 duration-500">
+          {/* Hiệu ứng ánh sáng (Orbs) bay lơ lửng */}
+          <div className="absolute top-[-50%] left-[-10%] w-64 h-64 bg-white/20 blur-3xl rounded-full mix-blend-overlay animate-pulse"></div>
+          <div className="absolute bottom-[-50%] right-[-10%] w-64 h-64 bg-yellow-300/30 blur-3xl rounded-full mix-blend-overlay"></div>
+          
+          <div className="relative p-6 md:p-8 flex flex-col md:flex-row items-center justify-between gap-4 w-full">
+            {/* Cột trái: Lời chào */}
+            <div className="text-white text-center md:text-left w-full md:w-auto">
+              <h2 className="text-2xl md:text-3xl font-black tracking-tight flex items-center justify-center md:justify-start gap-3 drop-shadow-md">
+                <Sparkles className="w-8 h-8 text-yellow-300 animate-bounce" />
+                Hệ Thống Manager<span className="text-yellow-300">Ops</span>
+              </h2>
+              <p className="mt-2 text-white/90 font-medium text-sm md:text-base">
+                Xin chào! Chúc bạn một ngày làm việc hiệu quả và tràn đầy năng lượng 🚀
+              </p>
+            </div>
+            
+            {/* Cột phải: Đồng hồ & Nút Đăng xuất */}
+            <div className="flex items-center gap-4 w-full md:w-auto justify-between md:justify-end">
+              <div className="bg-white/10 backdrop-blur-md border border-white/20 px-5 py-2.5 rounded-2xl flex flex-col items-center md:items-end shadow-inner">
+                <div className="flex items-center gap-2 text-yellow-300 font-black text-xl md:text-2xl drop-shadow-sm">
+                  <Clock className="w-5 h-5" />
+                  {currentTime.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" })}
+                </div>
+                <span className="text-white/90 text-[10px] md:text-xs font-bold uppercase tracking-widest mt-0.5">
+                  {currentTime.toLocaleDateString("vi-VN", { weekday: "long", day: "2-digit", month: "long" })}
+                </span>
+              </div>
+
+              {/* Nút Đăng xuất ở Mobile đem lên đây để tiết kiệm không gian */}
+              <button
+                onClick={handleLogout}
+                className="md:hidden p-3 text-white bg-white/10 border border-white/20 hover:bg-red-500 rounded-2xl backdrop-blur-sm transition-all shadow-md"
+              >
+                <LogOut className="w-6 h-6" />
+              </button>
+            </div>
+          </div>
         </div>
+
 
         {/* Mobile Nav Tabs */}
         <div className="md:hidden flex overflow-x-auto gap-2 mb-6 pb-2 scrollbar-hide">
@@ -2347,22 +3283,61 @@ export default function ManagerDashboardPage() {
                   </div>
 
                   <div className="grid grid-cols-2 gap-4">
-                    <div className="bg-gray-50 p-4 rounded-xl border border-gray-100">
-                      <p className="text-xs font-bold text-gray-400 uppercase mb-1">
-                        Thời gian mượn
-                      </p>
-                      <p className="text-lg font-black text-gray-900">
-                        {selectedBooking.startTime} -{" "}
-                        {minsToTime(
-                          timeToMins(selectedBooking.startTime) +
-                            selectedBooking.durationMins,
-                        )}
-                      </p>
-                      <p className="text-xs font-medium text-amber-600 mt-1 flex items-center gap-1">
-                        <Clock className="w-3 h-3" /> Dọn dẹp:{" "}
-                        {selectedBooking.bufferMins} phút
-                      </p>
-                    </div>
+                    {/* 🚀 ĐÃ NÂNG CẤP: TỰ ĐỘNG TÍNH NGÀY KẾT THÚC & CHỐNG TRÀN 24H */}
+                    {(() => {
+                      // Lấy ngày bắt đầu (nếu không có thì lấy ngày hôm nay làm mốc chuẩn)
+                      const startDateStr =
+                        selectedBooking.date ||
+                        new Date().toISOString().split("T")[0];
+                      const startDateTime = new Date(
+                        `${startDateStr}T${selectedBooking.startTime}`,
+                      );
+
+                      // Cộng thêm số phút mượn (Javascript sẽ tự động đẩy sang ngày hôm sau nếu vượt 24h)
+                      const endDateTime = new Date(
+                        startDateTime.getTime() +
+                          selectedBooking.durationMins * 60000,
+                      );
+
+                      const endHour = endDateTime
+                        .getHours()
+                        .toString()
+                        .padStart(2, "0");
+                      const endMin = endDateTime
+                        .getMinutes()
+                        .toString()
+                        .padStart(2, "0");
+                      const endTimeStr = `${endHour}:${endMin}`;
+
+                      // Kiểm tra xem ngày kết thúc có lệch với ngày bắt đầu không
+                      const isNextDay =
+                        startDateTime.getDate() !== endDateTime.getDate() ||
+                        startDateTime.getMonth() !== endDateTime.getMonth();
+
+                      // Nếu qua ngày mới, in thêm (DD/MM)
+                      const endDateDisplay = isNextDay
+                        ? ` (${endDateTime.getDate().toString().padStart(2, "0")}/${(endDateTime.getMonth() + 1).toString().padStart(2, "0")})`
+                        : "";
+
+                      return (
+                        <div className="bg-gray-50 p-4 rounded-xl border border-gray-100">
+                          <p className="text-xs font-bold text-gray-400 uppercase mb-1">
+                            Thời gian mượn
+                          </p>
+                          <p className="text-lg font-black text-gray-900 flex items-baseline gap-1 flex-wrap">
+                            {selectedBooking.startTime} - {endTimeStr}
+                            <span className="text-sm text-blue-600 font-bold whitespace-nowrap">
+                              {endDateDisplay}
+                            </span>
+                          </p>
+                          <p className="text-xs font-medium text-amber-600 mt-1 flex items-center gap-1">
+                            <Clock className="w-3 h-3" /> Dọn dẹp:{" "}
+                            {selectedBooking.bufferMins} phút
+                          </p>
+                        </div>
+                      );
+                    })()}
+
                     <div className="bg-gray-50 p-4 rounded-xl border border-gray-100">
                       <p className="text-xs font-bold text-gray-400 uppercase mb-1">
                         Phòng Lab
@@ -2424,23 +3399,40 @@ export default function ManagerDashboardPage() {
                   )}
                 </div>
 
-                <div className="bg-gray-50 p-4 border-t border-gray-100 flex justify-end">
-                  <button
-                    type="button"
-                    onClick={() => setSelectedBooking(null)}
-                    className="px-6 py-2.5 bg-slate-900 hover:bg-black text-white font-bold rounded-xl shadow-md"
-                  >
-                    Đóng lại
-                  </button>
+                <div className="bg-gray-50 p-5 border-t border-gray-100 flex flex-col sm:flex-row justify-between items-center gap-4">
+                  <div>
+                    <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Tổng tiền cần thu:</p>
+                    <p className="text-2xl font-black text-emerald-600 leading-none mt-1">
+                      {calculateBookingTotal(selectedBooking).toLocaleString("vi-VN")}đ
+                    </p>
+                  </div>
+                  <div className="flex gap-2 w-full sm:w-auto">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedBooking(null)}
+                      className="flex-1 sm:flex-none px-6 py-3 bg-gray-200 hover:bg-gray-300 text-gray-700 font-bold rounded-xl transition-colors shadow-sm"
+                    >
+                      Đóng lại
+                    </button>
+                    {selectedBooking.paymentStatus !== "HOÀN THÀNH" && (
+                      <button
+                        type="button"
+                        onClick={() => handleConfirmPayment(selectedBooking.id)}
+                        className="flex-1 sm:flex-none px-6 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-black rounded-xl shadow-lg transition-all active:scale-95 flex items-center justify-center gap-2"
+                      >
+                        <Banknote className="w-5 h-5" /> Nhận tiền & Kết thúc
+                      </button>
+                    )}
+                  </div>
                 </div>
               </motion.div>
             </div>
           )}
         </AnimatePresence>
 
-        {/* === MODAL BÁO CÁO BẢO TRÌ (ĐÃ CHUYỂN RA NGOÀI VÀ SẼ HIỂN THỊ Ở MỌI TAB) === */}
+        {/* === MODAL BẢO TRÌ NHANH (KÍCH HOẠT TỪ NÚT CỜ LÊ) === */}
         <AnimatePresence>
-          {reportModal.isOpen && (
+          {maintenanceModal.isOpen && (
             <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm z-[999]">
               <motion.div
                 initial={{ opacity: 0, scale: 0.95 }}
@@ -2448,70 +3440,56 @@ export default function ManagerDashboardPage() {
                 exit={{ opacity: 0, scale: 0.95 }}
                 className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col"
               >
-                <div className="bg-red-600 p-5 flex justify-between items-center text-white shrink-0">
+                <div className="bg-slate-900 p-5 flex justify-between items-center text-white shrink-0 border-b-4 border-amber-500">
                   <h3 className="font-black text-xl flex items-center gap-2">
-                    <Wrench className="w-5 h-5" /> Báo Cáo Sửa Chữa
+                    <Wrench className="w-5 h-5 text-amber-400" /> Lên Lịch Bảo Trì Nhanh
                   </h3>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setReportModal({ ...reportModal, isOpen: false })
-                    }
-                    className="hover:bg-red-700 p-1 rounded-full"
-                  >
-                    <X className="w-6 h-6" />
-                  </button>
+                  <button type="button" onClick={() => setMaintenanceModal({ ...maintenanceModal, isOpen: false })} className="hover:bg-slate-700 p-1 rounded-full"><X className="w-6 h-6" /></button>
                 </div>
-                <form onSubmit={handleReportSubmit} className="p-6 space-y-4">
-                  <div className="bg-red-50 p-3 rounded-lg border border-red-100">
-                    <p className="text-sm text-red-800 font-bold">
-                      Đối tượng: {reportModal.itemName}
+                <form onSubmit={handleMaintenanceSubmit} className="p-6 space-y-4">
+                  <div className="bg-amber-50 p-3 rounded-lg border border-amber-200">
+                    <p className="text-sm text-amber-900 font-bold flex items-center gap-2">
+                      {maintenanceModal.type === 'room' ? <DoorOpen className="w-4 h-4"/> : <Package className="w-4 h-4"/>} 
+                      Đang cài đặt cho: {maintenanceModal.itemName}
                     </p>
-                    <p className="text-xs text-red-600 mt-1">
-                      Hệ thống sẽ chuyển trạng thái của đối tượng này sang Bảo
-                      trì/Sửa chữa.
-                    </p>
+                    <p className="text-[11px] text-amber-700 mt-1 font-medium">Hệ thống sẽ TỰ ĐỘNG KHÓA ĐẶT LỊCH {maintenanceModal.type === 'room' ? 'phòng' : 'thiết bị'} này khi đến khung giờ bên dưới.</p>
                   </div>
+                  
+                  {/* BỘ CHỌN NGÀY GIỜ BẢO TRÌ */}
+                  <div className="grid grid-cols-2 gap-3 bg-gray-50 p-4 rounded-xl border border-gray-200">
+                     <div>
+                       <label className="block text-[10px] font-black text-gray-500 uppercase tracking-wider mb-1">Từ ngày</label>
+                       <input type="date" required value={maintenanceModal.startDate} onChange={e => setMaintenanceModal({...maintenanceModal, startDate: e.target.value})} className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg outline-none text-sm font-bold text-gray-800"/>
+                     </div>
+                     <div>
+                       <label className="block text-[10px] font-black text-gray-500 uppercase tracking-wider mb-1">Đến ngày</label>
+                       <input type="date" required value={maintenanceModal.endDate} min={maintenanceModal.startDate} onChange={e => setMaintenanceModal({...maintenanceModal, endDate: e.target.value})} className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg outline-none text-sm font-bold text-gray-800"/>
+                     </div>
+                     <div>
+                       <label className="block text-[10px] font-black text-gray-500 uppercase tracking-wider mb-1">Từ giờ</label>
+                       <input type="time" required value={maintenanceModal.startTime} onChange={e => setMaintenanceModal({...maintenanceModal, startTime: e.target.value})} className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg outline-none text-sm font-bold text-gray-800"/>
+                     </div>
+                     <div>
+                       <label className="block text-[10px] font-black text-gray-500 uppercase tracking-wider mb-1">Đến giờ</label>
+                       <input type="time" required value={maintenanceModal.endTime} onChange={e => setMaintenanceModal({...maintenanceModal, endTime: e.target.value})} className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg outline-none text-sm font-bold text-gray-800"/>
+                     </div>
+                  </div>
+
                   <div>
-                    <label className="block text-sm font-bold text-gray-700 mb-2">
-                      Mô tả tình trạng hỏng hóc *
-                    </label>
-                    <textarea
-                      required
-                      value={reportModal.reason}
-                      onChange={(e) =>
-                        setReportModal({
-                          ...reportModal,
-                          reason: e.target.value,
-                        })
-                      }
-                      rows={4}
-                      className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-red-500 resize-none"
-                      placeholder="Ví dụ: Điều hòa không mát, máy chiếu mờ..."
-                    ></textarea>
+                    <label className="block text-sm font-bold text-gray-700 mb-2">Mô tả / Lý do bảo trì *</label>
+                    <textarea required value={maintenanceModal.reason} onChange={(e) => setMaintenanceModal({...maintenanceModal, reason: e.target.value})} rows={2} className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-amber-500 resize-none font-medium" placeholder="VD: Nâng cấp máy lạnh, thay máy chiếu..."></textarea>
                   </div>
                   <div className="pt-2 flex justify-end gap-3">
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setReportModal({ ...reportModal, isOpen: false })
-                      }
-                      className="px-5 py-2.5 font-bold text-gray-500 hover:bg-gray-100 rounded-xl transition-colors"
-                    >
-                      Hủy
-                    </button>
-                    <button
-                      type="submit"
-                      className="px-6 py-2.5 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl shadow-md transition-all active:scale-95"
-                    >
-                      Xác nhận Báo hỏng
-                    </button>
+                    <button type="button" onClick={() => setMaintenanceModal({ ...maintenanceModal, isOpen: false })} className="px-5 py-2.5 font-bold text-gray-500 hover:bg-gray-100 rounded-xl transition-colors">Hủy</button>
+                    <button type="submit" className="px-6 py-2.5 bg-amber-500 hover:bg-amber-600 text-white font-black rounded-xl shadow-md transition-all active:scale-95">Lưu lịch Bảo trì</button>
                   </div>
                 </form>
               </motion.div>
             </div>
           )}
         </AnimatePresence>
+
+
         {/* ================= GIAO DIỆN XÁC NHẬN TỪ CHỐI ĐƠN ================= */}
         <AnimatePresence>
           {confirmCancel.isOpen && (

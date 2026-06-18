@@ -48,6 +48,7 @@ export default function BookingModal({
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const API_URL = getApiBaseUrl();
+  //const API_URL = "http://127.0.0.1:8000/api/v1";
 
   useEffect(() => {
     if (isOpen && room) {
@@ -148,6 +149,10 @@ export default function BookingModal({
     const eqId = eq.id || eq._id;
     const currentList = { ...selectedEqs };
 
+    const eqPrice = Number(
+      eq.pricePerHour || eq.price_per_hour || eq.price || 0,
+    );
+
     if (currentList[eqId]) {
       delete currentList[eqId];
     } else {
@@ -155,7 +160,7 @@ export default function BookingModal({
         name: eq.name,
         quantity: 1,
         max: availableQty,
-        price: eq.price || 0,
+        price: eqPrice,
       };
     }
     setSelectedEqs(currentList);
@@ -290,22 +295,52 @@ export default function BookingModal({
                 const bDuration = b.duration_mins || b.durationMins || 0;
                 const bBuffer = b.buffer_mins || b.bufferMins || 15;
 
-                const endTimeStr = minsToTime(bStartMins + bDuration);
+                const startDateStr = b.date || formData.startDate;
+                const startDateTime = new Date(
+                  `${startDateStr}T${startTimeStr}`,
+                );
+                const endDateTime = new Date(
+                  startDateTime.getTime() + bDuration * 60000,
+                );
+
+                const endHour = endDateTime
+                  .getHours()
+                  .toString()
+                  .padStart(2, "0");
+                const endMin = endDateTime
+                  .getMinutes()
+                  .toString()
+                  .padStart(2, "0");
+                const endTimeStr = `${endHour}:${endMin}`;
+
+                const isNextDay =
+                  startDateTime.getDate() !== endDateTime.getDate() ||
+                  startDateTime.getMonth() !== endDateTime.getMonth();
+                const endDateDisplay = isNextDay
+                  ? ` (${endDateTime.getDate().toString().padStart(2, "0")}/${(endDateTime.getMonth() + 1).toString().padStart(2, "0")})`
+                  : "";
 
                 const leftPct = (bStartMins / totalMins) * 100;
-                const widthPct = (bDuration / totalMins) * 100;
-                const bufferWidthPct = (bBuffer / totalMins) * 100;
+                const widthPct = Math.min(
+                  (bDuration / totalMins) * 100,
+                  100 - leftPct,
+                );
+                const bufferWidthPct = Math.min(
+                  (bBuffer / totalMins) * 100,
+                  100 - (leftPct + widthPct),
+                );
 
                 return (
                   <React.Fragment key={b.id || b._id}>
                     <div
                       className="absolute top-0 bottom-0 bg-red-500/90 border-x border-red-600 flex items-center justify-center overflow-hidden z-10 shadow-sm transition-all hover:brightness-110"
                       style={{ left: `${leftPct}%`, width: `${widthPct}%` }}
-                      title={`Đã đặt: ${startTimeStr} - ${endTimeStr} (${bDuration} phút)`}
+                      title={`Đã đặt: ${startTimeStr} - ${endTimeStr}${endDateDisplay} (${bDuration} phút)`}
                     >
                       {widthPct > 4 && (
                         <span className="text-[10px] sm:text-xs font-black text-white whitespace-nowrap px-1 drop-shadow-md">
                           {startTimeStr} - {endTimeStr}
+                          {endDateDisplay}
                         </span>
                       )}
                     </div>
@@ -552,9 +587,27 @@ export default function BookingModal({
                           className="w-4 h-4 mt-0.5 text-violet-600 rounded border-gray-300 focus:ring-violet-500"
                         />
                         <div className="flex-1">
-                          <span className="text-sm font-bold text-gray-900 line-clamp-1">
-                            {eq.name}
-                          </span>
+                          <div className="flex items-start justify-between gap-1">
+                            <span className="text-sm font-bold text-gray-900 line-clamp-1">
+                              {eq.name}
+                            </span>
+                            {(() => {
+                              const displayPrice = Number(
+                                eq.pricePerHour ||
+                                  eq.price_per_hour ||
+                                  eq.price ||
+                                  0,
+                              );
+                              if (displayPrice > 0) {
+                                return (
+                                  <span className="text-[10px] font-black bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded-md whitespace-nowrap">
+                                    {displayPrice.toLocaleString("vi-VN")}đ/h
+                                  </span>
+                                );
+                              }
+                              return null;
+                            })()}
+                          </div>
                           <p
                             className={`text-xs mt-0.5 font-semibold ${isOutOfStock ? "text-red-500" : "text-green-600"}`}
                           >
