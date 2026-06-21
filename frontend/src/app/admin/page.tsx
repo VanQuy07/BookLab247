@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
+import { getApiBaseUrl } from "../../services/api-client";
 import {
   LayoutDashboard,
   CalendarDays,
@@ -329,7 +330,7 @@ export default function AdvancedAdminDashboard() {
   //const API_URL = "http://localhost:8000/api/v1";
   //const API_URL = "https://booklab247.onrender.com/api/v1";
   //const API_URL = `${process.env.NEXT_PUBLIC_API_URL}/api/v1`;
-  const API_URL = "https://booklab247.onrender.com/api/v1";
+  const API_URL = getApiBaseUrl();
   useEffect(() => {
     fetchData();
     // Chạy đồng hồ hệ thống mỗi 60 giây để vạch kẻ đỏ Timeline nhảy theo giờ thực

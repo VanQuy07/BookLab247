@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
+import { getApiBaseUrl } from "../../services/api-client";
 import {
   LayoutDashboard,
   CalendarDays,
@@ -288,8 +289,12 @@ export default function ManagerDashboardPage() {
     setUserRole(savedRole.toUpperCase());
   }, []);
 
-  const [reports, setReports] = useState<Report[]>([]);
   const [selectedReport, setSelectedReport] = useState<Report | null>(null);
+  // Kiểm tra report đã escalate chưa
+  const isReportEscalated = selectedReport?.status === "ESCALATED";
+  // Manager chỉ sửa được khi: là ADMIN HOẶC report chưa escalate
+  const canManagerEditReport = userRole === "ADMIN" || !isReportEscalated;
+  const [reports, setReports] = useState<Report[]>([]);
   const [filterStatus, setFilterStatus] = useState<string>("ALL");
   const [filterSeverity, setFilterSeverity] = useState<string>("ALL");
 
@@ -419,9 +424,11 @@ export default function ManagerDashboardPage() {
 
     try {
       const token = localStorage.getItem("access_token");
-      const API_URL = "https://booklab247.onrender.com/api/v1";
+      // const API_URL = "https://booklab247.onrender.com/api/v1";
+      const API_URL = `${getApiBaseUrl()}/bookings/${bookingId}/status`;
 
-      const response = await fetch(`${API_URL}/bookings/${bookingId}/status`, {
+      // const response = await fetch(`${API_URL}/bookings/${bookingId}/status`, {
+      const response = await fetch(API_URL, {
         method: "PATCH",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ status: "completed", payment_status: "HOÀN THÀNH" })
@@ -740,8 +747,9 @@ export default function ManagerDashboardPage() {
   });
 
   // const API_URL = `${process.env.NEXT_PUBLIC_API_URL}/api/v1`;
-  const API_URL = //"https://booklab247.onrender.com/api/v1";
+  // const API_URL = //"https://booklab247.onrender.com/api/v1";
   // const API_URL = "http://127.0.0.1:8000/api/v1";
+  const API_URL = getApiBaseUrl();
 
 
 
@@ -760,8 +768,8 @@ export default function ManagerDashboardPage() {
     if (!isSilent) setLoading(true);
 
     const token = localStorage.getItem("access_token");
-    const API_URL = "https://booklab247.onrender.com/api/v1"; // Giữ nguyên link Cloud chạy đúng của bạn
-
+    // const API_URL = "https://booklab247.onrender.com/api/v1"; // Giữ nguyên link Cloud chạy đúng của bạn
+    const API_URL = getApiBaseUrl();
 
     // ==========================================
     // 1. LUỒNG TẢI LỊCH ĐẶT PHÒNG (BOOKINGS) -> ĐÃ BỔ SUNG
@@ -1200,9 +1208,11 @@ export default function ManagerDashboardPage() {
 
     try {
       const token = localStorage.getItem("access_token");
-      const API_URL = "https://booklab247.onrender.com/api/v1";
+      // const API_URL = "https://booklab247.onrender.com/api/v1";
+      const API_URL = getApiBaseUrl();
 
-      const response = await fetch(`${API_URL}/bookings/${bookingId}/status`, {
+      // const response = await fetch(`${API_URL}/bookings/${bookingId}/status`, {
+      const response = await fetch(`${API_URL}/${bookingId}/status`, {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
@@ -2118,28 +2128,42 @@ export default function ManagerDashboardPage() {
                     </div>
                   </div>
                 </div>
-                
+
                 <div className="space-y-3 border-t border-gray-100 pt-4">
                   <p className="text-sm font-black text-gray-700 uppercase tracking-wider">Thao tác xử lý</p>
-                  
-                  <button onClick={() => { setPendingAssignId(selectedReport._id); setAssignName(""); setShowAssignModal(true); }} className="w-full px-4 py-2 bg-blue-50 text-blue-600 border border-blue-200 rounded-xl font-bold hover:bg-blue-600 hover:text-white transition-colors">
+
+                  <button
+                    onClick={() => { setPendingAssignId(selectedReport._id); setAssignName(""); setShowAssignModal(true); }}
+                    className={`w-full px-4 py-2 border rounded-xl font-bold transition-colors ${canManagerEditReport
+                        ? "bg-blue-50 text-blue-600 border-blue-200 hover:bg-blue-600 hover:text-white"
+                        : "bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed"
+                      }`}
+                    disabled={!canManagerEditReport}
+                  >
                     Phân công kỹ thuật
                   </button>
-                  
+
                   <div className="bg-gray-50 p-3 rounded-xl border border-gray-200 mt-2">
                     <p className="text-xs font-bold text-gray-500 mb-2">Đổi trạng thái:</p>
-                    <select className="w-full border border-gray-300 rounded-lg p-2.5 text-sm font-bold outline-none" value={selectedReport.status} onChange={(e) => updateReportStatus(selectedReport._id, e.target.value)}>
-                      {STATUS_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
-                    </select>
+                    {canManagerEditReport ? (
+                      <select className="w-full border border-gray-300 rounded-lg p-2.5 text-sm font-bold outline-none" value={selectedReport.status} onChange={(e) => updateReportStatus(selectedReport._id, e.target.value)}>
+                        {STATUS_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+                      </select>
+                    ) : (
+                      <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-center">
+                        <p className="text-amber-700 font-bold text-sm">⚠️ Đã chuyển cho Admin xử lý</p>
+                        <p className="text-amber-600 text-xs mt-1">Chờ Admin xử lý hoặc đóng báo cáo</p>
+                      </div>
+                    )}
                   </div>
 
                   {/* NÚT CHUYỂN CẤP LÊN ADMIN DÀNH CHO MANAGER */}
                   {selectedReport.status !== "ESCALATED" && selectedReport.status !== "RESOLVED" && (
-                    <button 
-                        onClick={() => handleEscalateToAdmin(selectedReport._id)} 
-                        className="w-full mt-3 px-4 py-3 bg-rose-50 text-rose-600 border border-rose-200 rounded-xl font-bold hover:bg-rose-600 hover:text-white transition-all shadow-sm flex justify-center items-center gap-2"
+                    <button
+                      onClick={() => handleEscalateToAdmin(selectedReport._id)}
+                      className="w-full mt-3 px-4 py-3 bg-rose-50 text-rose-600 border border-rose-200 rounded-xl font-bold hover:bg-rose-600 hover:text-white transition-all shadow-sm flex justify-center items-center gap-2"
                     >
-                        <ShieldAlert className="w-5 h-5" /> Vượt thẩm quyền? Chuyển lên Admin
+                      <ShieldAlert className="w-5 h-5" /> Vượt thẩm quyền? Chuyển lên Admin
                     </button>
                   )}
                 </div>
