@@ -36,7 +36,8 @@ import {
   Banknote,
   UserCircle,
   CheckCircle2,
-  Tag
+  Tag,
+  ClipboardList
 } from "lucide-react";
 import {
   BarChart,
@@ -54,10 +55,10 @@ import {
 import { authService } from "../../services/auth";
 import { source } from "framer-motion/client";
 
-type MenuTab = "dashboard" | "bookings" | "approval" | "rooms" | "equipments" | "users" | "lookup" | "system";
+type MenuTab = "dashboard" | "bookings" | "approval" | "rooms" | "equipments" | "users" | "lookup" | "reports" | "system";
 type TimeFilter = "yesterday" | "today" | "7days" | "month";
 
-  
+
 
 // ================= INTERFACES (Strict Type) =================
 interface ManagerRoom {
@@ -106,6 +107,50 @@ interface MetricCard {
   colorClass: string;
   bgClass: string;
 }
+
+interface ReportLog {
+  status: string;
+  changedBy: string;
+  message: string;
+  createdAt: string;
+}
+
+interface Report {
+  _id: string;
+  type: string;
+  title: string;
+  description: string;
+  severity: string;
+  status: string;
+  roomId?: string;
+  roomName?: string;
+  equipmentId?: string;
+  equipmentName?: string;
+  bookingId?: string;
+  images?: string[];
+  createdBy: string;
+  assignedTo?: string;
+  logs: ReportLog[];
+  comments: any[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+const STATUS_OPTIONS = [
+  { value: "SUBMITTED", label: "Chờ duyệt", color: "bg-blue-100 text-blue-700" },
+  { value: "IN_REVIEW", label: "Đang xem xét", color: "bg-yellow-100 text-yellow-700" },
+  { value: "APPROVED", label: "Đã duyệt", color: "bg-green-100 text-green-700" },
+  { value: "IN_PROGRESS", label: "Đang xử lý", color: "bg-purple-100 text-purple-700" },
+  { value: "RESOLVED", label: "Đã xử lý xong", color: "bg-emerald-100 text-emerald-700" },
+  { value: "REJECTED", label: "Từ chối", color: "bg-red-100 text-red-700" },
+];
+
+const SEVERITY_OPTIONS = [
+  { value: "LOW", label: "Thấp", color: "bg-green-100 text-green-700" },
+  { value: "MEDIUM", label: "Trung bình", color: "bg-yellow-100 text-yellow-700" },
+  { value: "HIGH", label: "Cao", color: "bg-orange-100 text-orange-700" },
+  { value: "CRITICAL", label: "Khẩn cấp", color: "bg-red-100 text-red-700" },
+];
 
 // ================= DỮ LIỆU MẪU ĐẶT PHÒNG (TIMELINE) =================
 const MOCK_BOOKINGS = [
@@ -157,7 +202,7 @@ export default function AdvancedAdminDashboard() {
   // State Bảo trì & Tra cứu
   const [maintenanceLogs, setMaintenanceLogs] = useState<MaintenanceLog[]>([]);
   const [maintenanceModal, setMaintenanceModal] = useState({
-    isOpen: false, type: "room", itemId: "", itemName: "", reason: "", startDate: selectedDate, startTime: "08:00", endDate: selectedDate, endTime: "17:00" 
+    isOpen: false, type: "room", itemId: "", itemName: "", reason: "", startDate: selectedDate, startTime: "08:00", endDate: selectedDate, endTime: "17:00"
   });
   const [lookupTab, setLookupTab] = useState<"customer" | "room" | "equipment">("customer");
   const [lookupSearch, setLookupSearch] = useState<string>("");
@@ -174,7 +219,7 @@ export default function AdvancedAdminDashboard() {
   const [loading, setLoading] = useState(false);
   const [uploadingImage, setUploadingImage] = useState(false);
 
-  
+
 
   // ================= STATES BỔ SUNG CHO TIMELINE & QUICK BOOK =================
   const [currentTime, setCurrentTime] = useState(new Date());
@@ -248,6 +293,23 @@ export default function AdvancedAdminDashboard() {
   });
   const [bookings, setBookings] = useState<any[]>([]);
   const [fixedBookings, setFixedBookings] = useState<any[]>([]);
+  // Xác định Role để phân quyền UI (Lấy từ LocalStorage)
+  const [userRole, setUserRole] = useState<string>("ADMIN");
+
+  useEffect(() => {
+    // Sửa lại "role" thành key lưu role trong hệ thống của bạn nếu khác
+    const savedRole = localStorage.getItem("role") || localStorage.getItem("user_role") || "ADMIN"; 
+    setUserRole(savedRole.toUpperCase());
+  }, []);
+
+  // STATES BÁO CÁO SỰ CỐ
+  const [reports, setReports] = useState<Report[]>([]);
+  const [selectedReport, setSelectedReport] = useState<Report | null>(null);
+  const [filterStatus, setFilterStatus] = useState<string>("ALL");
+  const [filterSeverity, setFilterSeverity] = useState<string>("ALL");
+  const [assignName, setAssignName] = useState("");
+  const [showAssignModal, setShowAssignModal] = useState(false);
+  const [pendingAssignId, setPendingAssignId] = useState<string | null>(null);
 
   const [newEq, setNewEq] = useState({
     name: "",
@@ -259,7 +321,7 @@ export default function AdvancedAdminDashboard() {
     status: "available",
     maintenanceAlertHours: 0,
     imageUrl: "",
-    roomId: "",       
+    roomId: "",
     pricePerHour: 0
   });
 
@@ -267,14 +329,14 @@ export default function AdvancedAdminDashboard() {
   //const API_URL = "http://localhost:8000/api/v1";
   //const API_URL = "https://booklab247.onrender.com/api/v1";
   //const API_URL = `${process.env.NEXT_PUBLIC_API_URL}/api/v1`;
- const API_URL = "https://booklab247.onrender.com/api/v1";
+  const API_URL = "https://booklab247.onrender.com/api/v1";
   useEffect(() => {
     fetchData();
     // Chạy đồng hồ hệ thống mỗi 60 giây để vạch kẻ đỏ Timeline nhảy theo giờ thực
     const timer = setInterval(() => setCurrentTime(new Date()), 60000);
     return () => clearInterval(timer);
   }, []);
-           
+
   // const fetchData = async () => {
   //   setLoading(true);
   //   try {
@@ -326,107 +388,113 @@ export default function AdvancedAdminDashboard() {
       const token = localStorage.getItem("access_token") || "";
       const headers = { "Content-Type": "application/json", Authorization: `Bearer ${token}` };
 
-      const [usersRes, labsRes, eqRes, bkRes, mtRes, fbRes] = await Promise.all([
+      const [usersRes, labsRes, eqRes, bkRes, mtRes, fbRes, rpRes] = await Promise.all([
         fetch(`${API_URL}/auth/users`, { headers }),
         fetch(`${API_URL}/labs`, { headers }),
         fetch(`${API_URL}/equipments`, { headers }),
         fetch(`${API_URL}/bookings`, { headers }),
         fetch(`${API_URL}/bookings/maintenance`, { headers }).catch(() => null),
-        fetch(`${API_URL}/bookings/fixed`, { headers }).catch(() => null)
+        fetch(`${API_URL}/bookings/fixed`, { headers }).catch(() => null),
+        fetch(`${API_URL}/reports/`, { headers }).catch(() => null)
       ]);
 
       if (usersRes.ok) setUsersList(await usersRes.json());
-      
+
       // CHUẨN HÓA ID PHÒNG VÀ THIẾT BỊ
       if (labsRes.ok) {
-         const data = await labsRes.json();
-         setRooms(data.map((r: any) => ({...r, id: r.id || r._id})));
+        const data = await labsRes.json();
+        setRooms(data.map((r: any) => ({ ...r, id: r.id || r._id })));
       }
-      
+
       if (eqRes.ok) {
-         const data = await eqRes.json();
-         setEquipments(data.map((e: any) => ({...e, id: e.id || e._id})));
+        const data = await eqRes.json();
+        setEquipments(data.map((e: any) => ({ ...e, id: e.id || e._id })));
       }
 
       // 1. CHUẨN HÓA DỮ LIỆU ĐẶT PHÒNG (BOOKINGS)
       if (bkRes.ok) {
-          const bkData = await bkRes.json();
-          const raw = Array.isArray(bkData) ? bkData : bkData.data || [];
-          setBookings(raw.map((b: any) => ({
-             id: b.id || b._id, 
-             roomId: b.room_id || b.roomId, 
-             customerName: b.customer_name || b.customerName,
-             phone: b.phone, 
-             status: b.status, 
-             date: b.date, 
-             startTime: b.start_time || b.startTime,
-             durationMins: b.duration_mins || b.durationMins || 0, 
-             bufferMins: b.buffer_mins || b.bufferMins || 15,
-             note: b.note || "", 
-             equipments: b.equipments || [],
-             paymentStatus: b.payment_status || b.paymentStatus,
-             source: b.source || b.role || b.created_by_role,
-          })));
+        const bkData = await bkRes.json();
+        const raw = Array.isArray(bkData) ? bkData : bkData.data || [];
+        setBookings(raw.map((b: any) => ({
+          id: b.id || b._id,
+          roomId: b.room_id || b.roomId,
+          customerName: b.customer_name || b.customerName,
+          phone: b.phone,
+          status: b.status,
+          date: b.date,
+          startTime: b.start_time || b.startTime,
+          durationMins: b.duration_mins || b.durationMins || 0,
+          bufferMins: b.buffer_mins || b.bufferMins || 15,
+          note: b.note || "",
+          equipments: b.equipments || [],
+          paymentStatus: b.payment_status || b.paymentStatus,
+          source: b.source || b.role || b.created_by_role,
+        })));
       }
 
       // 2. CHUẨN HÓA DỮ LIỆU BẢO TRÌ (MAINTENANCE)
       if (mtRes && mtRes.ok) {
-          const mtData = await mtRes.json();
-          const rawMt = Array.isArray(mtData) ? mtData : mtData.data || [];
-          setMaintenanceLogs(rawMt.map((m: any) => ({
-             id: m.id || m._id,
-             type: m.type,
-             itemId: m.item_id || m.itemId,
-             itemName: m.item_name || m.itemName,
-             reason: m.reason,
-             startDate: m.start_date || m.startDate,
-             startTime: m.start_time || m.startTime,
-             endDate: m.end_date || m.endDate,
-             endTime: m.end_time || m.endTime,
-             status: m.status,
-             reportedBy: m.reportedBy || m.reported_by || "MANAGER"
-          })));
+        const mtData = await mtRes.json();
+        const rawMt = Array.isArray(mtData) ? mtData : mtData.data || [];
+        setMaintenanceLogs(rawMt.map((m: any) => ({
+          id: m.id || m._id,
+          type: m.type,
+          itemId: m.item_id || m.itemId,
+          itemName: m.item_name || m.itemName,
+          reason: m.reason,
+          startDate: m.start_date || m.startDate,
+          startTime: m.start_time || m.startTime,
+          endDate: m.end_date || m.endDate,
+          endTime: m.end_time || m.endTime,
+          status: m.status,
+          reportedBy: m.reportedBy || m.reported_by || "MANAGER"
+        })));
       }
 
       // 3. CHUẨN HÓA DỮ LIỆU LỊCH CỐ ĐỊNH (FIXED BOOKINGS)
       if (fbRes && fbRes.ok) {
-          const fbData = await fbRes.json();
-          const rawFb = Array.isArray(fbData) ? fbData : fbData.data || [];
-          setFixedBookings(rawFb.map((fb: any) => ({
-             id: fb.id || fb._id,
-             roomId: fb.room_id || fb.roomId,
-             title: fb.title,
-             status: fb.status,
-             startDate: fb.start_date || fb.startDate,
-             endDate: fb.end_date || fb.endDate,
-             startTime: fb.start_time || fb.startTime,
-             endTime: fb.end_time || fb.endTime,
-             daysOfWeek: fb.days_of_week || fb.daysOfWeek || [],
-             exceptionDates: fb.exception_dates || fb.exceptionDates || []
-          })));
+        const fbData = await fbRes.json();
+        const rawFb = Array.isArray(fbData) ? fbData : fbData.data || [];
+        setFixedBookings(rawFb.map((fb: any) => ({
+          id: fb.id || fb._id,
+          roomId: fb.room_id || fb.roomId,
+          title: fb.title,
+          status: fb.status,
+          startDate: fb.start_date || fb.startDate,
+          endDate: fb.end_date || fb.endDate,
+          startTime: fb.start_time || fb.startTime,
+          endTime: fb.end_time || fb.endTime,
+          daysOfWeek: fb.days_of_week || fb.daysOfWeek || [],
+          exceptionDates: fb.exception_dates || fb.exceptionDates || []
+        })));
+      }
+      // 4. CHUẨN HÓA DỮ LIỆU BÁO CÁO
+      if (rpRes && rpRes.ok) {
+        const rpData = await rpRes.json();
+        setReports(Array.isArray(rpData) ? rpData : []);
       }
     } catch (err) {
       console.error("Lỗi fetch data:", err);
     }
-   if (!isSilent) setLoading(false);
+    if (!isSilent) setLoading(false);
   };
 
   // ================= UTILS THỜI GIAN =================
-  const timeToMins = (timeStr: string) => { 
-    const [h, m] = timeStr.split(":").map(Number); 
-    return h * 60 + m; 
+  const timeToMins = (timeStr: string) => {
+    const [h, m] = timeStr.split(":").map(Number);
+    return h * 60 + m;
   };
-  
-  const minsToTime = (mins: number) => { 
-    const h = Math.floor(mins / 60) % 24; 
-    const m = Math.floor(mins % 60); 
-    return `${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}`; 
+
+  const minsToTime = (mins: number) => {
+    const h = Math.floor(mins / 60) % 24;
+    const m = Math.floor(mins % 60);
+    return `${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}`;
   };
-  
-  const changeDate = (days: number) => { 
-    const date = new Date(selectedDate); 
-    date.setDate(date.getDate() + days); 
-    setSelectedDate(date.toISOString().split("T")[0]); 
+
+  const changeDate = (days: number) => {
+    const date = new Date(selectedDate);
+    date.setDate(date.getDate() + days);
+    setSelectedDate(date.toISOString().split("T")[0]);
   };
 
   // ================= CÁC HÀM XỬ LÝ FORM =================
@@ -520,7 +588,7 @@ export default function AdvancedAdminDashboard() {
       capacity: room.capacity || 0, pricePerHour: room.pricePerHour || room.price || 0, bufferTimeMinutes: room.bufferTimeMinutes || 15,
       maintenanceMode: room.maintenanceMode || false, defaultAmenities: room.defaultAmenities || "", imageUrl: room.imageUrl || ""
     });
-    setShowRoomForm(true); 
+    setShowRoomForm(true);
   };
 
   const handleDeleteRoom = async (id: string) => {
@@ -528,7 +596,7 @@ export default function AdvancedAdminDashboard() {
     if (!confirm("Bạn có chắc chắn muốn xóa phòng này?")) return;
     try {
       const res = await fetch(`${API_URL}/labs/${id}`, { method: "DELETE" });
-      if (res.ok) fetchData(true); 
+      if (res.ok) fetchData(true);
       else alert("⚠️ Không thể xóa. Vui lòng kiểm tra lại Backend.");
     } catch (err) { alert("Lỗi mạng khi xóa phòng!"); }
   };
@@ -549,7 +617,7 @@ export default function AdvancedAdminDashboard() {
         alert(isEdit ? "Cập nhật thiết bị thành công!" : "Thêm thiết bị thành công!");
         setShowEqForm(false);
         setEditingEqId(null);
-        fetchData(true); 
+        fetchData(true);
       } else {
         const errData = await res.json();
         alert("⚠️ Lỗi từ Backend: " + JSON.stringify(errData));
@@ -618,7 +686,7 @@ export default function AdvancedAdminDashboard() {
       const eqId = borrowed.id;
       // Tìm thiết bị trong state hiện tại
       const currentEq = equipments.find(e => (e.id || e._id) === eqId);
-      
+
       if (currentEq) {
         // action === "borrow": Khách mượn -> Tăng số lượng đang dùng (Trừ kho)
         // action === "return": Khách trả -> Giảm số lượng đang dùng (Cộng lại kho)
@@ -640,175 +708,175 @@ export default function AdvancedAdminDashboard() {
 
   // ================= XỬ LÝ FORM ĐẶT NHANH =================
   const handleQuickBookSubmit = async (e: React.FormEvent) => {
-      e.preventDefault();
-  
-      const startDateTime = new Date(
-        `${quickBookData.startDate}T${quickBookData.startTime}`,
+    e.preventDefault();
+
+    const startDateTime = new Date(
+      `${quickBookData.startDate}T${quickBookData.startTime}`,
+    );
+    const endDateTime = new Date(
+      `${quickBookData.endDate}T${quickBookData.endTime}`,
+    );
+
+    const durationMins =
+      (endDateTime.getTime() - startDateTime.getTime()) / 60000;
+
+    if (durationMins <= 30)
+      return alert(
+        "⛔ LỖI:\nThời gian đặt phòng tối thiểu phải từ 30 phút trở lên!",
       );
-      const endDateTime = new Date(
-        `${quickBookData.endDate}T${quickBookData.endTime}`,
-      );
-  
-      const durationMins =
-        (endDateTime.getTime() - startDateTime.getTime()) / 60000;
-  
-      if (durationMins <= 30)
+
+    const now = new Date();
+    if (startDateTime < now) {
+      return alert("⛔ LỖI THỜI GIAN:\nKhông thể đặt lịch ở quá khứ.");
+    }
+
+    const targetId = quickBookData.roomId;
+    if (!targetId) return alert("Vui lòng chọn phòng!");
+
+    const newStartMs = startDateTime.getTime();
+    const newEndMsWithBuffer = endDateTime.getTime() + 15 * 60000;
+
+    const roomBookings = bookings.filter((b) => b.roomId === targetId);
+    for (const exist of roomBookings) {
+      const existDate = exist.date || quickBookData.startDate;
+      const existStartMs = new Date(
+        `${existDate}T${exist.startTime}`,
+      ).getTime();
+      const existEndMsWithBuffer =
+        existStartMs + (exist.durationMins + exist.bufferMins) * 60000;
+
+      if (
+        newStartMs < existEndMsWithBuffer &&
+        newEndMsWithBuffer > existStartMs
+      ) {
         return alert(
-          "⛔ LỖI:\nThời gian đặt phòng tối thiểu phải từ 30 phút trở lên!",
+          `⛔ LỖI TRÙNG LỊCH!\nPhòng đã có khách [${exist.customerName}] đặt vào khoảng thời gian này.`,
         );
-  
-      const now = new Date();
-      if (startDateTime < now) {
-        return alert("⛔ LỖI THỜI GIAN:\nKhông thể đặt lịch ở quá khứ.");
       }
-  
-      const targetId = quickBookData.roomId;
-      if (!targetId) return alert("Vui lòng chọn phòng!");
-  
-      const newStartMs = startDateTime.getTime();
-      const newEndMsWithBuffer = endDateTime.getTime() + 15 * 60000;
-  
-      const roomBookings = bookings.filter((b) => b.roomId === targetId);
-      for (const exist of roomBookings) {
-        const existDate = exist.date || quickBookData.startDate;
-        const existStartMs = new Date(
-          `${existDate}T${exist.startTime}`,
-        ).getTime();
-        const existEndMsWithBuffer =
-          existStartMs + (exist.durationMins + exist.bufferMins) * 60000;
-  
-        if (
-          newStartMs < existEndMsWithBuffer &&
-          newEndMsWithBuffer > existStartMs
-        ) {
-          return alert(
-            `⛔ LỖI TRÙNG LỊCH!\nPhòng đã có khách [${exist.customerName}] đặt vào khoảng thời gian này.`,
-          );
-        }
-      }
-  
-      const borrowedEquipments: BorrowedEquipment[] = Object.entries(
-        quickBookData.equipments,
-      ).map(([id, data]) => ({
-        id,
-        name: data.name,
-        quantity: data.quantity,
-        price: data.price,
-      }));
+    }
 
-      // LỖI 1A: KIỂM TRA TRÙNG VỚI LỊCH CỐ ĐỊNH Ở FRONTEND
-      const targetDayOfWeek = startDateTime.getDay();
-      const isConflictFixed = fixedBookings.some(fb => {
-        if (fb.roomId !== targetId || fb.status !== "active") return false;
-        if (fb.exceptionDates?.includes(quickBookData.startDate)) return false;
-        if (!fb.daysOfWeek.includes(targetDayOfWeek)) return false;
-        if (quickBookData.startDate < fb.startDate || quickBookData.startDate > fb.endDate) return false;
-        const fStartMs = new Date(`${quickBookData.startDate}T${fb.startTime}`).getTime();
-        const fEndMs = new Date(`${quickBookData.startDate}T${fb.endTime}`).getTime();
-        return newStartMs < fEndMs && newEndMsWithBuffer > fStartMs;
-      });
-  
-      if (isConflictFixed) return alert("⛔ LỖI TRÙNG LỊCH!\nPhòng đang có Lịch cố định hoạt động vào khung giờ này.");
-  
-      // LỖI 3C: KIỂM TRA TRÙNG VỚI LỊCH BẢO TRÌ CỦA PHÒNG
-      const isConflictMaintenance = maintenanceLogs.some(mt => {
-        if (mt.type === "room" && mt.itemId === targetId && mt.status !== "completed") {
-           if (quickBookData.startDate >= mt.startDate && quickBookData.startDate <= mt.endDate) {
-               const mtStartMs = new Date(`${quickBookData.startDate}T${mt.startTime}`).getTime();
-               const mtEndMs = new Date(`${quickBookData.startDate}T${mt.endTime}`).getTime();
-               return newStartMs < mtEndMs && newEndMsWithBuffer > mtStartMs;
-           }
-        }
-        return false;
-      });
-      if (isConflictMaintenance) return alert("⛔ LỖI BẢO TRÌ!\nPhòng đang được Lên lịch Sửa chữa trong khung giờ này. Vui lòng chọn giờ khác!");
-  
-      // LỖI 3D: KIỂM TRA TRÙNG BẢO TRÌ THIẾT BỊ MƯỢN KÈM
-      const eqConflict = maintenanceLogs.find(mt => {
-        if (mt.type === "equipment" && mt.status !== "completed" && quickBookData.equipments[mt.itemId]) {
-            if (quickBookData.startDate >= mt.startDate && quickBookData.startDate <= mt.endDate) {
-                const mtStartMs = new Date(`${quickBookData.startDate}T${mt.startTime}`).getTime();
-                const mtEndMs = new Date(`${quickBookData.startDate}T${mt.endTime}`).getTime();
-                return newStartMs < mtEndMs && newEndMsWithBuffer > mtStartMs;
-            }
-        }
-        return false;
-      });
-      if (eqConflict) return alert(`⛔ LỖI BẢO TRÌ THIẾT BỊ!\nThiết bị [${eqConflict.itemName}] đang được lên lịch sửa chữa trong khung giờ này. Vui lòng bỏ chọn thiết bị này!`);
-  
-      const payload = {
-        room_id: targetId,
-        customer_name: quickBookData.customerName,
-        phone: quickBookData.phone,
-        date: quickBookData.startDate,
-        start_time: quickBookData.startTime,
-        duration_mins: durationMins,
-        buffer_mins: 15,
-        note: quickBookData.note,
-        equipments: borrowedEquipments,
-        status: "confirmed", 
-        payment_status: "CHƯA THANH TOÁN",
-        source: "ADMIN"
-      };
-  
-      try {
-        const submitBtn = document.getElementById("btn-submit-quickbook") as HTMLButtonElement;
-        if (submitBtn) {
-          submitBtn.disabled = true;
-          submitBtn.innerText = "Đang lưu...";
-        }
-        
-        const token = localStorage.getItem("access_token");
-        
-        // 1. Tạo đơn mới
-        const response = await fetch(`${API_URL}/bookings`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-          body: JSON.stringify(payload),
-        });
-  
-        if (!response.ok) throw new Error("Lỗi lưu Database");
-  
-        const responseData = await response.json();
-        const createdId = responseData.data?.id || responseData.id || responseData._id;
-        
-        // 2. ÉP CHỐT DUYỆT TRỰC TIẾP
-        if (createdId) {
-           await fetch(`${API_URL}/bookings/${createdId}/status`, {
-              method: "PATCH", 
-              headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-              body: JSON.stringify({ status: "confirmed" })
-           }).catch(()=>{});
-        }
+    const borrowedEquipments: BorrowedEquipment[] = Object.entries(
+      quickBookData.equipments,
+    ).map(([id, data]) => ({
+      id,
+      name: data.name,
+      quantity: data.quantity,
+      price: data.price,
+    }));
 
-        // ==============================================================
-        // THÊM MỚI TẠI ĐÂY: GỌI HÀM TRỪ KHO THIẾT BỊ NGAY SAU KHI TẠO ĐƠN
-        // ==============================================================
-        await syncEquipmentStock(borrowedEquipments, "borrow");
-  
-        // 3. Tải lại dữ liệu sạch từ Backend và Đóng Modal
-        fetchData(true);
-        setShowQuickBook(false);
-        setQuickBookData({
-          ...quickBookData,
-          customerName: "",
-          phone: "",
-          equipments: {},
-        });
-        alert("✅ Đã lưu ca đặt phòng thành công và TỰ ĐỘNG DUYỆT!");
-        
-      } catch (err: any) {
-        alert(`⛔ LỖI SERVER:\n${err.message}`);
-      } finally {
-        const submitBtn = document.getElementById("btn-submit-quickbook") as HTMLButtonElement;
-        if (submitBtn) {
-          submitBtn.disabled = false;
-          submitBtn.innerText = "Xác nhận Check-in & Thanh toán";
+    // LỖI 1A: KIỂM TRA TRÙNG VỚI LỊCH CỐ ĐỊNH Ở FRONTEND
+    const targetDayOfWeek = startDateTime.getDay();
+    const isConflictFixed = fixedBookings.some(fb => {
+      if (fb.roomId !== targetId || fb.status !== "active") return false;
+      if (fb.exceptionDates?.includes(quickBookData.startDate)) return false;
+      if (!fb.daysOfWeek.includes(targetDayOfWeek)) return false;
+      if (quickBookData.startDate < fb.startDate || quickBookData.startDate > fb.endDate) return false;
+      const fStartMs = new Date(`${quickBookData.startDate}T${fb.startTime}`).getTime();
+      const fEndMs = new Date(`${quickBookData.startDate}T${fb.endTime}`).getTime();
+      return newStartMs < fEndMs && newEndMsWithBuffer > fStartMs;
+    });
+
+    if (isConflictFixed) return alert("⛔ LỖI TRÙNG LỊCH!\nPhòng đang có Lịch cố định hoạt động vào khung giờ này.");
+
+    // LỖI 3C: KIỂM TRA TRÙNG VỚI LỊCH BẢO TRÌ CỦA PHÒNG
+    const isConflictMaintenance = maintenanceLogs.some(mt => {
+      if (mt.type === "room" && mt.itemId === targetId && mt.status !== "completed") {
+        if (quickBookData.startDate >= mt.startDate && quickBookData.startDate <= mt.endDate) {
+          const mtStartMs = new Date(`${quickBookData.startDate}T${mt.startTime}`).getTime();
+          const mtEndMs = new Date(`${quickBookData.startDate}T${mt.endTime}`).getTime();
+          return newStartMs < mtEndMs && newEndMsWithBuffer > mtStartMs;
         }
       }
+      return false;
+    });
+    if (isConflictMaintenance) return alert("⛔ LỖI BẢO TRÌ!\nPhòng đang được Lên lịch Sửa chữa trong khung giờ này. Vui lòng chọn giờ khác!");
+
+    // LỖI 3D: KIỂM TRA TRÙNG BẢO TRÌ THIẾT BỊ MƯỢN KÈM
+    const eqConflict = maintenanceLogs.find(mt => {
+      if (mt.type === "equipment" && mt.status !== "completed" && quickBookData.equipments[mt.itemId]) {
+        if (quickBookData.startDate >= mt.startDate && quickBookData.startDate <= mt.endDate) {
+          const mtStartMs = new Date(`${quickBookData.startDate}T${mt.startTime}`).getTime();
+          const mtEndMs = new Date(`${quickBookData.startDate}T${mt.endTime}`).getTime();
+          return newStartMs < mtEndMs && newEndMsWithBuffer > mtStartMs;
+        }
+      }
+      return false;
+    });
+    if (eqConflict) return alert(`⛔ LỖI BẢO TRÌ THIẾT BỊ!\nThiết bị [${eqConflict.itemName}] đang được lên lịch sửa chữa trong khung giờ này. Vui lòng bỏ chọn thiết bị này!`);
+
+    const payload = {
+      room_id: targetId,
+      customer_name: quickBookData.customerName,
+      phone: quickBookData.phone,
+      date: quickBookData.startDate,
+      start_time: quickBookData.startTime,
+      duration_mins: durationMins,
+      buffer_mins: 15,
+      note: quickBookData.note,
+      equipments: borrowedEquipments,
+      status: "confirmed",
+      payment_status: "CHƯA THANH TOÁN",
+      source: "ADMIN"
     };
 
-    // ================= XỬ LÝ LƯU BẢO TRÌ BẰNG CỜ LÊ =================
+    try {
+      const submitBtn = document.getElementById("btn-submit-quickbook") as HTMLButtonElement;
+      if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.innerText = "Đang lưu...";
+      }
+
+      const token = localStorage.getItem("access_token");
+
+      // 1. Tạo đơn mới
+      const response = await fetch(`${API_URL}/bookings`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) throw new Error("Lỗi lưu Database");
+
+      const responseData = await response.json();
+      const createdId = responseData.data?.id || responseData.id || responseData._id;
+
+      // 2. ÉP CHỐT DUYỆT TRỰC TIẾP
+      if (createdId) {
+        await fetch(`${API_URL}/bookings/${createdId}/status`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ status: "confirmed" })
+        }).catch(() => { });
+      }
+
+      // ==============================================================
+      // THÊM MỚI TẠI ĐÂY: GỌI HÀM TRỪ KHO THIẾT BỊ NGAY SAU KHI TẠO ĐƠN
+      // ==============================================================
+      await syncEquipmentStock(borrowedEquipments, "borrow");
+
+      // 3. Tải lại dữ liệu sạch từ Backend và Đóng Modal
+      fetchData(true);
+      setShowQuickBook(false);
+      setQuickBookData({
+        ...quickBookData,
+        customerName: "",
+        phone: "",
+        equipments: {},
+      });
+      alert("✅ Đã lưu ca đặt phòng thành công và TỰ ĐỘNG DUYỆT!");
+
+    } catch (err: any) {
+      alert(`⛔ LỖI SERVER:\n${err.message}`);
+    } finally {
+      const submitBtn = document.getElementById("btn-submit-quickbook") as HTMLButtonElement;
+      if (submitBtn) {
+        submitBtn.disabled = false;
+        submitBtn.innerText = "Xác nhận Check-in & Thanh toán";
+      }
+    }
+  };
+
+  // ================= XỬ LÝ LƯU BẢO TRÌ BẰNG CỜ LÊ =================
   const handleMaintenanceSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!maintenanceModal.reason.trim()) return alert("Vui lòng nhập lý do!");
@@ -827,7 +895,7 @@ export default function AdvancedAdminDashboard() {
       fetchData(true);
       alert(`✅ Đã lên lịch bảo trì cho: ${maintenanceModal.itemName}`);
       setMaintenanceModal({ ...maintenanceModal, isOpen: false, reason: "" });
-    } catch(err) { alert("Lỗi khi lưu lịch bảo trì!"); }
+    } catch (err) { alert("Lỗi khi lưu lịch bảo trì!"); }
   };
 
   // ================= XỬ LÝ HỦY 1 NGÀY TRONG LỊCH CỐ ĐỊNH =================
@@ -846,7 +914,7 @@ export default function AdvancedAdminDashboard() {
             });
             fetchData(true);
             alert(`Đã hủy thành công ca cố định ngày ${dateToCancel}`);
-          } catch(e) { alert("Lỗi khi hủy lịch cố định!"); }
+          } catch (e) { alert("Lỗi khi hủy lịch cố định!"); }
         }
       }
     }
@@ -855,6 +923,256 @@ export default function AdvancedAdminDashboard() {
   const handleLogout = () => {
     localStorage.removeItem("access_token");
     router.push("/login");
+  };
+
+  // ================= 9. BÁO CÁO SỰ CỐ =================
+  const updateReportStatus = async (reportId: string, status: string, message: string = "") => {
+    try {
+      const res = await fetch(`${API_URL}/reports/${reportId}/status`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("access_token") || "admin"}` },
+        body: JSON.stringify({ status, changedBy: localStorage.getItem("user_name") || "ADMIN", message: message || `Đổi trạng thái thành ${status}` }),
+      });
+      if (!res.ok) throw new Error("Lỗi cập nhật trạng thái");
+      
+      fetchData(true);
+      if (selectedReport?._id === reportId) {
+        const updated = reports.find(r => r._id === reportId);
+        if (updated) setSelectedReport({ ...updated, status });
+      }
+    } catch (error) {
+      alert("Lỗi cập nhật trạng thái");
+    }
+  };
+
+  const handleAssignReport = async () => {
+    if (!pendingAssignId || !assignName.trim()) return alert("Vui lòng nhập tên người xử lý");
+    try {
+      const res = await fetch(`${API_URL}/reports/${pendingAssignId}/assign`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("access_token") || "admin"}` },
+        body: JSON.stringify({ assignedTo: assignName, changedBy: localStorage.getItem("user_name") || "ADMIN" }),
+      });
+      if (!res.ok) throw new Error("Lỗi giao việc");
+      
+      alert("Giao việc thành công");
+      setShowAssignModal(false);
+      setAssignName("");
+      setPendingAssignId(null);
+      fetchData(true);
+    } catch (error) {
+      alert("Có lỗi xảy ra khi giao việc");
+    }
+  };
+
+  const handleDeleteReportAdmin = async (reportId: string) => {
+    if (userRole !== "ADMIN") return;
+    if (confirm("ĐẶC QUYỀN ADMIN: Bạn có chắc chắn muốn xóa vĩnh viễn báo cáo này khỏi hệ thống?")) {
+      try {
+        const res = await fetch(`${API_URL}/reports/${reportId}`, {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${localStorage.getItem("access_token")}` }
+        });
+        if (!res.ok) throw new Error("Lỗi xóa");
+        
+        // Cập nhật UI
+        setReports(prev => prev.filter(r => r._id !== reportId));
+        setSelectedReport(null);
+        alert("✅ Đã xóa báo cáo rác thành công!");
+      } catch (e) {
+        alert("⛔ Lỗi khi xóa báo cáo!");
+      }
+    }
+  };
+  
+  const renderReports = () => {
+    const getStatusInfo = (status: string) => STATUS_OPTIONS.find(s => s.value === status) || { label: status, color: "bg-gray-100 text-gray-700" };
+    const getSeverityInfo = (severity: string) => SEVERITY_OPTIONS.find(s => s.value === severity) || { label: severity, color: "bg-gray-100 text-gray-700" };
+
+    const filteredReports = reports.filter(r => {
+      if (filterStatus !== "ALL" && r.status !== filterStatus) return false;
+      if (filterSeverity !== "ALL" && r.severity !== filterSeverity) return false;
+      return true;
+    });
+
+    const stats = {
+      total: reports.length,
+      pending: reports.filter(r => r.status === "SUBMITTED").length,
+      inProgress: reports.filter(r => ["IN_REVIEW", "APPROVED", "IN_PROGRESS"].includes(r.status)).length,
+      resolved: reports.filter(r => ["RESOLVED", "REJECTED"].includes(r.status)).length,
+      critical: reports.filter(r => r.severity === "CRITICAL" && r.status !== "RESOLVED" && r.status !== "REJECTED").length,
+    };
+
+    return (
+      <div className="space-y-6 animate-in fade-in duration-300">
+        <div>
+          <h2 className="text-2xl font-black text-gray-900">Quản lý báo cáo sự cố</h2>
+          <p className="text-gray-500 mt-1">Duyệt và xử lý báo cáo từ người dùng.</p>
+        </div>
+
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+          <div className="bg-white rounded-xl p-4 border border-gray-100 shadow-sm">
+            <div className="flex items-center gap-2 mb-2"><AlertTriangle className="w-5 h-5 text-gray-400" /><span className="text-sm text-gray-500 font-bold">Tổng số</span></div>
+            <p className="text-2xl font-black text-gray-900">{stats.total}</p>
+          </div>
+          <div className="bg-blue-50 rounded-xl p-4 border border-blue-100 shadow-sm">
+            <div className="flex items-center gap-2 mb-2"><Clock className="w-5 h-5 text-blue-500" /><span className="text-sm text-blue-600 font-bold">Chờ duyệt</span></div>
+            <p className="text-2xl font-black text-blue-700">{stats.pending}</p>
+          </div>
+          <div className="bg-purple-50 rounded-xl p-4 border border-purple-100 shadow-sm">
+            <div className="flex items-center gap-2 mb-2"><UserCircle className="w-5 h-5 text-purple-500" /><span className="text-sm text-purple-600 font-bold">Đang xử lý</span></div>
+            <p className="text-2xl font-black text-purple-700">{stats.inProgress}</p>
+          </div>
+          <div className="bg-red-50 rounded-xl p-4 border border-red-100 shadow-sm">
+            <div className="flex items-center gap-2 mb-2"><AlertTriangle className="w-5 h-5 text-red-500" /><span className="text-sm text-red-600 font-bold">Khẩn cấp</span></div>
+            <p className="text-2xl font-black text-red-700">{stats.critical}</p>
+          </div>
+          <div className="bg-green-50 rounded-xl p-4 border border-green-100 shadow-sm">
+            <div className="flex items-center gap-2 mb-2"><CheckCircle2 className="w-5 h-5 text-green-500" /><span className="text-sm text-green-600 font-bold">Đã xử lý</span></div>
+            <p className="text-2xl font-black text-green-700">{stats.resolved}</p>
+          </div>
+        </div>
+
+        <div className="bg-white rounded-xl p-4 border border-gray-100 flex flex-wrap items-center gap-4 shadow-sm">
+          <span className="text-sm font-bold text-gray-500">Bộ lọc:</span>
+          <select className="border border-gray-200 bg-gray-50 rounded-lg px-3 py-2 text-sm font-bold outline-none" value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
+            <option value="ALL">Tất cả trạng thái</option>
+            {STATUS_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+          </select>
+          <select className="border border-gray-200 bg-gray-50 rounded-lg px-3 py-2 text-sm font-bold outline-none" value={filterSeverity} onChange={(e) => setFilterSeverity(e.target.value)}>
+            <option value="ALL">Tất cả mức độ</option>
+            {SEVERITY_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+          </select>
+          <div className="ml-auto text-sm text-gray-500 font-medium">Hiển thị {filteredReports.length} / {reports.length} báo cáo</div>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="lg:col-span-2 bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
+            <div className="divide-y divide-gray-100 max-h-[600px] overflow-y-auto">
+              {filteredReports.length === 0 ? (
+                <div className="p-12 text-center text-gray-500">Không có báo cáo nào</div>
+              ) : (
+                filteredReports.map(report => {
+                  const statusInfo = getStatusInfo(report.status);
+                  const severityInfo = getSeverityInfo(report.severity);
+                  const isSelected = selectedReport?._id === report._id;
+
+                  return (
+                    <div key={report._id} className={`p-4 cursor-pointer transition-colors ${isSelected ? "bg-blue-50 border-l-4 border-blue-500" : "hover:bg-gray-50 border-l-4 border-transparent"}`} onClick={() => setSelectedReport(report)}>
+                      <div className="flex items-start justify-between mb-2">
+                        <div className="flex-1">
+                          <h3 className="font-bold text-gray-900">{report.title}</h3>
+                          <p className="text-sm text-gray-500 font-medium mt-1">{report.type === "ROOM" ? "📍" : "🔧"} {report.roomName || report.equipmentName || "-"}</p>
+                        </div>
+                        <div className="flex flex-col items-end gap-1.5 shrink-0">
+                          <span className={`px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider ${severityInfo.color}`}>{severityInfo.label}</span>
+                          <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${statusInfo.color}`}>{statusInfo.label}</span>
+                        </div>
+                      </div>
+                      <div className="flex items-center justify-between text-xs font-medium text-gray-400 mt-2">
+                        <span>👤 Người báo: <span className="font-bold text-gray-600">{report.createdBy}</span></span>
+                        <span>📅 {new Date(report.createdAt).toLocaleDateString("vi-VN")}</span>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+
+          <div className="lg:col-span-1">
+            {selectedReport ? (
+              <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-5 sticky top-6">
+                <h2 className="font-black text-lg text-gray-900 mb-4">Chi tiết báo cáo</h2>
+                <div className="flex gap-2 mb-4">
+                  <span className={`px-3 py-1 rounded-md text-xs font-black uppercase tracking-wider ${getSeverityInfo(selectedReport.severity).color}`}>{getSeverityInfo(selectedReport.severity).label}</span>
+                  <span className={`px-3 py-1 rounded-full text-xs font-bold ${getStatusInfo(selectedReport.status).color}`}>{getStatusInfo(selectedReport.status).label}</span>
+                </div>
+                <div className="space-y-4 mb-6">
+                  <div className="bg-gray-50 p-3 rounded-lg border border-gray-100">
+                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Tiêu đề</p>
+                    <p className="font-black text-gray-900 mt-1">{selectedReport.title}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Mô tả</p>
+                    <p className="text-sm font-medium text-gray-700 mt-1">{selectedReport.description}</p>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Loại</p>
+                      <p className="text-sm font-bold text-gray-800 mt-1">{selectedReport.type === "ROOM" ? "📍 Phòng" : "🔧 Thiết bị"}</p>
+                      <p className="text-xs text-gray-500 font-medium">{selectedReport.roomName || selectedReport.equipmentName || "-"}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Người xử lý</p>
+                      <p className="text-sm font-bold text-blue-600 mt-1">{selectedReport.assignedTo || "Chưa phân công"}</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-3 border-t border-gray-100 pt-4">
+                  <p className="text-sm font-black text-gray-700 uppercase tracking-wider">Thao tác xử lý</p>
+                  
+                  <button onClick={() => { setPendingAssignId(selectedReport._id); setAssignName(""); setShowAssignModal(true); }} className="w-full px-4 py-2 bg-blue-50 text-blue-600 border border-blue-200 rounded-xl font-bold hover:bg-blue-600 hover:text-white transition-colors">
+                    Phân công kỹ thuật
+                  </button>
+                  
+                  <div className="bg-gray-50 p-3 rounded-xl border border-gray-200 mt-2">
+                    <p className="text-xs font-bold text-gray-500 mb-2">Đổi trạng thái:</p>
+                    <select className="w-full border border-gray-300 rounded-lg p-2.5 text-sm font-bold outline-none" value={selectedReport.status} onChange={(e) => updateReportStatus(selectedReport._id, e.target.value)}>
+                      {STATUS_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+                    </select>
+                  </div>
+
+                  {/* ĐẶC QUYỀN CỦA ADMIN */}
+                  <div className="mt-6 p-4 bg-slate-900 rounded-xl border border-slate-700 shadow-inner">
+                      <p className="text-xs font-black text-emerald-400 uppercase flex items-center gap-2 mb-3">
+                          <ShieldCheck className="w-4 h-4" /> Đặc quyền Admin
+                      </p>
+                      <div className="flex gap-3">
+                          <button 
+                              onClick={() => handleDeleteReportAdmin(selectedReport._id)}
+                              className="flex-1 px-3 py-2 bg-red-500/20 text-red-400 border border-red-500/30 hover:bg-red-500 hover:text-white rounded-lg text-sm font-bold transition-colors flex items-center justify-center gap-1"
+                          >
+                              <Trash2 className="w-4 h-4" /> Xóa hẳn
+                          </button>
+                          <button 
+                              onClick={() => updateReportStatus(selectedReport._id, "RESOLVED", "Admin đã can thiệp đóng Case.")}
+                              className="flex-1 px-3 py-2 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500 hover:text-white rounded-lg text-sm font-bold transition-colors flex items-center justify-center gap-1"
+                          >
+                              <CheckCircle2 className="w-4 h-4" /> Force Đóng
+                          </button>
+                      </div>
+                  </div>
+                </div>
+
+                {selectedReport.logs && selectedReport.logs.length > 0 && (
+                  <div className="border-t border-gray-100 pt-4 mt-4">
+                    <p className="text-sm font-black text-gray-700 mb-3">Lịch sử xử lý</p>
+                    <div className="space-y-3 max-h-40 overflow-y-auto">
+                      {selectedReport.logs.map((log, idx) => (
+                        <div key={idx} className="flex gap-3 relative">
+                          <div className="w-2 h-2 rounded-full bg-blue-500 mt-1.5 flex-shrink-0 relative z-10"></div>
+                          {idx !== selectedReport.logs.length - 1 && <div className="absolute left-1 top-3 bottom-[-15px] w-px bg-gray-200"></div>}
+                          <div className="flex-1 pb-2">
+                            <p className="text-sm font-bold text-gray-800">{log.message || log.status}</p>
+                            <p className="text-[10px] font-medium text-gray-400 mt-0.5">👤 <span className="font-bold">{log.changedBy}</span> - {new Date(log.createdAt).toLocaleString("vi-VN")}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-8 text-center min-h-[300px] flex items-center justify-center">
+                <p className="text-gray-500 font-medium">Chọn một báo cáo bên trái để xem chi tiết</p>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
   };
 
   // ================= RENDER TABS =================
@@ -875,6 +1193,7 @@ export default function AdvancedAdminDashboard() {
           { id: "equipments", icon: Cpu, label: "Thiết bị" },
           { id: "users", icon: Users, label: "Người dùng" },
           { id: "lookup", icon: Search, label: "Tra cứu Thông tin" },
+          { id: "reports", icon: ClipboardList, label: "Báo cáo sự cố" },
           { id: "system", icon: ShieldAlert, label: "System & Audit Logs" },
         ].map((item) => (
           <button
@@ -914,7 +1233,7 @@ export default function AdvancedAdminDashboard() {
     // CHỈ hiển thị những phòng có lịch đặt lẻ HOẶC lịch cố định trong ngày đang chọn
     // const filteredRooms = rooms.filter((room) => {
     //   const roomIdStr = room.id || room._id || "";
-      
+
     //   // 1. Kiểm tra Lịch đặt lẻ
     //   const hasNormalBooking = bookings.some((b) => {
     //     if (b.roomId !== roomIdStr || b.status === "cancelled") return false;
@@ -945,7 +1264,7 @@ export default function AdvancedAdminDashboard() {
     // CHỈ HIỂN THỊ NHỮNG PHÒNG CÓ LỊCH ĐẶT LẺ HOẶC LỊCH CỐ ĐỊNH TRONG NGÀY ĐANG CHỌN
     const filteredRooms = rooms.filter((room) => {
       const roomIdStr = room.id || room._id || "";
-      
+
       // 1. Kiểm tra Lịch đặt lẻ
       const hasNormalBooking = bookings.some((b) => {
         if (b.roomId !== roomIdStr || b.status === "cancelled" || b.status === "rejected") return false;
@@ -961,9 +1280,9 @@ export default function AdvancedAdminDashboard() {
         const currentDayNum = new Date(selectedDate + "T00:00:00").getDay();
         const isException = fb.exceptionDates?.includes(selectedDate); // Bỏ qua nếu ngày này đã bị hủy/xóa
         return !isException &&
-               fb.daysOfWeek.includes(currentDayNum) && 
-               selectedDate >= fb.startDate && 
-               selectedDate <= fb.endDate;
+          fb.daysOfWeek.includes(currentDayNum) &&
+          selectedDate >= fb.startDate &&
+          selectedDate <= fb.endDate;
       });
 
       // Nếu phòng không có đơn lẻ VÀ cũng không có lịch cố định -> Ẩn đi khỏi lưới Timeline
@@ -1160,34 +1479,34 @@ export default function AdvancedAdminDashboard() {
 
                       {/* HIỂN THỊ LỊCH CỐ ĐỊNH NẾU KHỚP VỚI NGÀY ĐANG XEM */}
                       {fixedBookings.filter(fb => {
-                          if (fb.roomId !== roomIdStr || fb.status !== "active") return false;
-                          if (fb.exceptionDates?.includes(selectedDate)) return false; // BỎ QUA NẾU NGÀY NÀY ĐÃ BỊ HỦY
-                          const currentDayNum = new Date(selectedDate + "T00:00:00").getDay();
-                          return fb.daysOfWeek.includes(currentDayNum) && 
-                                 selectedDate >= fb.startDate && 
-                                 selectedDate <= fb.endDate;
+                        if (fb.roomId !== roomIdStr || fb.status !== "active") return false;
+                        if (fb.exceptionDates?.includes(selectedDate)) return false; // BỎ QUA NẾU NGÀY NÀY ĐÃ BỊ HỦY
+                        const currentDayNum = new Date(selectedDate + "T00:00:00").getDay();
+                        return fb.daysOfWeek.includes(currentDayNum) &&
+                          selectedDate >= fb.startDate &&
+                          selectedDate <= fb.endDate;
                       }).map(fb => {
-                          const fStartMins = timeToMins(fb.startTime);
-                          const fDuration = timeToMins(fb.endTime) - fStartMins;
-                          const fLeftPct = (fStartMins / totalMins) * 100;
-                          const fWidthPct = (fDuration / totalMins) * 100;
-                          
-                          return (
-                            <div
-                              key={fb.id}
-                              onClick={() => handleCancelFixedDate(fb.id, selectedDate)}
-                              title="Click để HỦY lớp cố định trong ngày này"
-                              className="absolute top-2 bottom-2 bg-purple-600 border border-purple-700 text-white rounded-xl px-3 py-1 overflow-hidden z-10 flex flex-col justify-center shadow-sm cursor-pointer hover:brightness-110 hover:border-red-400"
-                              style={{ left: `${fLeftPct}%`, width: `${fWidthPct}%` }}
-                            >
-                              <p className="text-xs font-black truncate leading-tight flex items-center gap-1">
-                                <Lock className="w-3 h-3"/> {fb.title}
-                              </p>
-                              <p className="text-[10px] opacity-90 truncate font-semibold mt-0.5">
-                                {fb.startTime} - {fb.endTime}
-                              </p>
-                            </div>
-                          );
+                        const fStartMins = timeToMins(fb.startTime);
+                        const fDuration = timeToMins(fb.endTime) - fStartMins;
+                        const fLeftPct = (fStartMins / totalMins) * 100;
+                        const fWidthPct = (fDuration / totalMins) * 100;
+
+                        return (
+                          <div
+                            key={fb.id}
+                            onClick={() => handleCancelFixedDate(fb.id, selectedDate)}
+                            title="Click để HỦY lớp cố định trong ngày này"
+                            className="absolute top-2 bottom-2 bg-purple-600 border border-purple-700 text-white rounded-xl px-3 py-1 overflow-hidden z-10 flex flex-col justify-center shadow-sm cursor-pointer hover:brightness-110 hover:border-red-400"
+                            style={{ left: `${fLeftPct}%`, width: `${fWidthPct}%` }}
+                          >
+                            <p className="text-xs font-black truncate leading-tight flex items-center gap-1">
+                              <Lock className="w-3 h-3" /> {fb.title}
+                            </p>
+                            <p className="text-[10px] opacity-90 truncate font-semibold mt-0.5">
+                              {fb.startTime} - {fb.endTime}
+                            </p>
+                          </div>
+                        );
                       })}
 
 
@@ -1245,7 +1564,7 @@ export default function AdvancedAdminDashboard() {
                         const trueEndTimeObj = new Date(bEndMs);
                         const endTimeStr = minsToTime(
                           trueEndTimeObj.getHours() * 60 +
-                            trueEndTimeObj.getMinutes(),
+                          trueEndTimeObj.getMinutes(),
                         );
 
                         return (
@@ -1301,7 +1620,7 @@ export default function AdvancedAdminDashboard() {
     // ================= 1. TÍNH TOÁN SỐ LIỆU TỔNG QUAN =================
     const totalUsers = usersList.length;
     const studentCount = usersList.filter((u) => u.role === "STUDENT").length;
-    
+
     const totalLabs = rooms.length;
     const activeLabs = rooms.filter((r) => !r.maintenanceMode).length;
 
@@ -1311,7 +1630,7 @@ export default function AdvancedAdminDashboard() {
     const availableEqs = totalEqs - inUseEqs - maintenanceEqs;
 
     // ================= 2. CHUẨN BỊ DỮ LIỆU BIỂU ĐỒ (ĐÃ NÂNG CẤP) =================
-    
+
     // NÂNG CẤP BIỂU ĐỒ 1: Biểu đồ Cột Chồng (Stacked Bar) theo Danh mục thiết bị
     const eqCategoryMap: Record<string, { name: string, available: number, inUse: number, maintenance: number }> = {};
 
@@ -1325,15 +1644,15 @@ export default function AdvancedAdminDashboard() {
       if (!eqCategoryMap[cat]) {
         eqCategoryMap[cat] = { name: cat, available: 0, inUse: 0, maintenance: 0 };
       }
-      
+
       const total = eq.totalQuantity || 0;
       const inUse = eq.inUseQuantity || 0;
-      
+
       if (eq.status === 'maintenance') {
-         eqCategoryMap[cat].maintenance += total;
+        eqCategoryMap[cat].maintenance += total;
       } else {
-         eqCategoryMap[cat].inUse += inUse;
-         eqCategoryMap[cat].available += (total - inUse);
+        eqCategoryMap[cat].inUse += inUse;
+        eqCategoryMap[cat].available += (total - inUse);
       }
     });
     const equipmentChartData = Object.values(eqCategoryMap);
@@ -1341,18 +1660,18 @@ export default function AdvancedAdminDashboard() {
     // SỬA LỖI BIỂU ĐỒ 2: Xử lý triệt để "Phòng khác"
     const roomBookingCounts: Record<string, number> = {};
     bookings.forEach(b => {
-       if (b.status === 'cancelled' || b.status === 'rejected') return;
-       const roomId = b.room_id || b.roomId;
-       if (roomId) roomBookingCounts[roomId] = (roomBookingCounts[roomId] || 0) + 1;
+      if (b.status === 'cancelled' || b.status === 'rejected') return;
+      const roomId = b.room_id || b.roomId;
+      if (roomId) roomBookingCounts[roomId] = (roomBookingCounts[roomId] || 0) + 1;
     });
 
     const popularLabsData = Object.entries(roomBookingCounts).map(([roomId, count]) => {
-       const room = rooms.find(r => (r.id || r._id) === roomId);
-       return {
-          // Nếu phòng đã bị xóa, hiển thị ID viết tắt để Admin dễ nhận biết thay vì "Phòng khác"
-          name: room ? (room.name || room.title) : `Phòng đã xóa (${roomId.substring(0, 4)}...)`,
-          value: count
-       };
+      const room = rooms.find(r => (r.id || r._id) === roomId);
+      return {
+        // Nếu phòng đã bị xóa, hiển thị ID viết tắt để Admin dễ nhận biết thay vì "Phòng khác"
+        name: room ? (room.name || room.title) : `Phòng đã xóa (${roomId.substring(0, 4)}...)`,
+        value: count
+      };
     }).sort((a, b) => b.value - a.value).slice(0, 5); // Lấy Top 5 phòng
 
     return (
@@ -1420,7 +1739,7 @@ export default function AdvancedAdminDashboard() {
             </div>
             <div className="h-72 w-full">
               {equipmentChartData.length === 0 ? (
-                 <div className="h-full flex items-center justify-center text-gray-400 text-sm">Chưa có thiết bị nào trong kho.</div>
+                <div className="h-full flex items-center justify-center text-gray-400 text-sm">Chưa có thiết bị nào trong kho.</div>
               ) : (
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={equipmentChartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
@@ -1429,7 +1748,7 @@ export default function AdvancedAdminDashboard() {
                     <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: "#64748b" }} />
                     <RechartsTooltip cursor={{ fill: "#f8fafc" }} contentStyle={{ borderRadius: "12px", border: "none", boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)" }} />
                     <Legend verticalAlign="top" height={36} iconType="circle" wrapperStyle={{ fontSize: "12px", fontWeight: 600, color: "#475569" }} />
-                    
+
                     {/* CÁC CỘT XẾP CHỒNG LÊN NHAU (STACKED BAR) */}
                     <Bar dataKey="available" name="Sẵn sàng" stackId="a" fill="#3b82f6" radius={[0, 0, 4, 4]} barSize={45} />
                     <Bar dataKey="inUse" name="Đang mượn" stackId="a" fill="#f59e0b" />
@@ -1447,7 +1766,7 @@ export default function AdvancedAdminDashboard() {
             </div>
             <div className="h-72 w-full flex items-center justify-center">
               {popularLabsData.length === 0 ? (
-                 <p className="text-sm text-gray-400 italic">Chưa có dữ liệu đặt phòng.</p>
+                <p className="text-sm text-gray-400 italic">Chưa có dữ liệu đặt phòng.</p>
               ) : (
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
@@ -1469,7 +1788,7 @@ export default function AdvancedAdminDashboard() {
   };
 
   // ================= CÁC HÀM RENDER KHÁC (GIỮ NGUYÊN NHƯ CŨ) =================
- const renderRooms = () => (
+  const renderRooms = () => (
     <div className="space-y-6">
       <div className="flex justify-between items-end">
         <div>
@@ -1485,20 +1804,20 @@ export default function AdvancedAdminDashboard() {
         <form onSubmit={handleSubmitRoom} className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
           <div className="grid grid-cols-3 gap-6">
             <div className="space-y-4">
-              <input value={newRoom.name || ""} type="text" placeholder="Tên phòng..." className="w-full p-2 border rounded-lg" onChange={e => setNewRoom({...newRoom, name: e.target.value})} />
-              <input value={newRoom.building || ""} type="text" placeholder="Tòa nhà (VD: Tòa A)" className="w-full p-2 border rounded-lg" onChange={e => setNewRoom({...newRoom, building: e.target.value})} />
-              <input value={newRoom.floor || ""} type="text" placeholder="Tầng (VD: Tầng 3)" className="w-full p-2 border rounded-lg" onChange={e => setNewRoom({...newRoom, floor: e.target.value})} />
+              <input value={newRoom.name || ""} type="text" placeholder="Tên phòng..." className="w-full p-2 border rounded-lg" onChange={e => setNewRoom({ ...newRoom, name: e.target.value })} />
+              <input value={newRoom.building || ""} type="text" placeholder="Tòa nhà (VD: Tòa A)" className="w-full p-2 border rounded-lg" onChange={e => setNewRoom({ ...newRoom, building: e.target.value })} />
+              <input value={newRoom.floor || ""} type="text" placeholder="Tầng (VD: Tầng 3)" className="w-full p-2 border rounded-lg" onChange={e => setNewRoom({ ...newRoom, floor: e.target.value })} />
             </div>
             <div className="space-y-4">
-              <input value={newRoom.capacity || ""} type="number" placeholder="Sức chứa" className="w-full p-2 border rounded-lg" onChange={e => setNewRoom({...newRoom, capacity: parseInt(e.target.value) || 0})} />
-              <input value={newRoom.pricePerHour || ""} type="number" placeholder="Giá/Giờ" className="w-full p-2 border rounded-lg" onChange={e => setNewRoom({...newRoom, pricePerHour: parseInt(e.target.value) || 0})} />
+              <input value={newRoom.capacity || ""} type="number" placeholder="Sức chứa" className="w-full p-2 border rounded-lg" onChange={e => setNewRoom({ ...newRoom, capacity: parseInt(e.target.value) || 0 })} />
+              <input value={newRoom.pricePerHour || ""} type="number" placeholder="Giá/Giờ" className="w-full p-2 border rounded-lg" onChange={e => setNewRoom({ ...newRoom, pricePerHour: parseInt(e.target.value) || 0 })} />
               <label className="flex items-center gap-2 text-red-600 font-bold p-2 border border-red-200 bg-red-50 rounded-lg">
-                <input checked={newRoom.maintenanceMode} type="checkbox" onChange={e => setNewRoom({...newRoom, maintenanceMode: e.target.checked})} /> Bật Bảo trì
+                <input checked={newRoom.maintenanceMode} type="checkbox" onChange={e => setNewRoom({ ...newRoom, maintenanceMode: e.target.checked })} /> Bật Bảo trì
               </label>
             </div>
             <div>
-               <input type="file" onChange={e => handleImageUpload(e, true)} className="mb-2 w-full text-sm"/>
-               {newRoom.imageUrl && <img src={newRoom.imageUrl} className="h-32 rounded-lg object-cover w-full" alt="preview"/>}
+              <input type="file" onChange={e => handleImageUpload(e, true)} className="mb-2 w-full text-sm" />
+              {newRoom.imageUrl && <img src={newRoom.imageUrl} className="h-32 rounded-lg object-cover w-full" alt="preview" />}
             </div>
           </div>
           <button type="submit" className="mt-4 px-6 py-2 bg-gray-900 text-white font-bold rounded-lg hover:bg-black transition-colors">
@@ -1508,7 +1827,7 @@ export default function AdvancedAdminDashboard() {
       )}
 
       <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
-       <table className="w-full text-left text-sm">
+        <table className="w-full text-left text-sm">
           <thead className="bg-gray-50 border-b">
             <tr>
               <th className="p-4">Thông tin Phòng</th>
@@ -1541,8 +1860,8 @@ export default function AdvancedAdminDashboard() {
                   </td>
                   <td className="p-4">
                     <div className="flex items-center justify-center gap-3">
-                      <button onClick={() => handleEditRoom(r)} className="text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 p-2 rounded-lg transition-colors" title="Sửa phòng"><Wrench className="w-4 h-4"/></button>
-                      <button onClick={() => handleDeleteRoom(roomId)} className="text-red-500 hover:text-red-700 bg-red-50 hover:bg-red-100 p-2 rounded-lg transition-colors" title="Xóa phòng"><Trash2 className="w-4 h-4"/></button>
+                      <button onClick={() => handleEditRoom(r)} className="text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 p-2 rounded-lg transition-colors" title="Sửa phòng"><Wrench className="w-4 h-4" /></button>
+                      <button onClick={() => handleDeleteRoom(roomId)} className="text-red-500 hover:text-red-700 bg-red-50 hover:bg-red-100 p-2 rounded-lg transition-colors" title="Xóa phòng"><Trash2 className="w-4 h-4" /></button>
                     </div>
                   </td>
                 </tr>
@@ -1584,11 +1903,11 @@ export default function AdvancedAdminDashboard() {
           <form onSubmit={handleSubmitEquipment} className="space-y-5">
             <div>
               <label className="block text-sm font-semibold text-gray-700 mb-1">Tên thiết bị *</label>
-              <input required value={newEq.name || ""} onChange={e => setNewEq({...newEq, name: e.target.value})} type="text" placeholder="VD: Máy chiếu Sony B" className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none transition-all" />
+              <input required value={newEq.name || ""} onChange={e => setNewEq({ ...newEq, name: e.target.value })} type="text" placeholder="VD: Máy chiếu Sony B" className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none transition-all" />
             </div>
             <div>
               <label className="block text-sm font-semibold text-gray-700 mb-1">Danh mục</label>
-              <select value={newEq.category || "Vật tư tiêu hao"} onChange={e => setNewEq({...newEq, category: e.target.value})} className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none transition-all">
+              <select value={newEq.category || "Vật tư tiêu hao"} onChange={e => setNewEq({ ...newEq, category: e.target.value })} className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none transition-all">
                 <option value="Điện - Điện tử">Điện - Điện tử</option>
                 <option value="Công nghệ thông tin">Công nghệ thông tin</option>
                 <option value="Hóa - Sinh">Hóa - Sinh</option>
@@ -1598,7 +1917,7 @@ export default function AdvancedAdminDashboard() {
             </div>
             <div>
               <label className="block text-sm font-semibold text-gray-700 mb-1">Trạng thái hoạt động</label>
-              <select value={newEq.status || "available"} onChange={e => setNewEq({...newEq, status: e.target.value})} className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none transition-all">
+              <select value={newEq.status || "available"} onChange={e => setNewEq({ ...newEq, status: e.target.value })} className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none transition-all">
                 <option value="available">Sẵn sàng sử dụng</option>
                 <option value="maintenance">Đang bảo trì</option>
                 <option value="liquidated">Đã thanh lý</option>
@@ -1606,23 +1925,23 @@ export default function AdvancedAdminDashboard() {
             </div>
             <div>
               <label className="block text-sm font-semibold text-gray-700 mb-1">Thuộc Phòng Lab</label>
-              <select value={newEq.roomId || ""} onChange={e => setNewEq({...newEq, roomId: e.target.value})} className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none transition-all">
+              <select value={newEq.roomId || ""} onChange={e => setNewEq({ ...newEq, roomId: e.target.value })} className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none transition-all">
                 <option value="">Để trong kho (Chưa gán phòng)</option>
                 {rooms.map(r => <option key={r.id || r._id} value={r.id || r._id}>{r.name} {r.building ? `(${r.building})` : ""}</option>)}
               </select>
             </div>
             <div>
               <label className="block text-sm font-semibold text-gray-700 mb-1">Giá thuê / Giờ (VNĐ)</label>
-              <input type="number" min="0" value={newEq.pricePerHour || ""} onChange={e => setNewEq({...newEq, pricePerHour: parseInt(e.target.value) || 0})} placeholder="VD: 50000" className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none transition-all" />
+              <input type="number" min="0" value={newEq.pricePerHour || ""} onChange={e => setNewEq({ ...newEq, pricePerHour: parseInt(e.target.value) || 0 })} placeholder="VD: 50000" className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none transition-all" />
             </div>
             <div>
               <label className="block text-sm font-semibold text-gray-700 mb-1">Số lượng thiết bị *</label>
-              <input required type="number" min="1" value={newEq.totalQuantity || ""} onChange={e => setNewEq({...newEq, totalQuantity: parseInt(e.target.value) || 1})} placeholder="VD: 10" className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none transition-all" />
+              <input required type="number" min="1" value={newEq.totalQuantity || ""} onChange={e => setNewEq({ ...newEq, totalQuantity: parseInt(e.target.value) || 1 })} placeholder="VD: 10" className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none transition-all" />
             </div>
             <div>
               <label className="block text-sm font-semibold text-gray-700 mb-1">Hình ảnh thiết bị</label>
-              <input type="file" onChange={e => handleImageUpload(e, false)} className="mb-3 w-full text-sm border border-gray-200 p-2 rounded-xl bg-gray-50 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 transition-all"/>
-              {newEq.imageUrl && <img src={newEq.imageUrl} className="h-40 rounded-xl object-cover w-full border border-gray-200 shadow-sm" alt="preview"/>}
+              <input type="file" onChange={e => handleImageUpload(e, false)} className="mb-3 w-full text-sm border border-gray-200 p-2 rounded-xl bg-gray-50 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 transition-all" />
+              {newEq.imageUrl && <img src={newEq.imageUrl} className="h-40 rounded-xl object-cover w-full border border-gray-200 shadow-sm" alt="preview" />}
             </div>
             <button type="submit" className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl uppercase tracking-wider transition-colors shadow-md shadow-blue-600/20 mt-4">
               {editingEqId ? "LƯU CẬP NHẬT" : "LƯU THIẾT BỊ"}
@@ -1639,7 +1958,7 @@ export default function AdvancedAdminDashboard() {
               const roomNameDisplay = matchedRoom ? matchedRoom.name : "Để trong kho";
               return (
                 <div key={eqId || index} className="p-4 border border-gray-100 rounded-xl flex justify-between items-center hover:shadow-md transition-shadow bg-gray-50/50">
-                <div className="flex items-center gap-4 cursor-pointer hover:bg-blue-50/50 p-2 -ml-2 rounded-xl transition-colors flex-1" onClick={() => setViewingEq(eq)} title="Nhấn để xem chi tiết thiết bị">
+                  <div className="flex items-center gap-4 cursor-pointer hover:bg-blue-50/50 p-2 -ml-2 rounded-xl transition-colors flex-1" onClick={() => setViewingEq(eq)} title="Nhấn để xem chi tiết thiết bị">
                     {eq.imageUrl ? <img src={eq.imageUrl} alt={eq.name} className="w-16 h-16 rounded-xl object-cover border border-gray-200 shadow-sm shrink-0" /> : <div className="w-16 h-16 rounded-xl bg-gray-100 flex items-center justify-center border border-gray-200 shadow-sm shrink-0"><ImageIcon className="w-6 h-6 text-gray-400" /></div>}
                     <div>
                       <h3 className="font-bold text-gray-900 text-base">{eq.name}</h3>
@@ -1659,7 +1978,7 @@ export default function AdvancedAdminDashboard() {
               )
             })}
             {equipments.length === 0 && (
-               <div className="text-center text-gray-400 py-10 flex flex-col items-center justify-center"><Cpu className="w-10 h-10 mb-3 text-gray-200" /><p className="text-sm font-medium">Chưa có thiết bị nào trong hệ thống.</p></div>
+              <div className="text-center text-gray-400 py-10 flex flex-col items-center justify-center"><Cpu className="w-10 h-10 mb-3 text-gray-200" /><p className="text-sm font-medium">Chưa có thiết bị nào trong hệ thống.</p></div>
             )}
           </div>
         </div>
@@ -1793,7 +2112,7 @@ export default function AdvancedAdminDashboard() {
       return matchNameEmail && matchRole && matchStatus;
     });
 
-    
+
 
     return (
       <div className="space-y-6">
@@ -1913,7 +2232,7 @@ export default function AdvancedAdminDashboard() {
       </div>
     );
   };
-  
+
   const renderLookup = () => {
     // TÍCH HỢP LOGIC CRM CHUẨN ADMIN
     const generateCustomerProfiles = () => {
@@ -2030,22 +2349,20 @@ export default function AdvancedAdminDashboard() {
               <div
                 key={c.phone}
                 onClick={() => setViewingCustomer(c)} // Click để mở Modal
-                className={`bg-white rounded-2xl border-2 shadow-sm p-5 cursor-pointer hover:-translate-y-1 hover:shadow-lg transition-all duration-200 flex items-center gap-4 ${
-                  isBlacklist
+                className={`bg-white rounded-2xl border-2 shadow-sm p-5 cursor-pointer hover:-translate-y-1 hover:shadow-lg transition-all duration-200 flex items-center gap-4 ${isBlacklist
                     ? "border-red-300 shadow-red-100 hover:border-red-400"
                     : isVIP
                       ? "border-amber-300 shadow-amber-100 hover:border-amber-400"
                       : "border-gray-100 hover:border-blue-300"
-                }`}
+                  }`}
               >
                 <div
-                  className={`w-14 h-14 shrink-0 rounded-full flex items-center justify-center font-black text-xl text-white shadow-md ${
-                    isBlacklist
+                  className={`w-14 h-14 shrink-0 rounded-full flex items-center justify-center font-black text-xl text-white shadow-md ${isBlacklist
                       ? "bg-red-500"
                       : isVIP
                         ? "bg-gradient-to-tr from-amber-400 to-yellow-500"
                         : "bg-blue-600"
-                  }`}
+                    }`}
                 >
                   {c.fullName.charAt(0).toUpperCase()}
                 </div>
@@ -2173,13 +2490,12 @@ export default function AdvancedAdminDashboard() {
                     <div className="flex gap-2">
                       <button
                         onClick={() => toggleTag(viewingCustomer.phone, "VIP")}
-                        className={`px-4 py-2 rounded-xl text-sm font-bold transition-all border shadow-sm ${
-                          customerNotes[viewingCustomer.phone]?.tags?.includes(
-                            "VIP",
-                          )
+                        className={`px-4 py-2 rounded-xl text-sm font-bold transition-all border shadow-sm ${customerNotes[viewingCustomer.phone]?.tags?.includes(
+                          "VIP",
+                        )
                             ? "bg-amber-100 text-amber-700 border-amber-300"
                             : "bg-white text-gray-600 border-gray-200 hover:bg-gray-100"
-                        }`}
+                          }`}
                       >
                         <Tag className="w-4 h-4 inline mr-1" /> Đánh dấu VIP
                       </button>
@@ -2187,13 +2503,12 @@ export default function AdvancedAdminDashboard() {
                         onClick={() =>
                           toggleTag(viewingCustomer.phone, "Blacklist")
                         }
-                        className={`px-4 py-2 rounded-xl text-sm font-bold transition-all border shadow-sm ${
-                          customerNotes[viewingCustomer.phone]?.tags?.includes(
-                            "Blacklist",
-                          )
+                        className={`px-4 py-2 rounded-xl text-sm font-bold transition-all border shadow-sm ${customerNotes[viewingCustomer.phone]?.tags?.includes(
+                          "Blacklist",
+                        )
                             ? "bg-red-100 text-red-700 border-red-300"
                             : "bg-white text-gray-600 border-gray-200 hover:bg-gray-100"
-                        }`}
+                          }`}
                       >
                         <AlertTriangle className="w-4 h-4 inline mr-1" /> Danh
                         sách đen
@@ -2249,7 +2564,7 @@ export default function AdvancedAdminDashboard() {
                             </div>
                             <div>
                               {h.status === "confirmed" ||
-                              h.status === "checked-in" ? (
+                                h.status === "checked-in" ? (
                                 <span className="text-[10px] font-bold bg-emerald-100 text-emerald-700 px-3 py-1.5 rounded-lg border border-emerald-200 uppercase">
                                   Thành công
                                 </span>
@@ -2338,9 +2653,9 @@ export default function AdvancedAdminDashboard() {
 
       // 4. NẢY SỐ NGAY LẬP TỨC TRÊN GIAO DIỆN MÀ KHÔNG CẦN LOAD
       setBookings(prev => prev.map(b => b.id === bookingId ? { ...b, status: "completed", paymentStatus: "HOÀN THÀNH" } : b));
-      
+
       // Kéo dữ liệu ngầm từ Server để đồng bộ kho
-      fetchData(true); 
+      fetchData(true);
 
     } catch (e: any) {
       alert(`⛔ LỖI KẾT NỐI:\nKhông thể thanh toán. Hệ thống sẽ tải lại.`);
@@ -2358,99 +2673,99 @@ export default function AdvancedAdminDashboard() {
     const todayStr = new Date().toISOString().split("T")[0];
     // LỌC ĐƠN CHỜ DUYỆT: Lọc bỏ toàn bộ đơn do nội bộ (Manager/Admin) đặt
     const pendingBookings = bookings.filter(b => {
-       const isPending = b.status === "pending" || b.status === "CHO_DUYET";
-       
-       // Kiểm tra an toàn: Lấy chuỗi source hoặc role, chuyển thành in hoa để so sánh
-       const sourceStr = String(b.source || b.role || "").toUpperCase();
-       const isFromStaff = sourceStr.includes("MANAGER") || sourceStr.includes("ADMIN");
-       
-       // Chỉ giữ lại đơn Pending VÀ KHÔNG PHẢI từ Staff
-       return isPending && !isFromStaff; 
+      const isPending = b.status === "pending" || b.status === "CHO_DUYET";
+
+      // Kiểm tra an toàn: Lấy chuỗi source hoặc role, chuyển thành in hoa để so sánh
+      const sourceStr = String(b.source || b.role || "").toUpperCase();
+      const isFromStaff = sourceStr.includes("MANAGER") || sourceStr.includes("ADMIN");
+
+      // Chỉ giữ lại đơn Pending VÀ KHÔNG PHẢI từ Staff
+      return isPending && !isFromStaff;
     });
 
-    const activeBookings = bookings.filter(b => (b.date === todayStr || !b.date) && ['confirmed', 'checked-in', 'DANG_MUON'].includes(b.status)).sort((a,b) => timeToMins(a.startTime) - timeToMins(b.startTime));
+    const activeBookings = bookings.filter(b => (b.date === todayStr || !b.date) && ['confirmed', 'checked-in', 'DANG_MUON'].includes(b.status)).sort((a, b) => timeToMins(a.startTime) - timeToMins(b.startTime));
     return (
       <div className="space-y-6 animate-in fade-in duration-300">
-         <div>
-           <h2 className="text-2xl font-black text-gray-900">Duyệt Đơn & Giám Sát</h2>
-           <p className="text-gray-500 mt-1">Admin có quyền duyệt nhanh các yêu cầu và theo dõi các ca đang diễn ra.</p>
-         </div>
-         
-         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* CỘT 1: CHỜ DUYỆT */}
-            <div className="bg-white rounded-2xl shadow-sm border border-amber-200 overflow-hidden flex flex-col h-[700px]">
-               <div className="p-4 border-b border-amber-200 bg-amber-50">
-                  <h3 className="font-black text-amber-800 flex items-center gap-2"><Clock className="w-5 h-5"/> Yêu cầu chờ duyệt ({pendingBookings.length})</h3>
-               </div>
-               <div className="p-4 overflow-y-auto flex-1 space-y-4 bg-gray-50/50">
-                  {pendingBookings.length === 0 ? (
-                     <p className="text-center text-gray-400 py-10">Không có đơn nào đang chờ duyệt.</p>
-                  ) : pendingBookings.map(b => (
-                     <div key={b.id} className="bg-white p-4 rounded-xl border border-amber-200 shadow-sm">
-                        <div className="flex justify-between items-start mb-2">
-                           <div>
-                             <h4 className="font-bold text-gray-900">{b.customerName}</h4>
-                             <p className="text-xs text-gray-500 font-medium">{b.phone}</p>
-                           </div>
-                           <span className="text-xs font-bold bg-amber-100 text-amber-700 px-2 py-1 rounded">Chờ duyệt</span>
-                        </div>
-                        <div className="text-sm text-gray-700 mb-4 bg-gray-50 p-3 rounded-lg border border-gray-100">
-                           <p><span className="font-bold">Phòng:</span> <span className="text-blue-600">{rooms.find(r => r.id === b.roomId)?.name || "Chưa rõ"}</span></p>
-                           <p><span className="font-bold">Thời gian:</span> {b.date?.split('-').reverse().join('/')} | {b.startTime} ({b.durationMins} phút)</p>
-                           {b.note && <p className="mt-1"><span className="font-bold">Ghi chú:</span> {b.note}</p>}
-                        </div>
-                        <div className="flex gap-2">
-                           <button onClick={() => handleUpdateBookingStatus(b.id, 'confirmed')} className="flex-1 py-2.5 bg-emerald-600 text-white font-bold rounded-lg text-sm hover:bg-emerald-700 transition-colors shadow-sm">Phê duyệt</button>
-                           <button onClick={() => { if(confirm('Từ chối đơn này?')) handleUpdateBookingStatus(b.id, 'rejected') }} className="flex-1 py-2.5 bg-red-100 text-red-700 font-bold rounded-lg text-sm hover:bg-red-200 transition-colors">Từ chối</button>
-                        </div>
-                     </div>
-                  ))}
-               </div>
-            </div>
+        <div>
+          <h2 className="text-2xl font-black text-gray-900">Duyệt Đơn & Giám Sát</h2>
+          <p className="text-gray-500 mt-1">Admin có quyền duyệt nhanh các yêu cầu và theo dõi các ca đang diễn ra.</p>
+        </div>
 
-            {/* CỘT 2: CA ĐANG HOẠT ĐỘNG */}
-            <div className="bg-white rounded-2xl shadow-sm border border-emerald-200 overflow-hidden flex flex-col h-[700px]">
-               <div className="p-4 border-b border-emerald-200 bg-emerald-50">
-                  <h3 className="font-black text-emerald-800 flex items-center gap-2"><Activity className="w-5 h-5"/> Các ca đang diễn ra hôm nay ({activeBookings.length})</h3>
-               </div>
-               <div className="p-4 overflow-y-auto flex-1 space-y-4 bg-gray-50/50">
-                  {activeBookings.length === 0 ? (
-                     <p className="text-center text-gray-400 py-10">Không có ca nào đang hoạt động hôm nay.</p>
-                  ) : activeBookings.map(b => (
-                     <div key={b.id} className="bg-white p-4 rounded-xl border border-emerald-200 shadow-sm flex justify-between items-center hover:shadow-md transition-shadow">
-                        <div>
-                           <h4 className="font-bold text-gray-900">{b.customerName}</h4>
-                           <p className="text-xs text-gray-500 font-medium mb-1">{b.phone}</p>
-                           <span className="text-[10px] font-black bg-blue-100 text-blue-700 px-2 py-0.5 rounded border border-blue-200 uppercase">{rooms.find(r => r.id === b.roomId)?.name || "Phòng"}</span>
-                        </div>
-                        <div className="text-right flex flex-col items-end gap-2 shrink-0">
-                           <span className="font-black text-emerald-600 bg-emerald-50 px-3 py-1 rounded-lg text-sm border border-emerald-100">{b.startTime}</span>
-                           {b.paymentStatus === "HOÀN THÀNH" ? (
-                              <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full flex items-center gap-1 border border-emerald-200"><CheckCircle2 className="w-3 h-3"/> Đã thu</span>
-                           ) : (
-                              <span className="text-[10px] font-bold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full flex items-center gap-1 border border-amber-200"><AlertTriangle className="w-3 h-3"/> Chưa thu tiền</span>
-                           )}
-                           
-                           {/* NÚT KẾT THÚC CA VÀ HOÀN TRẢ THIẾT BỊ VỀ KHO */}
-                           {b.paymentStatus !== "HOÀN THÀNH" && (
-                              <button 
-                                 id={`btn-confirm-payment-${b.id}`}
-                                 onClick={() => {
-                                    if(confirm(`Xác nhận khách [${b.customerName}] đã thanh toán, trả phòng và TRẢ ĐỦ THIẾT BỊ vào kho?`)) {
-                                       handleConfirmPayment(b.id);
-                                    }
-                                 }}
-                                 className="mt-2 bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded-lg text-xs font-bold shadow-sm transition-all active:scale-95 flex items-center justify-center gap-1.5 w-full md:w-auto"
-                              >
-                                 <Banknote className="w-3.5 h-3.5"/> Nhận tiền & Kết thúc
-                              </button>
-                           )}
-                        </div>
-                     </div>
-                  ))}
-               </div>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* CỘT 1: CHỜ DUYỆT */}
+          <div className="bg-white rounded-2xl shadow-sm border border-amber-200 overflow-hidden flex flex-col h-[700px]">
+            <div className="p-4 border-b border-amber-200 bg-amber-50">
+              <h3 className="font-black text-amber-800 flex items-center gap-2"><Clock className="w-5 h-5" /> Yêu cầu chờ duyệt ({pendingBookings.length})</h3>
             </div>
-         </div>
+            <div className="p-4 overflow-y-auto flex-1 space-y-4 bg-gray-50/50">
+              {pendingBookings.length === 0 ? (
+                <p className="text-center text-gray-400 py-10">Không có đơn nào đang chờ duyệt.</p>
+              ) : pendingBookings.map(b => (
+                <div key={b.id} className="bg-white p-4 rounded-xl border border-amber-200 shadow-sm">
+                  <div className="flex justify-between items-start mb-2">
+                    <div>
+                      <h4 className="font-bold text-gray-900">{b.customerName}</h4>
+                      <p className="text-xs text-gray-500 font-medium">{b.phone}</p>
+                    </div>
+                    <span className="text-xs font-bold bg-amber-100 text-amber-700 px-2 py-1 rounded">Chờ duyệt</span>
+                  </div>
+                  <div className="text-sm text-gray-700 mb-4 bg-gray-50 p-3 rounded-lg border border-gray-100">
+                    <p><span className="font-bold">Phòng:</span> <span className="text-blue-600">{rooms.find(r => r.id === b.roomId)?.name || "Chưa rõ"}</span></p>
+                    <p><span className="font-bold">Thời gian:</span> {b.date?.split('-').reverse().join('/')} | {b.startTime} ({b.durationMins} phút)</p>
+                    {b.note && <p className="mt-1"><span className="font-bold">Ghi chú:</span> {b.note}</p>}
+                  </div>
+                  <div className="flex gap-2">
+                    <button onClick={() => handleUpdateBookingStatus(b.id, 'confirmed')} className="flex-1 py-2.5 bg-emerald-600 text-white font-bold rounded-lg text-sm hover:bg-emerald-700 transition-colors shadow-sm">Phê duyệt</button>
+                    <button onClick={() => { if (confirm('Từ chối đơn này?')) handleUpdateBookingStatus(b.id, 'rejected') }} className="flex-1 py-2.5 bg-red-100 text-red-700 font-bold rounded-lg text-sm hover:bg-red-200 transition-colors">Từ chối</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* CỘT 2: CA ĐANG HOẠT ĐỘNG */}
+          <div className="bg-white rounded-2xl shadow-sm border border-emerald-200 overflow-hidden flex flex-col h-[700px]">
+            <div className="p-4 border-b border-emerald-200 bg-emerald-50">
+              <h3 className="font-black text-emerald-800 flex items-center gap-2"><Activity className="w-5 h-5" /> Các ca đang diễn ra hôm nay ({activeBookings.length})</h3>
+            </div>
+            <div className="p-4 overflow-y-auto flex-1 space-y-4 bg-gray-50/50">
+              {activeBookings.length === 0 ? (
+                <p className="text-center text-gray-400 py-10">Không có ca nào đang hoạt động hôm nay.</p>
+              ) : activeBookings.map(b => (
+                <div key={b.id} className="bg-white p-4 rounded-xl border border-emerald-200 shadow-sm flex justify-between items-center hover:shadow-md transition-shadow">
+                  <div>
+                    <h4 className="font-bold text-gray-900">{b.customerName}</h4>
+                    <p className="text-xs text-gray-500 font-medium mb-1">{b.phone}</p>
+                    <span className="text-[10px] font-black bg-blue-100 text-blue-700 px-2 py-0.5 rounded border border-blue-200 uppercase">{rooms.find(r => r.id === b.roomId)?.name || "Phòng"}</span>
+                  </div>
+                  <div className="text-right flex flex-col items-end gap-2 shrink-0">
+                    <span className="font-black text-emerald-600 bg-emerald-50 px-3 py-1 rounded-lg text-sm border border-emerald-100">{b.startTime}</span>
+                    {b.paymentStatus === "HOÀN THÀNH" ? (
+                      <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full flex items-center gap-1 border border-emerald-200"><CheckCircle2 className="w-3 h-3" /> Đã thu</span>
+                    ) : (
+                      <span className="text-[10px] font-bold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full flex items-center gap-1 border border-amber-200"><AlertTriangle className="w-3 h-3" /> Chưa thu tiền</span>
+                    )}
+
+                    {/* NÚT KẾT THÚC CA VÀ HOÀN TRẢ THIẾT BỊ VỀ KHO */}
+                    {b.paymentStatus !== "HOÀN THÀNH" && (
+                      <button
+                        id={`btn-confirm-payment-${b.id}`}
+                        onClick={() => {
+                          if (confirm(`Xác nhận khách [${b.customerName}] đã thanh toán, trả phòng và TRẢ ĐỦ THIẾT BỊ vào kho?`)) {
+                            handleConfirmPayment(b.id);
+                          }
+                        }}
+                        className="mt-2 bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded-lg text-xs font-bold shadow-sm transition-all active:scale-95 flex items-center justify-center gap-1.5 w-full md:w-auto"
+                      >
+                        <Banknote className="w-3.5 h-3.5" /> Nhận tiền & Kết thúc
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
       </div>
     );
   };
@@ -2459,17 +2774,17 @@ export default function AdvancedAdminDashboard() {
     <div className="space-y-6">
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-1 bg-white p-6 rounded-2xl shadow-sm border-2 border-red-100">
-          <h3 className="text-xl font-black text-red-600 mb-2"><Lock className="w-6 h-6 inline"/> Global Shutdown</h3>
+          <h3 className="text-xl font-black text-red-600 mb-2"><Lock className="w-6 h-6 inline" /> Global Shutdown</h3>
           <p className="text-sm text-gray-600 mb-6">Đóng băng toàn bộ hệ thống.</p>
           <div className="space-y-4">
-             <input type="date" className="w-full border p-2 rounded-lg" value={globalShutdown.startDate} onChange={e=>setGlobalShutdown({...globalShutdown, startDate: e.target.value})}/>
-             <input type="date" className="w-full border p-2 rounded-lg" value={globalShutdown.endDate} onChange={e=>setGlobalShutdown({...globalShutdown, endDate: e.target.value})}/>
-             <textarea className="w-full border p-2 rounded-lg text-sm" rows={2} value={globalShutdown.reason} onChange={e=>setGlobalShutdown({...globalShutdown, reason: e.target.value})} placeholder="Lý do bảo trì..."></textarea>
-             {globalShutdown.isActive ? (
-               <button onClick={() => setGlobalShutdown({...globalShutdown, isActive: false})} className="w-full py-3 bg-emerald-600 text-white font-black rounded-xl">Mở Khóa Hệ Thống</button>
-             ) : (
-               <button onClick={() => setGlobalShutdown({...globalShutdown, isActive: true})} className="w-full py-3 bg-red-600 text-white font-black rounded-xl">Kích hoạt Đóng Băng</button>
-             )}
+            <input type="date" className="w-full border p-2 rounded-lg" value={globalShutdown.startDate} onChange={e => setGlobalShutdown({ ...globalShutdown, startDate: e.target.value })} />
+            <input type="date" className="w-full border p-2 rounded-lg" value={globalShutdown.endDate} onChange={e => setGlobalShutdown({ ...globalShutdown, endDate: e.target.value })} />
+            <textarea className="w-full border p-2 rounded-lg text-sm" rows={2} value={globalShutdown.reason} onChange={e => setGlobalShutdown({ ...globalShutdown, reason: e.target.value })} placeholder="Lý do bảo trì..."></textarea>
+            {globalShutdown.isActive ? (
+              <button onClick={() => setGlobalShutdown({ ...globalShutdown, isActive: false })} className="w-full py-3 bg-emerald-600 text-white font-black rounded-xl">Mở Khóa Hệ Thống</button>
+            ) : (
+              <button onClick={() => setGlobalShutdown({ ...globalShutdown, isActive: true })} className="w-full py-3 bg-red-600 text-white font-black rounded-xl">Kích hoạt Đóng Băng</button>
+            )}
           </div>
         </div>
         <div className="lg:col-span-2 bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden h-[600px] p-4 overflow-y-auto">
@@ -2478,11 +2793,11 @@ export default function AdvancedAdminDashboard() {
             <div key={log.id} className="flex gap-4 border-l-2 border-amber-500 pl-4 py-2">
               <span className="text-xs font-bold text-gray-400 w-24">{log.startDate}</span>
               <div>
-                 <p className="text-sm">[{log.reportedBy}] lên lịch bảo trì {log.itemName}</p>
-                 {log.status === 'pending' && <button onClick={async () => {
-                    await fetch(`${API_URL}/bookings/maintenance/${log.id}`, { method: "PUT", headers: { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("access_token")}` }, body: JSON.stringify({ status: "completed" }) });
-                    fetchData(true);
-                 }} className="mt-1 text-xs text-red-600 bg-red-50 px-2 py-1 rounded font-bold">Force Complete</button>}
+                <p className="text-sm">[{log.reportedBy}] lên lịch bảo trì {log.itemName}</p>
+                {log.status === 'pending' && <button onClick={async () => {
+                  await fetch(`${API_URL}/bookings/maintenance/${log.id}`, { method: "PUT", headers: { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("access_token")}` }, body: JSON.stringify({ status: "completed" }) });
+                  fetchData(true);
+                }} className="mt-1 text-xs text-red-600 bg-red-50 px-2 py-1 rounded font-bold">Force Complete</button>}
               </div>
             </div>
           ))}
@@ -2507,14 +2822,14 @@ export default function AdvancedAdminDashboard() {
             </div>
           </div>
         )}
-        <AnimatePresence mode="wait"> 
+        <AnimatePresence mode="wait">
           {loading ? (
-            <motion.div 
-               key="loading-spinner" 
-               initial={{ opacity: 0 }} 
-               animate={{ opacity: 1 }} 
-               exit={{ opacity: 0 }} 
-               className="flex justify-center items-center h-[80vh]"
+            <motion.div
+              key="loading-spinner"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="flex justify-center items-center h-[80vh]"
             >
               <div className="w-10 h-10 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin"></div>
             </motion.div>
@@ -2532,6 +2847,7 @@ export default function AdvancedAdminDashboard() {
               {activeMenu === "users" && renderUsers()}
               {activeMenu === "bookings" && renderBookings()}
               {activeMenu === "lookup" && renderLookup()}
+              {activeMenu === "reports" && renderReports()}
               {activeMenu === "system" && renderSystemLogs()}
             </motion.div>
           )}
@@ -2832,6 +3148,33 @@ export default function AdvancedAdminDashboard() {
                     </button>
                   </div>
                 </form>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+        {/* ================= MODAL GIAO VIỆC ================= */}
+        <AnimatePresence>
+          {showAssignModal && (
+            <div className="fixed inset-0 bg-black/60 z-[999] flex items-center justify-center p-4 backdrop-blur-sm">
+              <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="bg-white rounded-3xl w-full max-w-md overflow-hidden shadow-2xl">
+                <div className="bg-blue-600 p-5 flex justify-between items-center text-white">
+                  <h2 className="text-xl font-black">Phân công kỹ thuật</h2>
+                  <button onClick={() => setShowAssignModal(false)} className="hover:bg-blue-700 p-1 rounded-full"><X className="w-5 h-5"/></button>
+                </div>
+                <div className="p-6">
+                  <p className="text-sm font-medium text-gray-500 mb-4">Nhập tên người/kỹ thuật viên phụ trách xử lý báo cáo này.</p>
+                  <input
+                    className="w-full border border-gray-300 rounded-xl p-3 mb-6 outline-none focus:border-blue-500 font-bold"
+                    placeholder="VD: Kỹ thuật viên Nguyễn Văn A"
+                    value={assignName}
+                    onChange={(e) => setAssignName(e.target.value)}
+                    autoFocus
+                  />
+                  <div className="flex justify-end gap-3">
+                    <button onClick={() => setShowAssignModal(false)} className="px-5 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold rounded-xl transition-colors">Hủy</button>
+                    <button onClick={handleAssignReport} className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-black rounded-xl shadow-md">Giao việc</button>
+                  </div>
+                </div>
               </motion.div>
             </div>
           )}

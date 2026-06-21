@@ -20,3 +20,7 @@ manager123'
 ````
 
 \*\*HE
+
+<!-- Tải cloudinary -->
+npm install cloudinary multer multer-storage-cloudinary
+pip install cloudinary
