@@ -224,7 +224,7 @@ export default function UserBookingHistoryPage() {
     if (s === "PENDING" || s === "CHO_DUYET") return "CHO_DUYET";
     if (s === "CONFIRMED" || s === "DA_DUYET") return "DA_DUYET";
     if (s === "DANG_MUON") return "DANG_MUON";
-    if (s === "DA_XONG") return "DA_XONG";
+    if (s === "DA_XONG" || s === "COMPLETED") return "DA_XONG";
     if (s === "DA_TU_CHOI" || s === "REJECTED") return "DA_TU_CHOI";
     if (s === "DA_HUY" || s === "CANCELLED") return "DA_HUY";
   
@@ -267,7 +267,7 @@ export default function UserBookingHistoryPage() {
     const baseStatus = normalizeStatus(booking.status);
   
     // các trạng thái không được tự đổi
-    if (["CHO_DUYET", "DA_TU_CHOI", "DA_HUY"].includes(baseStatus)) {
+    if (["CHO_DUYET", "DA_TU_CHOI", "DA_HUY", "DA_XONG"].includes(baseStatus)) {
       return baseStatus;
     }
   
@@ -905,11 +905,11 @@ export default function UserBookingHistoryPage() {
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
-              className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden"
+              className="bg-white rounded-3xl shadow-2xl w-full max-w-md h-[80vh] max-h-[650px] flex flex-col overflow-hidden"
               onClick={(e) => e.stopPropagation()}
             >
               {/* HEADER */}
-              <div className="bg-violet-600 p-5 flex justify-between items-center text-white">
+              <div className="bg-violet-600 p-5 flex justify-between items-center text-white shrink-0">
                 <h3 className="font-black text-lg flex items-center gap-2">
                   <Calendar className="w-5 h-5" />
                   Chi tiết đơn đặt phòng
@@ -923,7 +923,7 @@ export default function UserBookingHistoryPage() {
               </div>
 
               {/* BODY */}
-              <div className="p-6 space-y-4">
+              <div className="p-6 space-y-4 flex-1 overflow-y-auto">
                 {/* Phòng + Trạng thái */}
                 <div className="flex justify-between items-start">
                   <div>
@@ -988,7 +988,7 @@ export default function UserBookingHistoryPage() {
                   </div>
                   <div>
                     <p className="text-xs font-bold text-gray-400 uppercase mb-1">
-                      Buffer
+                      Thời gian dọn dẹp
                     </p>
                     <p className="font-bold text-gray-900">
                       {selectedBooking.buffer_mins} phút
@@ -1111,7 +1111,7 @@ export default function UserBookingHistoryPage() {
               </div>
 
               {/* FOOTER */}
-              <div className="p-5 border-t border-gray-100 flex justify-end gap-3">
+              <div className="p-5 border-t border-gray-100 flex justify-end gap-3 shrink-0">
                 <button
                   onClick={() => setSelectedBooking(null)}
                   className="px-5 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold text-sm rounded-xl transition-colors"

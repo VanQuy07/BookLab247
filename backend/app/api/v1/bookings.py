@@ -371,7 +371,8 @@ class BookingStatusUpdate(BaseModel):
 
 
 # ================== 3.5. API LẤY LỊCH SỬ ĐẶT CỦA USER ==================
-@router.get("/user/{user_id}")
+# @router.get("/user/{user_id}") 23062026
+@router.get("/me")
 async def get_user_bookings(user_id: str):
     await _auto_update_booking_statuses()
 

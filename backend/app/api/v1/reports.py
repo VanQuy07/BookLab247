@@ -291,3 +291,16 @@ async def add_comment(report_id: str, payload: dict):
     )
 
     return {"message": "Comment added"}
+
+# ==========================
+# DELETE REPORT
+# ==========================
+@router.delete("/{report_id}")
+async def delete_report(report_id: str):
+    
+    result = await db.reports.delete_one({"_id": ObjectId(report_id)})
+    
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Report not found")
+    
+    return {"message": "Report deleted"}

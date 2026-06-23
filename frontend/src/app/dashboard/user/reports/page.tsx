@@ -228,15 +228,16 @@ export default function ReportsPage() {
 
   return (
     <div className="min-h-screen bg-slate-50 p-6">
+      <button
+            onClick={() => router.push("/")}
+            className="p-2 hover:bg-gray-100 rounded-lg transition-colors flex items-center gap-2"
+          >
+            <ArrowLeft className="w-5 h-5 text-gray-600" />
+            <span className="text-gray-600 font-bold">Quay Lại</span>
+          </button>
       <div className="max-w-6xl mx-auto">
         {/* Header */}
         <div className="flex items-center gap-4 mb-8">
-          <button
-            onClick={() => router.back()}
-            className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-          >
-            <ArrowLeft className="w-5 h-5 text-gray-600" />
-          </button>
           <div className="flex-1">
             <h1 className="text-3xl font-bold text-gray-900">Báo cáo sự cố</h1>
             <p className="text-gray-500 mt-1">Quản lý báo cáo của bạn</p>

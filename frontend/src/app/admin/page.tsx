@@ -38,7 +38,8 @@ import {
   UserCircle,
   CheckCircle2,
   Tag,
-  ClipboardList
+  ClipboardList,
+  Download
 } from "lucide-react";
 import {
   BarChart,
@@ -300,7 +301,7 @@ export default function AdvancedAdminDashboard() {
 
   useEffect(() => {
     // Sửa lại "role" thành key lưu role trong hệ thống của bạn nếu khác
-    const savedRole = localStorage.getItem("role") || localStorage.getItem("user_role") || "ADMIN"; 
+    const savedRole = localStorage.getItem("role") || localStorage.getItem("user_role") || "ADMIN";
     setUserRole(savedRole.toUpperCase());
   }, []);
 
@@ -928,22 +929,43 @@ export default function AdvancedAdminDashboard() {
   };
 
   // ================= 9. BÁO CÁO SỰ CỐ =================
+  // ================= 9. BÁO CÁO SỰ CỐ =================
   const updateReportStatus = async (reportId: string, status: string, message: string = "") => {
     try {
+      const token = localStorage.getItem("access_token");
+      const userName = localStorage.getItem("user_name") || "ADMIN"; // Lấy tên thật của Admin
+
+      // Gọi API xuống DB
       const res = await fetch(`${API_URL}/reports/${reportId}/status`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("access_token") || "admin"}` },
-        body: JSON.stringify({ status, changedBy: localStorage.getItem("user_name") || "ADMIN", message: message || `Đổi trạng thái thành ${status}` }),
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          status: status,
+          changedBy: userName,
+          message: message || `Đổi trạng thái thành ${status}`
+        }),
       });
-      if (!res.ok) throw new Error("Lỗi cập nhật trạng thái");
-      
+
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.detail || "Không thể cập nhật trạng thái trên Database");
+      }
+
+      // Nếu DB lưu thành công, kéo dữ liệu mới nhất về để đồng bộ UI
       fetchData(true);
+
+      // Update state cục bộ cho mượt
       if (selectedReport?._id === reportId) {
         const updated = reports.find(r => r._id === reportId);
         if (updated) setSelectedReport({ ...updated, status });
       }
-    } catch (error) {
-      alert("Lỗi cập nhật trạng thái");
+
+      alert(`✅ Đã cập nhật trạng thái thành công!`);
+    } catch (error: any) {
+      alert(`⛔ Lỗi: ${error.message}`);
     }
   };
 
@@ -956,7 +978,7 @@ export default function AdvancedAdminDashboard() {
         body: JSON.stringify({ assignedTo: assignName, changedBy: localStorage.getItem("user_name") || "ADMIN" }),
       });
       if (!res.ok) throw new Error("Lỗi giao việc");
-      
+
       alert("Giao việc thành công");
       setShowAssignModal(false);
       setAssignName("");
@@ -969,24 +991,130 @@ export default function AdvancedAdminDashboard() {
 
   const handleDeleteReportAdmin = async (reportId: string) => {
     if (userRole !== "ADMIN") return;
-    if (confirm("ĐẶC QUYỀN ADMIN: Bạn có chắc chắn muốn xóa vĩnh viễn báo cáo này khỏi hệ thống?")) {
+    if (confirm("ĐẶC QUYỀN ADMIN: Bạn có chắc chắn muốn xóa vĩnh viễn báo cáo này khỏi hệ thống Database không? Hành động này KHÔNG THỂ hoàn tác!")) {
       try {
+        const token = localStorage.getItem("access_token");
+
+        // Gọi API xóa dưới DB
         const res = await fetch(`${API_URL}/reports/${reportId}`, {
           method: "DELETE",
-          headers: { Authorization: `Bearer ${localStorage.getItem("access_token")}` }
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`
+          }
         });
-        if (!res.ok) throw new Error("Lỗi xóa");
-        
-        // Cập nhật UI
+
+        if (!res.ok) {
+          const errorData = await res.json().catch(() => ({}));
+          throw new Error(errorData.detail || "Lỗi xóa dữ liệu từ Database");
+        }
+
+        // Xóa thành công trên DB -> Cập nhật lại giao diện
         setReports(prev => prev.filter(r => r._id !== reportId));
         setSelectedReport(null);
-        alert("✅ Đã xóa báo cáo rác thành công!");
-      } catch (e) {
-        alert("⛔ Lỗi khi xóa báo cáo!");
+        alert("✅ Đã xóa báo cáo vĩnh viễn khỏi Database!");
+      } catch (e: any) {
+        alert(`⛔ Lỗi hệ thống: ${e.message}`);
       }
     }
   };
-  
+
+  // ================= EXPORT EXCEL (CÓ KẺ BẢNG VÀ ĐỊNH DẠNG) DÀNH CHO ADMIN =================
+  const handleExportReports = () => {
+    // 1. Lấy dữ liệu đang hiển thị trên màn hình
+    const dataToExport = reports.filter(r => {
+      if (filterStatus !== "ALL" && r.status !== filterStatus) return false;
+      if (filterSeverity !== "ALL" && r.severity !== filterSeverity) return false;
+      return true;
+    });
+
+    if (dataToExport.length === 0) {
+      alert("Không có dữ liệu báo cáo nào để xuất!");
+      return;
+    }
+
+    // 2. Tạo cấu trúc HTML cho bảng Excel (Có CSS kẻ khung viền đen)
+    let tableHtml = `
+      <html xmlns:o="urn:schemas-microsoft-com:office:office"
+            xmlns:x="urn:schemas-microsoft-com:office:excel"
+            xmlns="http://www.w3.org/TR/REC-html40">
+      <head>
+        <meta charset="utf-8" />
+        <style>
+          table { border-collapse: collapse; width: 100%; }
+          th, td { border: 1px solid black; padding: 8px; text-align: left; vertical-align: middle; }
+          th { background-color: #f2f2f2; font-weight: bold; text-align: center; }
+        </style>
+      </head>
+      <body>
+        <table>
+          <thead>
+            <tr>
+              <th>Mã Báo Cáo</th>
+              <th>Tiêu đề</th>
+              <th>Mô tả</th>
+              <th>Loại</th>
+              <th>Tên Phòng/Thiết bị</th>
+              <th>Mức độ</th>
+              <th>Trạng thái</th>
+              <th>Người báo</th>
+              <th>Người xử lý</th>
+              <th>Ngày tạo</th>
+              <th>Cập nhật cuối</th>
+            </tr>
+          </thead>
+          <tbody>
+    `;
+
+    // 3. Đưa dữ liệu vào từng ô (td)
+    dataToExport.forEach(report => {
+      const typeLabel = report.type === "ROOM" ? "Phòng Lab" : "Thiết bị";
+      const targetName = report.roomName || report.equipmentName || "Không rõ";
+      const severityLabel = SEVERITY_OPTIONS.find(s => s.value === report.severity)?.label || report.severity;
+      const statusLabel = STATUS_OPTIONS.find(s => s.value === report.status)?.label || report.status;
+      const createdDate = new Date(report.createdAt).toLocaleString("vi-VN");
+      const updatedDate = new Date(report.updatedAt || report.createdAt).toLocaleString("vi-VN");
+
+      // mso-number-format:'\\@' giúp Excel hiểu đây là chuỗi, không bị biến dạng mã ID thành số khoa học (VD: 6E+12)
+      tableHtml += `
+        <tr>
+          <td style="mso-number-format:'\\@';">${report._id || ""}</td>
+          <td>${report.title || ""}</td>
+          <td>${report.description || ""}</td>
+          <td>${typeLabel}</td>
+          <td>${targetName}</td>
+          <td style="font-weight: bold;">${severityLabel}</td>
+          <td style="font-weight: bold;">${statusLabel}</td>
+          <td>${report.createdBy || ""}</td>
+          <td>${report.assignedTo || "Chưa phân công"}</td>
+          <td>${createdDate}</td>
+          <td>${updatedDate}</td>
+        </tr>
+      `;
+    });
+
+    tableHtml += `
+          </tbody>
+        </table>
+      </body>
+      </html>
+    `;
+
+    // 4. Tạo File và kích hoạt tải xuống (Đuôi .xls)
+    const blob = new Blob([tableHtml], { type: "application/vnd.ms-excel;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    
+    // Tên file lưu bằng đuôi .xls để Excel tự động kích hoạt bảng
+    const dateStr = new Date().toISOString().split("T")[0];
+    link.setAttribute("download", `Bao_Cao_Kiem_Toan_BookLab_${dateStr}.xls`);
+    
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   const renderReports = () => {
     const getStatusInfo = (status: string) => STATUS_OPTIONS.find(s => s.value === status) || { label: status, color: "bg-gray-100 text-gray-700" };
     const getSeverityInfo = (severity: string) => SEVERITY_OPTIONS.find(s => s.value === severity) || { label: severity, color: "bg-gray-100 text-gray-700" };
@@ -1007,9 +1135,22 @@ export default function AdvancedAdminDashboard() {
 
     return (
       <div className="space-y-6 animate-in fade-in duration-300">
-        <div>
-          <h2 className="text-2xl font-black text-gray-900">Quản lý báo cáo sự cố</h2>
-          <p className="text-gray-500 mt-1">Duyệt và xử lý báo cáo từ người dùng.</p>
+        {/* ĐÃ SỬA: Flex justify-between để ép nút Xuất Excel sang góc phải */}
+        <div className="flex justify-between items-end">
+          <div>
+            <h2 className="text-2xl font-black text-gray-900">Quản lý báo cáo sự cố</h2>
+            <p className="text-gray-500 mt-1">Duyệt và xử lý báo cáo từ người dùng.</p>
+          </div>
+
+          {/* NÚT XUẤT EXCEL CHỈ DÀNH CHO ADMIN */}
+          {userRole === "ADMIN" && (
+            <button
+              onClick={handleExportReports}
+              className="flex items-center gap-2 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl transition-all shadow-md active:scale-95"
+            >
+              <Download className="w-5 h-5" /> Xuất Báo Cáo (CSV)
+            </button>
+          )}
         </div>
 
         <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
@@ -1114,7 +1255,7 @@ export default function AdvancedAdminDashboard() {
                   <button onClick={() => { setPendingAssignId(selectedReport._id); setAssignName(""); setShowAssignModal(true); }} className="w-full px-4 py-2 bg-blue-50 text-blue-600 border border-blue-200 rounded-xl font-bold hover:bg-blue-600 hover:text-white transition-colors">
                     Phân công kỹ thuật
                   </button> */}
-                  
+
                   <div className="bg-gray-50 p-3 rounded-xl border border-gray-200 mt-2">
                     <p className="text-xs font-bold text-gray-500 mb-2">Đổi trạng thái:</p>
                     <select className="w-full border border-gray-300 rounded-lg p-2.5 text-sm font-bold outline-none" value={selectedReport.status} onChange={(e) => updateReportStatus(selectedReport._id, e.target.value)}>
@@ -1124,40 +1265,75 @@ export default function AdvancedAdminDashboard() {
 
                   {/* ĐẶC QUYỀN CỦA ADMIN */}
                   <div className="mt-6 p-4 bg-slate-900 rounded-xl border border-slate-700 shadow-inner">
-                      <p className="text-xs font-black text-emerald-400 uppercase flex items-center gap-2 mb-3">
-                          <ShieldCheck className="w-4 h-4" /> Đặc quyền Admin
-                      </p>
-                      <div className="flex gap-3">
-                          <button 
-                              onClick={() => handleDeleteReportAdmin(selectedReport._id)}
-                              className="flex-1 px-3 py-2 bg-red-500/20 text-red-400 border border-red-500/30 hover:bg-red-500 hover:text-white rounded-lg text-sm font-bold transition-colors flex items-center justify-center gap-1"
-                          >
-                              <Trash2 className="w-4 h-4" /> Xóa hẳn
-                          </button>
-                          <button 
-                              onClick={() => updateReportStatus(selectedReport._id, "RESOLVED", "Admin đã can thiệp đóng Case.")}
-                              className="flex-1 px-3 py-2 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500 hover:text-white rounded-lg text-sm font-bold transition-colors flex items-center justify-center gap-1"
-                          >
-                              <CheckCircle2 className="w-4 h-4" /> Force Đóng
-                          </button>
-                      </div>
+                    <p className="text-xs font-black text-emerald-400 uppercase flex items-center gap-2 mb-3">
+                      <ShieldCheck className="w-4 h-4" /> Đặc quyền Admin
+                    </p>
+                    <div className="flex gap-3">
+                      <button
+                        onClick={() => handleDeleteReportAdmin(selectedReport._id)}
+                        className="flex-1 px-3 py-2 bg-red-500/20 text-red-400 border border-red-500/30 hover:bg-red-500 hover:text-white rounded-lg text-sm font-bold transition-colors flex items-center justify-center gap-1"
+                      >
+                        <Trash2 className="w-4 h-4" /> Xóa hẳn
+                      </button>
+                      <button
+                        onClick={() => updateReportStatus(selectedReport._id, "RESOLVED", "Admin đã can thiệp đóng Case.")}
+                        className="flex-1 px-3 py-2 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500 hover:text-white rounded-lg text-sm font-bold transition-colors flex items-center justify-center gap-1"
+                      >
+                        <CheckCircle2 className="w-4 h-4" /> Force Đóng
+                      </button>
+                    </div>
                   </div>
                 </div>
 
+                {/* LỊCH SỬ XỬ LÝ (DẠNG Ô VUÔNG CÓ SCROLL) */}
                 {selectedReport.logs && selectedReport.logs.length > 0 && (
-                  <div className="border-t border-gray-100 pt-4 mt-4">
-                    <p className="text-sm font-black text-gray-700 mb-3">Lịch sử xử lý</p>
-                    <div className="space-y-3 max-h-40 overflow-y-auto">
-                      {selectedReport.logs.map((log, idx) => (
-                        <div key={idx} className="flex gap-3 relative">
-                          <div className="w-2 h-2 rounded-full bg-blue-500 mt-1.5 flex-shrink-0 relative z-10"></div>
-                          {idx !== selectedReport.logs.length - 1 && <div className="absolute left-1 top-3 bottom-[-15px] w-px bg-gray-200"></div>}
-                          <div className="flex-1 pb-2">
-                            <p className="text-sm font-bold text-gray-800">{log.message || log.status}</p>
-                            <p className="text-[10px] font-medium text-gray-400 mt-0.5">👤 <span className="font-bold">{log.changedBy}</span> - {new Date(log.createdAt).toLocaleString("vi-VN")}</p>
-                          </div>
-                        </div>
-                      ))}
+                  <div className="border-t border-gray-100 pt-4 mt-6">
+                    <p className="text-xs font-black text-gray-800 uppercase flex items-center gap-2 mb-3">
+                      <Clock className="w-4 h-4 text-blue-600" /> Lịch sử xử lý
+                    </p>
+
+                    {/* Ô vuông trắng cố định có Scroll */}
+                    <div className="bg-white border border-gray-200 rounded-xl p-5 h-64 overflow-y-auto shadow-inner custom-scrollbar">
+                      <div className="space-y-4">
+                        {selectedReport.logs.map((log, idx) => {
+                          // Lấy thông tin label và màu sắc từ hàm có sẵn
+                          const statusInfo = getStatusInfo(log.status);
+
+                          // Kiểm tra xem message có phải là tin nhắn tự động sinh ra không
+                          const isDefaultMessage = log.message === `Đổi trạng thái thành ${log.status}`;
+
+                          return (
+                            <div key={idx} className="flex gap-3 relative">
+                              {/* Nút chấm tròn timeline (Style xịn hơn) */}
+                              <div className="w-2.5 h-2.5 rounded-full bg-blue-500 mt-1 flex-shrink-0 relative z-10 ring-4 ring-white border border-gray-200"></div>
+
+                              {/* Vạch kẻ dọc nối các timeline */}
+                              {idx !== selectedReport.logs.length - 1 && (
+                                <div className="absolute left-[4.5px] top-3 bottom-[-20px] w-px bg-gray-200"></div>
+                              )}
+
+                              <div className="flex-1 pb-2">
+                                {/* Label trạng thái + Lời nhắn */}
+                                <div className="flex items-center gap-2 flex-wrap mb-1">
+                                  <span className={`px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider border shadow-sm ${statusInfo.color}`}>
+                                    {statusInfo.label}
+                                  </span>
+                                  {!isDefaultMessage && log.message && (
+                                    <span className="text-sm font-bold text-gray-700">
+                                      - {log.message}
+                                    </span>
+                                  )}
+                                </div>
+
+                                {/* Thông tin người thực hiện & Thời gian */}
+                                <p className="text-[10px] font-medium text-gray-400 mt-1 bg-gray-50 inline-block px-2 py-0.5 rounded border border-gray-100">
+                                  👤 <span className="font-bold text-gray-600">{log.changedBy}</span> • {new Date(log.createdAt).toLocaleString("vi-VN")}
+                                </p>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
                     </div>
                   </div>
                 )}
@@ -2348,18 +2524,18 @@ export default function AdvancedAdminDashboard() {
                 key={c.phone}
                 onClick={() => setViewingCustomer(c)} // Click để mở Modal
                 className={`bg-white rounded-2xl border-2 shadow-sm p-5 cursor-pointer hover:-translate-y-1 hover:shadow-lg transition-all duration-200 flex items-center gap-4 ${isBlacklist
-                    ? "border-red-300 shadow-red-100 hover:border-red-400"
-                    : isVIP
-                      ? "border-amber-300 shadow-amber-100 hover:border-amber-400"
-                      : "border-gray-100 hover:border-blue-300"
+                  ? "border-red-300 shadow-red-100 hover:border-red-400"
+                  : isVIP
+                    ? "border-amber-300 shadow-amber-100 hover:border-amber-400"
+                    : "border-gray-100 hover:border-blue-300"
                   }`}
               >
                 <div
                   className={`w-14 h-14 shrink-0 rounded-full flex items-center justify-center font-black text-xl text-white shadow-md ${isBlacklist
-                      ? "bg-red-500"
-                      : isVIP
-                        ? "bg-gradient-to-tr from-amber-400 to-yellow-500"
-                        : "bg-blue-600"
+                    ? "bg-red-500"
+                    : isVIP
+                      ? "bg-gradient-to-tr from-amber-400 to-yellow-500"
+                      : "bg-blue-600"
                     }`}
                 >
                   {c.fullName.charAt(0).toUpperCase()}
@@ -2491,8 +2667,8 @@ export default function AdvancedAdminDashboard() {
                         className={`px-4 py-2 rounded-xl text-sm font-bold transition-all border shadow-sm ${customerNotes[viewingCustomer.phone]?.tags?.includes(
                           "VIP",
                         )
-                            ? "bg-amber-100 text-amber-700 border-amber-300"
-                            : "bg-white text-gray-600 border-gray-200 hover:bg-gray-100"
+                          ? "bg-amber-100 text-amber-700 border-amber-300"
+                          : "bg-white text-gray-600 border-gray-200 hover:bg-gray-100"
                           }`}
                       >
                         <Tag className="w-4 h-4 inline mr-1" /> Đánh dấu VIP
@@ -2504,8 +2680,8 @@ export default function AdvancedAdminDashboard() {
                         className={`px-4 py-2 rounded-xl text-sm font-bold transition-all border shadow-sm ${customerNotes[viewingCustomer.phone]?.tags?.includes(
                           "Blacklist",
                         )
-                            ? "bg-red-100 text-red-700 border-red-300"
-                            : "bg-white text-gray-600 border-gray-200 hover:bg-gray-100"
+                          ? "bg-red-100 text-red-700 border-red-300"
+                          : "bg-white text-gray-600 border-gray-200 hover:bg-gray-100"
                           }`}
                       >
                         <AlertTriangle className="w-4 h-4 inline mr-1" /> Danh
@@ -3157,7 +3333,7 @@ export default function AdvancedAdminDashboard() {
               <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="bg-white rounded-3xl w-full max-w-md overflow-hidden shadow-2xl">
                 <div className="bg-blue-600 p-5 flex justify-between items-center text-white">
                   <h2 className="text-xl font-black">Phân công kỹ thuật</h2>
-                  <button onClick={() => setShowAssignModal(false)} className="hover:bg-blue-700 p-1 rounded-full"><X className="w-5 h-5"/></button>
+                  <button onClick={() => setShowAssignModal(false)} className="hover:bg-blue-700 p-1 rounded-full"><X className="w-5 h-5" /></button>
                 </div>
                 <div className="p-6">
                   <p className="text-sm font-medium text-gray-500 mb-4">Nhập tên người/kỹ thuật viên phụ trách xử lý báo cáo này.</p>
