@@ -219,10 +219,14 @@ async def update_status(report_id: str, payload: dict):
     if not report:
         raise HTTPException(status_code=404, detail="Report not found")
 
+    # Xác định severity
+    new_severity = report.get("severity")
+    if payload["status"] == "ESCALATED":
+        new_severity = "CRITICAL"
     await db.reports.update_one(
         {"_id": ObjectId(report_id)},
         {
-            "$set": {"status": payload["status"], "updatedAt": datetime.utcnow()},
+            "$set": {"status": payload["status"], "severity": new_severity, "updatedAt": datetime.utcnow()},
             "$push": {
                 "logs": {
                     "status": payload["status"],

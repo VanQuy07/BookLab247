@@ -144,6 +144,7 @@ const STATUS_OPTIONS = [
   { value: "IN_PROGRESS", label: "Đang xử lý", color: "bg-purple-100 text-purple-700" },
   { value: "RESOLVED", label: "Đã xử lý xong", color: "bg-emerald-100 text-emerald-700" },
   { value: "REJECTED", label: "Từ chối", color: "bg-red-100 text-red-700" },
+  { value: "ESCALATED", label: "Đã chuyển lên Admin", color: "bg-rose-100 text-rose-700" },
 ];
 
 const SEVERITY_OPTIONS = [
@@ -1104,19 +1105,15 @@ export default function AdvancedAdminDashboard() {
                       <p className="text-sm font-bold text-gray-800 mt-1">{selectedReport.type === "ROOM" ? "📍 Phòng" : "🔧 Thiết bị"}</p>
                       <p className="text-xs text-gray-500 font-medium">{selectedReport.roomName || selectedReport.equipmentName || "-"}</p>
                     </div>
-                    <div>
-                      <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Người xử lý</p>
-                      <p className="text-sm font-bold text-blue-600 mt-1">{selectedReport.assignedTo || "Chưa phân công"}</p>
-                    </div>
                   </div>
                 </div>
 
                 <div className="space-y-3 border-t border-gray-100 pt-4">
-                  <p className="text-sm font-black text-gray-700 uppercase tracking-wider">Thao tác xử lý</p>
+                  {/* <p className="text-sm font-black text-gray-700 uppercase tracking-wider">Thao tác xử lý</p>
                   
                   <button onClick={() => { setPendingAssignId(selectedReport._id); setAssignName(""); setShowAssignModal(true); }} className="w-full px-4 py-2 bg-blue-50 text-blue-600 border border-blue-200 rounded-xl font-bold hover:bg-blue-600 hover:text-white transition-colors">
                     Phân công kỹ thuật
-                  </button>
+                  </button> */}
                   
                   <div className="bg-gray-50 p-3 rounded-xl border border-gray-200 mt-2">
                     <p className="text-xs font-bold text-gray-500 mb-2">Đổi trạng thái:</p>

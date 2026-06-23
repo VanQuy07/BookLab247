@@ -151,7 +151,7 @@ const STATUS_OPTIONS = [
   { value: "IN_PROGRESS", label: "Đang xử lý", color: "bg-purple-100 text-purple-700" },
   { value: "RESOLVED", label: "Đã xử lý xong", color: "bg-emerald-100 text-emerald-700" },
   { value: "REJECTED", label: "Từ chối", color: "bg-red-100 text-red-700" },
-  { value: "ESCALATED", label: "Chuyển lên Admin", color: "bg-rose-100 text-rose-700 border border-rose-300 font-black" },
+  { value: "ESCALATED", label: "Đã chuyển lên Admin", color: "bg-rose-100 text-rose-700 border border-rose-300 font-black" },
 ];
 
 const SEVERITY_OPTIONS = [
@@ -382,7 +382,7 @@ export default function ManagerDashboardPage() {
     if (!equipmentsToSync || equipmentsToSync.length === 0) return;
 
     // 1. CẬP NHẬT GIAO DIỆN KHO NGAY LẬP TỨC CHO NGƯỜI DÙNG THẤY (Không cần chờ API)
-    setEquipments(prev => prev.map(e => {
+    setEquipments(prev => prev.map(e => { 
       const borrowed = equipmentsToSync.find(syncEq => syncEq.id === (e.id || e._id));
       if (borrowed) {
         const qtyChange = action === "borrow" ? Number(borrowed.quantity) : -Number(borrowed.quantity);
@@ -935,7 +935,14 @@ export default function ManagerDashboardPage() {
       });
       if (reportsRes.ok) {
         const reportsData = await reportsRes.json();
-        setReports(Array.isArray(reportsData) ? reportsData : []);
+        const freshReports = Array.isArray(reportsData) ? reportsData : [];
+        setReports(freshReports);
+        if (selectedReport) {
+          const updatedSelected = freshReports.find((r: Report) => r._id === selectedReport._id);
+          if (updatedSelected) {
+              setSelectedReport(updatedSelected);
+          }
+      }
       } else {
         setReports([]);
       }
@@ -1318,11 +1325,12 @@ export default function ManagerDashboardPage() {
 
       if (!res.ok) throw new Error("Lỗi cập nhật trạng thái");
 
-      loadData(true);
+      // Cập nhật State ngay tại chỗ để UI ẩn nút luôn mà không cần chờ loadData
       if (selectedReport?._id === reportId) {
-        const updated = reports.find(r => r._id === reportId);
-        if (updated) setSelectedReport({ ...updated, status });
+        setSelectedReport({ ...selectedReport, status: status }); 
       }
+      
+      loadData(true);
       showToast(`Đã cập nhật trạng thái thành ${status}`, "success");
     } catch (error) {
       showToast("Lỗi cập nhật trạng thái", "error");
@@ -1352,8 +1360,23 @@ export default function ManagerDashboardPage() {
 
   const handleEscalateToAdmin = async (reportId: string) => {
     if (confirm("Sự cố này quá nghiêm trọng, bạn muốn chuyển quyền xử lý lên Admin?")) {
-      // Tái sử dụng hàm updateReportStatus có sẵn
+      // 1. Dùng đúng giá trị "ESCALATED" khớp với mảng STATUS_OPTIONS
       await updateReportStatus(reportId, "ESCALATED", "Manager yêu cầu Admin hỗ trợ xử lý khẩn cấp!");
+      
+      // 2. Cập nhật severity lên CRITICAL (giữ nguyên logic của ní)
+      await fetch(`${API_URL}/reports/${reportId}/severity`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${localStorage.getItem("access_token") || ""}`
+        },
+        body: JSON.stringify({
+          severity: "CRITICAL",
+          changedBy: localStorage.getItem("user_name") || "MANAGER"
+        }),
+      });
+      
+      loadData(true);
     }
   };
 
@@ -2118,19 +2141,38 @@ export default function ManagerDashboardPage() {
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div>
+                      <p className="text-[10px] font-bold text-gray-400 uppercase">Trạng thái</p>
+                      <p className={`inline-block px-2 py-1 rounded-md text-xs font-bold mt-1 ${selectedReport.status === "ESCALATED" ? "bg-rose-100 text-rose-700" :
+                          selectedReport.status === "RESOLVED" ? "bg-emerald-100 text-emerald-700" :
+                            "bg-blue-100 text-blue-700"
+                        }`}>
+                        {selectedReport.status}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-bold text-gray-400 uppercase">Mức độ</p>
+                      <p className={`inline-block px-2 py-1 rounded-md text-xs font-bold mt-1 ${selectedReport.severity === "CRITICAL" ? "bg-red-100 text-red-700" :
+                          selectedReport.severity === "HIGH" ? "bg-orange-100 text-orange-700" :
+                            selectedReport.severity === "MEDIUM" ? "bg-yellow-100 text-yellow-700" :
+                              "bg-gray-100 text-gray-700"
+                        }`}>
+                        {selectedReport.severity === "CRITICAL" ? "🔴 Cao" :
+                          selectedReport.severity === "HIGH" ? "🟠 Khá cao" :
+                            selectedReport.severity === "MEDIUM" ? "🟡 Trung bình" : "🟢 Thấp"}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
                       <p className="text-[10px] font-bold text-gray-400 uppercase">Đối tượng</p>
                       <p className="text-sm font-bold text-gray-800 mt-1">{selectedReport.type === "ROOM" ? "📍 Phòng" : "🔧 Thiết bị"}</p>
                       <p className="text-xs text-gray-500">{selectedReport.roomName || selectedReport.equipmentName || "-"}</p>
-                    </div>
-                    <div>
-                      <p className="text-[10px] font-bold text-gray-400 uppercase">Kỹ thuật viên</p>
-                      <p className="text-sm font-bold text-blue-600 mt-1">{selectedReport.assignedTo || "Chưa phân công"}</p>
                     </div>
                   </div>
                 </div>
 
                 <div className="space-y-3 border-t border-gray-100 pt-4">
-                  <p className="text-sm font-black text-gray-700 uppercase tracking-wider">Thao tác xử lý</p>
+                  {/* <p className="text-sm font-black text-gray-700 uppercase tracking-wider">Thao tác xử lý</p>
 
                   <button
                     onClick={() => { setPendingAssignId(selectedReport._id); setAssignName(""); setShowAssignModal(true); }}
@@ -2141,7 +2183,7 @@ export default function ManagerDashboardPage() {
                     disabled={!canManagerEditReport}
                   >
                     Phân công kỹ thuật
-                  </button>
+                  </button> */}
 
                   <div className="bg-gray-50 p-3 rounded-xl border border-gray-200 mt-2">
                     <p className="text-xs font-bold text-gray-500 mb-2">Đổi trạng thái:</p>
