@@ -38,6 +38,54 @@ export default function ReportDetailPage() {
         }
     };
 
+    const getStatusLabel = (status: string) => {
+        const statusMap: Record<string, string> = {
+            "SUBMITTED": "Đã gửi",
+            "IN_REVIEW": "Đang xem xét",
+            "APPROVED": "Đã phê duyệt",
+            "IN_PROGRESS": "Đang xử lý",
+            "RESOLVED": "Đã giải quyết",
+            "REJECTED": "Từ chối",
+            "ESCALATED": "Đã chuyển cấp cao hơn",
+            "PENDING": "Đang chờ",
+        };
+        return statusMap[status] || status;
+    };
+
+    const getSeverityLabel = (severity: string) => {
+        const severityMap: Record<string, string> = {
+            "LOW": "Thấp",
+            "MEDIUM": "Trung bình",
+            "HIGH": "Cao",
+            "CRITICAL": "Cực cao",
+        };
+        return severityMap[severity] || severity;
+    };
+
+    const translateMessage = (message: string) => {
+        const replacements: Record<string, string> = {
+            "SUBMITTED": "Đã gửi",
+            "IN_REVIEW": "Đang xem xét",
+            "APPROVED": "Đã phê duyệt",
+            "IN_PROGRESS": "Đang xử lý",
+            "RESOLVED": "Đã giải quyết",
+            "REJECTED": "Từ chối",
+            "pending": "Đang chờ",
+            "resolved": "Đã giải quyết",
+            "escalated": "Đã chuyển cấp cao hơn",
+            "in_progress": "Đang xử lý",
+            "approved": "Đã phê duyệt",
+            "rejected": "Từ chối",
+        };
+    
+        let result = message;
+        for (const [eng, vie] of Object.entries(replacements)) {
+            // Thay không phân biệt hoa thường
+            result = result.replace(new RegExp(eng, "gi"), vie);
+        }
+        return result;
+    };
+
     const getSeverityColor = (severity: string) => {
         switch (severity) {
             case "LOW":
@@ -129,7 +177,7 @@ export default function ReportDetailPage() {
                                 report.severity
                             )}`}
                         >
-                            {report.severity}
+                            {getSeverityLabel(report.severity)}
                         </span>
                     </div>
 
@@ -140,7 +188,7 @@ export default function ReportDetailPage() {
                                 report.status
                             )}`}
                         >
-                            {report.status}
+                            {getStatusLabel(report.status)}
                         </span>
                     </div>
 
@@ -220,11 +268,11 @@ export default function ReportDetailPage() {
                                 className="border-l-4 border-blue-500 pl-4"
                             >
                                 <div className="font-semibold">
-                                    {log.status}
+                                    {getStatusLabel(log.status)}
                                 </div>
 
                                 <div>
-                                    {log.message}
+                                    {translateMessage(log.message)}
                                 </div>
 
                                 <div className="text-sm text-gray-500">
