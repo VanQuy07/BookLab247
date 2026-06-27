@@ -482,6 +482,36 @@ export default function AdvancedAdminDashboard() {
     if (!isSilent) setLoading(false);
   };
 
+  const handleCancelBooking = async (booking: any) => {
+    // 1. Kiểm tra trạng thái đã huỷ chưa 
+    if (booking.status === "cancelled" || booking.status === "DA_HUY") {
+      alert("Thông báo: Phòng này đã được huỷ trước đó rồi!");
+      return;
+    }
+
+    // 2. Xác nhận và gọi API
+    if (confirm(`Bạn có chắc muốn huỷ đơn của ${booking.customerName} không?`)) {
+      try {
+        const token = localStorage.getItem("access_token");
+        const res = await fetch(`${API_URL}/bookings/${booking.id}/status`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ status: "cancelled" }) // Gửi status này để khớp với Backend
+        });
+
+        if (res.ok) {
+          alert("Đã huỷ thành công!");
+          setSelectedBooking(null); // Đóng modal
+          fetchData(true); // Load lại dữ liệu lịch
+        } else {
+          alert("Có lỗi xảy ra khi huỷ đơn.");
+        }
+      } catch (err) {
+        alert("Lỗi kết nối server.");
+      }
+    }
+  };
+
   // ================= UTILS THỜI GIAN =================
   const timeToMins = (timeStr: string) => {
     const [h, m] = timeStr.split(":").map(Number);
@@ -1105,11 +1135,11 @@ export default function AdvancedAdminDashboard() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    
+
     // Tên file lưu bằng đuôi .xls để Excel tự động kích hoạt bảng
     const dateStr = new Date().toISOString().split("T")[0];
     link.setAttribute("download", `Bao_Cao_Kiem_Toan_BookLab_${dateStr}.xls`);
-    
+
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -3348,6 +3378,43 @@ export default function AdvancedAdminDashboard() {
                     <button onClick={() => setShowAssignModal(false)} className="px-5 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold rounded-xl transition-colors">Hủy</button>
                     <button onClick={handleAssignReport} className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-black rounded-xl shadow-md">Giao việc</button>
                   </div>
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+
+
+        <AnimatePresence>
+          {selectedBooking && (
+            <div 
+              className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" 
+              onClick={() => setSelectedBooking(null)}
+            >
+              <motion.div 
+                initial={{ opacity: 0, scale: 0.95 }} 
+                animate={{ opacity: 1, scale: 1 }} 
+                exit={{ opacity: 0, scale: 0.95 }}
+                className="bg-white rounded-3xl shadow-2xl w-full max-w-lg p-6"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <h3 className="text-xl font-black mb-4">Chi tiết ca đặt phòng</h3>
+                <p className="mb-2"><strong>Khách:</strong> {selectedBooking.customerName}</p>
+                <p className="mb-2"><strong>SĐT:</strong> {selectedBooking.phone}</p>
+                <p className="mb-4"><strong>Trạng thái:</strong> {selectedBooking.status}</p>
+
+                <div className="flex gap-3 mt-6">
+                  <button onClick={() => setSelectedBooking(null)} className="flex-1 py-3 bg-gray-200 rounded-xl font-bold">Đóng</button>
+                  
+                  {/* NÚT HUỶ CHỈ HIỆN KHI CHƯA HUỶ */}
+                  {selectedBooking.status !== "cancelled" && selectedBooking.status !== "DA_HUY" && (
+                    <button 
+                      onClick={() => handleCancelBooking(selectedBooking)}
+                      className="flex-1 py-3 bg-red-600 text-white rounded-xl font-bold hover:bg-red-700 transition-colors"
+                    >
+                      Huỷ đơn này
+                    </button>
+                  )}
                 </div>
               </motion.div>
             </div>

@@ -382,7 +382,7 @@ export default function ManagerDashboardPage() {
     if (!equipmentsToSync || equipmentsToSync.length === 0) return;
 
     // 1. CẬP NHẬT GIAO DIỆN KHO NGAY LẬP TỨC CHO NGƯỜI DÙNG THẤY (Không cần chờ API)
-    setEquipments(prev => prev.map(e => { 
+    setEquipments(prev => prev.map(e => {
       const borrowed = equipmentsToSync.find(syncEq => syncEq.id === (e.id || e._id));
       if (borrowed) {
         const qtyChange = action === "borrow" ? Number(borrowed.quantity) : -Number(borrowed.quantity);
@@ -940,9 +940,9 @@ export default function ManagerDashboardPage() {
         if (selectedReport) {
           const updatedSelected = freshReports.find((r: Report) => r._id === selectedReport._id);
           if (updatedSelected) {
-              setSelectedReport(updatedSelected);
+            setSelectedReport(updatedSelected);
           }
-      }
+        }
       } else {
         setReports([]);
       }
@@ -1219,7 +1219,7 @@ export default function ManagerDashboardPage() {
       const API_URL = getApiBaseUrl();
 
       // const response = await fetch(`${API_URL}/bookings/${bookingId}/status`, {
-      const response = await fetch(`${API_URL}/${bookingId}/status`, {
+      const response = await fetch(`${API_URL}/bookings/${bookingId}/status`, {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
@@ -1327,9 +1327,9 @@ export default function ManagerDashboardPage() {
 
       // Cập nhật State ngay tại chỗ để UI ẩn nút luôn mà không cần chờ loadData
       if (selectedReport?._id === reportId) {
-        setSelectedReport({ ...selectedReport, status: status }); 
+        setSelectedReport({ ...selectedReport, status: status });
       }
-      
+
       loadData(true);
       showToast(`Đã cập nhật trạng thái thành ${status}`, "success");
     } catch (error) {
@@ -1362,7 +1362,7 @@ export default function ManagerDashboardPage() {
     if (confirm("Sự cố này quá nghiêm trọng, bạn muốn chuyển quyền xử lý lên Admin?")) {
       // 1. Dùng đúng giá trị "ESCALATED" khớp với mảng STATUS_OPTIONS
       await updateReportStatus(reportId, "ESCALATED", "Manager yêu cầu Admin hỗ trợ xử lý khẩn cấp!");
-      
+
       // 2. Cập nhật severity lên CRITICAL (giữ nguyên logic của ní)
       await fetch(`${API_URL}/reports/${reportId}/severity`, {
         method: "PATCH",
@@ -1375,7 +1375,7 @@ export default function ManagerDashboardPage() {
           changedBy: localStorage.getItem("user_name") || "MANAGER"
         }),
       });
-      
+
       loadData(true);
     }
   };
@@ -2143,8 +2143,8 @@ export default function ManagerDashboardPage() {
                     <div>
                       <p className="text-[10px] font-bold text-gray-400 uppercase">Trạng thái</p>
                       <p className={`inline-block px-2 py-1 rounded-md text-xs font-bold mt-1 ${selectedReport.status === "ESCALATED" ? "bg-rose-100 text-rose-700" :
-                          selectedReport.status === "RESOLVED" ? "bg-emerald-100 text-emerald-700" :
-                            "bg-blue-100 text-blue-700"
+                        selectedReport.status === "RESOLVED" ? "bg-emerald-100 text-emerald-700" :
+                          "bg-blue-100 text-blue-700"
                         }`}>
                         {selectedReport.status}
                       </p>
@@ -2152,9 +2152,9 @@ export default function ManagerDashboardPage() {
                     <div>
                       <p className="text-[10px] font-bold text-gray-400 uppercase">Mức độ</p>
                       <p className={`inline-block px-2 py-1 rounded-md text-xs font-bold mt-1 ${selectedReport.severity === "CRITICAL" ? "bg-red-100 text-red-700" :
-                          selectedReport.severity === "HIGH" ? "bg-orange-100 text-orange-700" :
-                            selectedReport.severity === "MEDIUM" ? "bg-yellow-100 text-yellow-700" :
-                              "bg-gray-100 text-gray-700"
+                        selectedReport.severity === "HIGH" ? "bg-orange-100 text-orange-700" :
+                          selectedReport.severity === "MEDIUM" ? "bg-yellow-100 text-yellow-700" :
+                            "bg-gray-100 text-gray-700"
                         }`}>
                         {selectedReport.severity === "CRITICAL" ? "🔴 Cao" :
                           selectedReport.severity === "HIGH" ? "🟠 Khá cao" :
@@ -3786,6 +3786,25 @@ export default function ManagerDashboardPage() {
                     >
                       Đóng lại
                     </button>
+
+                    {/* Nút Hủy - chỉ hiện nếu chưa hoàn thành */}
+                    {selectedBooking.status !== "completed" &&
+                      selectedBooking.status !== "DA_XONG" &&
+                      selectedBooking.paymentStatus !== "HOÀN THÀNH" && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (confirm("Bạn có chắc muốn huỷ đơn này?")) {
+                              handleUpdateStatus(selectedBooking.id, "cancelled");
+                              setSelectedBooking(null);
+                            }
+                          }}
+                          className="flex-1 sm:flex-none px-6 py-3 bg-red-100 hover:bg-red-200 text-red-700 font-bold rounded-xl transition-colors shadow-sm"
+                        >
+                          Huỷ
+                        </button>
+                      )}
+
                     {selectedBooking.paymentStatus !== "HOÀN THÀNH" && (
                       <button
                         type="button"
