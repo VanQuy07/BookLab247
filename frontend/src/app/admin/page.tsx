@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { getApiBaseUrl } from "../../services/api-client";
@@ -229,7 +229,8 @@ export default function AdvancedAdminDashboard() {
   const [buildingFilter, setBuildingFilter] = useState<string>("all");
   const [roomSearchQuery, setRoomSearchQuery] = useState("");
   const [selectedBooking, setSelectedBooking] = useState<any | null>(null);
-
+  
+  const prevPendingCount = useRef(0);
   // ================= STATE BỘ LỌC THỜI GIAN =================
   const [timeFilter, setTimeFilter] = useState<TimeFilter>("today");
 
@@ -342,7 +343,7 @@ export default function AdvancedAdminDashboard() {
     
     const dataPollingTimer = setInterval(() => {
       fetchData(true); 
-    }, 1000); 
+    }, 15000); 
 
     return () => {
       clearInterval(clockTimer);
@@ -402,19 +403,22 @@ export default function AdvancedAdminDashboard() {
       const token = localStorage.getItem("access_token") || "";
       const headers = { "Content-Type": "application/json", Authorization: `Bearer ${token}` };
 
+      // 🚀 BÍ QUYẾT 1: Hàm safeFetch giúp bọc try/catch cho TỪNG API. 
+      // Nếu 1 API chết, các API khác vẫn mang dữ liệu về bình thường!
+      const safeFetch = (url: string) => fetch(url, { headers }).catch(() => ({ ok: false, json: async () => [] }));
+
       const [usersRes, labsRes, eqRes, bkRes, mtRes, fbRes, rpRes] = await Promise.all([
-        fetch(`${API_URL}/auth/users`, { headers }),
-        fetch(`${API_URL}/labs`, { headers }),
-        fetch(`${API_URL}/equipments`, { headers }),
-        fetch(`${API_URL}/bookings`, { headers }),
-        fetch(`${API_URL}/bookings/maintenance`, { headers }).catch(() => null),
-        fetch(`${API_URL}/bookings/fixed`, { headers }).catch(() => null),
-        fetch(`${API_URL}/reports/`, { headers }).catch(() => null)
+        safeFetch(`${API_URL}/auth/users`),
+        safeFetch(`${API_URL}/labs`),
+        safeFetch(`${API_URL}/equipments`),
+        safeFetch(`${API_URL}/bookings`),
+        safeFetch(`${API_URL}/bookings/maintenance`),
+        safeFetch(`${API_URL}/bookings/fixed`),
+        safeFetch(`${API_URL}/reports/`)
       ]);
 
       if (usersRes.ok) setUsersList(await usersRes.json());
 
-      // CHUẨN HÓA ID PHÒNG VÀ THIẾT BỊ
       if (labsRes.ok) {
         const data = await labsRes.json();
         setRooms(data.map((r: any) => ({ ...r, id: r.id || r._id })));
@@ -425,11 +429,11 @@ export default function AdvancedAdminDashboard() {
         setEquipments(data.map((e: any) => ({ ...e, id: e.id || e._id })));
       }
 
-      // 1. CHUẨN HÓA DỮ LIỆU ĐẶT PHÒNG (BOOKINGS)
+      // 1. CHUẨN HÓA DỮ LIỆU ĐẶT PHÒNG
       if (bkRes.ok) {
         const bkData = await bkRes.json();
         const raw = Array.isArray(bkData) ? bkData : bkData.data || [];
-        setBookings(raw.map((b: any) => ({
+        const formattedBookings = raw.map((b: any) => ({
           id: b.id || b._id,
           roomId: b.room_id || b.roomId,
           customerName: b.customer_name || b.customerName,
@@ -443,47 +447,53 @@ export default function AdvancedAdminDashboard() {
           equipments: b.equipments || [],
           paymentStatus: b.payment_status || b.paymentStatus,
           source: b.source || b.role || b.created_by_role,
-        })));
+        }));
+
+        setBookings(formattedBookings);
+
+        // 🚀 BÍ QUYẾT 2: TỰ ĐỘNG PHÁT ÂM THANH KHI CÓ ĐƠN MỚI
+        const pendingCount = formattedBookings.filter((b: any) => {
+          const isPending = b.status?.toLowerCase() === "pending" || b.status === "CHO_DUYET";
+          const sourceStr = String(b.source || b.role || "").toUpperCase();
+          return isPending && !(sourceStr.includes("MANAGER") || sourceStr.includes("ADMIN"));
+        }).length;
+
+        // Nếu đang chạy ngầm (isSilent) và số lượng đơn tăng lên -> Kêu Bíp!
+        if (isSilent && pendingCount > prevPendingCount.current) {
+          const audio = new Audio("https://actions.google.com/sounds/v1/alarms/beep_short.ogg");
+          audio.play().catch(() => {});
+        }
+        prevPendingCount.current = pendingCount;
       }
 
-      // 2. CHUẨN HÓA DỮ LIỆU BẢO TRÌ (MAINTENANCE)
-      if (mtRes && mtRes.ok) {
+      // 2. CHUẨN HÓA DỮ LIỆU BẢO TRÌ
+      if (mtRes.ok) {
         const mtData = await mtRes.json();
         const rawMt = Array.isArray(mtData) ? mtData : mtData.data || [];
         setMaintenanceLogs(rawMt.map((m: any) => ({
-          id: m.id || m._id,
-          type: m.type,
-          itemId: m.item_id || m.itemId,
-          itemName: m.item_name || m.itemName,
-          reason: m.reason,
-          startDate: m.start_date || m.startDate,
-          startTime: m.start_time || m.startTime,
-          endDate: m.end_date || m.endDate,
-          endTime: m.end_time || m.endTime,
-          status: m.status,
-          reportedBy: m.reportedBy || m.reported_by || "MANAGER"
+          id: m.id || m._id, type: m.type, itemId: m.item_id || m.itemId,
+          itemName: m.item_name || m.itemName, reason: m.reason,
+          startDate: m.start_date || m.startDate, startTime: m.start_time || m.startTime,
+          endDate: m.end_date || m.endDate, endTime: m.end_time || m.endTime,
+          status: m.status, reportedBy: m.reportedBy || m.reported_by || "MANAGER"
         })));
       }
 
-      // 3. CHUẨN HÓA DỮ LIỆU LỊCH CỐ ĐỊNH (FIXED BOOKINGS)
-      if (fbRes && fbRes.ok) {
+      // 3. CHUẨN HÓA DỮ LIỆU LỊCH CỐ ĐỊNH
+      if (fbRes.ok) {
         const fbData = await fbRes.json();
         const rawFb = Array.isArray(fbData) ? fbData : fbData.data || [];
         setFixedBookings(rawFb.map((fb: any) => ({
-          id: fb.id || fb._id,
-          roomId: fb.room_id || fb.roomId,
-          title: fb.title,
-          status: fb.status,
-          startDate: fb.start_date || fb.startDate,
-          endDate: fb.end_date || fb.endDate,
-          startTime: fb.start_time || fb.startTime,
-          endTime: fb.end_time || fb.endTime,
-          daysOfWeek: fb.days_of_week || fb.daysOfWeek || [],
+          id: fb.id || fb._id, roomId: fb.room_id || fb.roomId, title: fb.title,
+          status: fb.status, startDate: fb.start_date || fb.startDate,
+          endDate: fb.end_date || fb.endDate, startTime: fb.start_time || fb.startTime,
+          endTime: fb.end_time || fb.endTime, daysOfWeek: fb.days_of_week || fb.daysOfWeek || [],
           exceptionDates: fb.exception_dates || fb.exceptionDates || []
         })));
       }
+
       // 4. CHUẨN HÓA DỮ LIỆU BÁO CÁO
-      if (rpRes && rpRes.ok) {
+      if (rpRes.ok) {
         const rpData = await rpRes.json();
         setReports(Array.isArray(rpData) ? rpData : []);
       }
@@ -2864,19 +2874,18 @@ export default function AdvancedAdminDashboard() {
 
   const renderApproval = () => {
     const todayStr = new Date().toISOString().split("T")[0];
+
     // LỌC ĐƠN CHỜ DUYỆT: Lọc bỏ toàn bộ đơn do nội bộ (Manager/Admin) đặt
     const pendingBookings = bookings.filter(b => {
-      const isPending = b.status === "pending" || b.status === "CHO_DUYET";
-
-      // Kiểm tra an toàn: Lấy chuỗi source hoặc role, chuyển thành in hoa để so sánh
+      const isPending = b.status?.toLowerCase() === "pending" || b.status === "CHO_DUYET";
       const sourceStr = String(b.source || b.role || "").toUpperCase();
       const isFromStaff = sourceStr.includes("MANAGER") || sourceStr.includes("ADMIN");
-
-      // Chỉ giữ lại đơn Pending VÀ KHÔNG PHẢI từ Staff
       return isPending && !isFromStaff;
     });
 
+    // LỌC CA ĐANG HOẠT ĐỘNG
     const activeBookings = bookings.filter(b => (b.date === todayStr || !b.date) && ['confirmed', 'checked-in', 'DANG_MUON'].includes(b.status)).sort((a, b) => timeToMins(a.startTime) - timeToMins(b.startTime));
+
     return (
       <div className="space-y-6 animate-in fade-in duration-300">
         <div>
@@ -2893,26 +2902,60 @@ export default function AdvancedAdminDashboard() {
             <div className="p-4 overflow-y-auto flex-1 space-y-4 bg-gray-50/50">
               {pendingBookings.length === 0 ? (
                 <p className="text-center text-gray-400 py-10">Không có đơn nào đang chờ duyệt.</p>
-              ) : pendingBookings.map(b => (
-                <div key={b.id} className="bg-white p-4 rounded-xl border border-amber-200 shadow-sm">
-                  <div className="flex justify-between items-start mb-2">
-                    <div>
-                      <h4 className="font-bold text-gray-900">{b.customerName}</h4>
-                      <p className="text-xs text-gray-500 font-medium">{b.phone}</p>
+              ) : pendingBookings.map(b => {
+                
+                // 🚀 ĐÚNG CHUẨN: Tính toán giờ kết thúc ở BÊN TRONG vòng lặp
+                const bStartMins = timeToMins(b.startTime);
+                const endTimeStr = minsToTime(bStartMins + Number(b.durationMins));
+
+                // BỘ BẢO VỆ CHỐNG TRÙNG LỊCH CỦA ADMIN
+                const conflictBooking = bookings.find(active => {
+                   if (active.id === b.id) return false;
+                   if (active.roomId !== b.roomId) return false;
+                   const activeDate = active.date || todayStr;
+                   const bDate = b.date || todayStr;
+                   if (activeDate !== bDate) return false;
+                   if (!['confirmed', 'checked-in', 'DANG_MUON'].includes(active.status)) return false;
+
+                   const bStart = timeToMins(b.startTime);
+                   const bEnd = bStart + Number(b.durationMins) + Number(b.bufferMins || 15);
+                   const activeStart = timeToMins(active.startTime);
+                   const activeEnd = activeStart + Number(active.durationMins) + Number(active.bufferMins || 15);
+                   return (bStart < activeEnd && bEnd > activeStart);
+                });
+
+                return (
+                  <div key={b.id} className={`p-4 rounded-xl border shadow-sm ${conflictBooking ? 'bg-red-50 border-red-200' : 'bg-white border-amber-200'}`}>
+                    <div className="flex justify-between items-start mb-2">
+                      <div>
+                        <h4 className="font-bold text-gray-900">{b.customerName}</h4>
+                        <p className="text-xs text-gray-500 font-medium">{b.phone}</p>
+                      </div>
+                      <span className="text-xs font-bold bg-amber-100 text-amber-700 px-2 py-1 rounded">Chờ duyệt</span>
                     </div>
-                    <span className="text-xs font-bold bg-amber-100 text-amber-700 px-2 py-1 rounded">Chờ duyệt</span>
+                    <div className="text-sm text-gray-700 mb-4 bg-gray-50 p-3 rounded-lg border border-gray-100">
+                      <p><span className="font-bold">Phòng:</span> <span className="text-blue-600">{rooms.find(r => (r.id||r._id) === b.roomId)?.name || "Chưa rõ"}</span></p>
+                      
+                      {/* 🚀 HIỂN THỊ TỪ GIỜ -> ĐẾN GIỜ */}
+                      <p><span className="font-bold">Thời gian:</span> {b.date?.split('-').reverse().join('/')} | <span className="text-emerald-700 font-black">{b.startTime} - {endTimeStr}</span></p> 
+                      
+                      {b.note && <p className="mt-1"><span className="font-bold">Ghi chú:</span> {b.note}</p>}
+                    </div>
+
+                    {conflictBooking && (
+                      <div className="mb-4 p-3 bg-white border border-red-200 rounded-lg text-sm text-red-700 flex items-start gap-2 shadow-sm">
+                        <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
+                        <p><strong>Trùng lịch:</strong> Khung giờ này đã được duyệt cho khách <strong>{conflictBooking.customerName}</strong>.</p>
+                      </div>
+                    )}
+
+                    <div className="flex gap-2">
+                      <button disabled={!!conflictBooking} onClick={() => handleUpdateBookingStatus(b.id, 'confirmed')} className={`flex-1 py-2.5 font-bold rounded-lg text-sm transition-colors shadow-sm ${conflictBooking ? 'bg-gray-300 text-gray-500 cursor-not-allowed' : 'bg-emerald-600 text-white hover:bg-emerald-700'}`}>Phê duyệt</button>
+                      <button onClick={() => { if (confirm('Từ chối đơn này?')) handleUpdateBookingStatus(b.id, 'rejected') }} className="flex-1 py-2.5 bg-red-100 text-red-700 font-bold rounded-lg text-sm hover:bg-red-200 transition-colors">Từ chối</button>
+                    </div>
                   </div>
-                  <div className="text-sm text-gray-700 mb-4 bg-gray-50 p-3 rounded-lg border border-gray-100">
-                    <p><span className="font-bold">Phòng:</span> <span className="text-blue-600">{rooms.find(r => r.id === b.roomId)?.name || "Chưa rõ"}</span></p>
-                    <p><span className="font-bold">Thời gian:</span> {b.date?.split('-').reverse().join('/')} | {b.startTime} ({b.durationMins} phút)</p>
-                    {b.note && <p className="mt-1"><span className="font-bold">Ghi chú:</span> {b.note}</p>}
-                  </div>
-                  <div className="flex gap-2">
-                    <button onClick={() => handleUpdateBookingStatus(b.id, 'confirmed')} className="flex-1 py-2.5 bg-emerald-600 text-white font-bold rounded-lg text-sm hover:bg-emerald-700 transition-colors shadow-sm">Phê duyệt</button>
-                    <button onClick={() => { if (confirm('Từ chối đơn này?')) handleUpdateBookingStatus(b.id, 'rejected') }} className="flex-1 py-2.5 bg-red-100 text-red-700 font-bold rounded-lg text-sm hover:bg-red-200 transition-colors">Từ chối</button>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
 
@@ -2924,38 +2967,48 @@ export default function AdvancedAdminDashboard() {
             <div className="p-4 overflow-y-auto flex-1 space-y-4 bg-gray-50/50">
               {activeBookings.length === 0 ? (
                 <p className="text-center text-gray-400 py-10">Không có ca nào đang hoạt động hôm nay.</p>
-              ) : activeBookings.map(b => (
-                <div key={b.id} className="bg-white p-4 rounded-xl border border-emerald-200 shadow-sm flex justify-between items-center hover:shadow-md transition-shadow">
-                  <div>
-                    <h4 className="font-bold text-gray-900">{b.customerName}</h4>
-                    <p className="text-xs text-gray-500 font-medium mb-1">{b.phone}</p>
-                    <span className="text-[10px] font-black bg-blue-100 text-blue-700 px-2 py-0.5 rounded border border-blue-200 uppercase">{rooms.find(r => r.id === b.roomId)?.name || "Phòng"}</span>
-                  </div>
-                  <div className="text-right flex flex-col items-end gap-2 shrink-0">
-                    <span className="font-black text-emerald-600 bg-emerald-50 px-3 py-1 rounded-lg text-sm border border-emerald-100">{b.startTime}</span>
-                    {b.paymentStatus === "HOÀN THÀNH" ? (
-                      <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full flex items-center gap-1 border border-emerald-200"><CheckCircle2 className="w-3 h-3" /> Đã thu</span>
-                    ) : (
-                      <span className="text-[10px] font-bold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full flex items-center gap-1 border border-amber-200"><AlertTriangle className="w-3 h-3" /> Chưa thu tiền</span>
-                    )}
+              ) : activeBookings.map(b => {
 
-                    {/* NÚT KẾT THÚC CA VÀ HOÀN TRẢ THIẾT BỊ VỀ KHO */}
-                    {b.paymentStatus !== "HOÀN THÀNH" && (
-                      <button
-                        id={`btn-confirm-payment-${b.id}`}
-                        onClick={() => {
-                          if (confirm(`Xác nhận khách [${b.customerName}] đã thanh toán, trả phòng và TRẢ ĐỦ THIẾT BỊ vào kho?`)) {
-                            handleConfirmPayment(b.id);
-                          }
-                        }}
-                        className="mt-2 bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded-lg text-xs font-bold shadow-sm transition-all active:scale-95 flex items-center justify-center gap-1.5 w-full md:w-auto"
-                      >
-                        <Banknote className="w-3.5 h-3.5" /> Nhận tiền & Kết thúc
-                      </button>
-                    )}
+                // 🚀 TÍNH GIỜ KẾT THÚC CHO CỘT BÊN NÀY LUÔN CHO ĐỒNG BỘ
+                const bStartMins = timeToMins(b.startTime);
+                const endTimeStr = minsToTime(bStartMins + Number(b.durationMins));
+
+                return (
+                  <div key={b.id} className="bg-white p-4 rounded-xl border border-emerald-200 shadow-sm flex justify-between items-center hover:shadow-md transition-shadow">
+                    <div>
+                      <h4 className="font-bold text-gray-900">{b.customerName}</h4>
+                      <p className="text-xs text-gray-500 font-medium mb-1">{b.phone}</p>
+                      <span className="text-[10px] font-black bg-blue-100 text-blue-700 px-2 py-0.5 rounded border border-blue-200 uppercase">{rooms.find(r => (r.id||r._id) === b.roomId)?.name || "Phòng"}</span>
+                    </div>
+                    <div className="text-right flex flex-col items-end gap-2 shrink-0">
+                      
+                      {/* 🚀 HIỂN THỊ TỪ GIỜ -> ĐẾN GIỜ */}
+                      <span className="font-black text-emerald-600 bg-emerald-50 px-3 py-1 rounded-lg text-sm border border-emerald-100">{b.startTime} - {endTimeStr}</span>
+                      
+                      {b.paymentStatus === "HOÀN THÀNH" ? (
+                        <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full flex items-center gap-1 border border-emerald-200"><CheckCircle2 className="w-3 h-3" /> Đã thu</span>
+                      ) : (
+                        <span className="text-[10px] font-bold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full flex items-center gap-1 border border-amber-200"><AlertTriangle className="w-3 h-3" /> Chưa thu tiền</span>
+                      )}
+
+                      {/* NÚT KẾT THÚC CA VÀ HOÀN TRẢ THIẾT BỊ VỀ KHO */}
+                      {b.paymentStatus !== "HOÀN THÀNH" && (
+                        <button
+                          id={`btn-confirm-payment-${b.id}`}
+                          onClick={() => {
+                            if (confirm(`Xác nhận khách [${b.customerName}] đã thanh toán, trả phòng và TRẢ ĐỦ THIẾT BỊ vào kho?`)) {
+                              handleConfirmPayment(b.id);
+                            }
+                          }}
+                          className="mt-2 bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded-lg text-xs font-bold shadow-sm transition-all active:scale-95 flex items-center justify-center gap-1.5 w-full md:w-auto"
+                        >
+                          <Banknote className="w-3.5 h-3.5" /> Nhận tiền & Kết thúc
+                        </button>
+                      )}
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         </div>
@@ -2963,6 +3016,7 @@ export default function AdvancedAdminDashboard() {
     );
   };
 
+  
   const renderSystemLogs = () => (
     <div className="space-y-6">
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
