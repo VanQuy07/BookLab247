@@ -74,6 +74,7 @@ export default function LoginPage() {
 
       localStorage.setItem("access_token", data.access_token);
       localStorage.setItem("user_name", data.user_name);
+      localStorage.setItem("role", data.role);
 
       // 🚀 ĐỌC ĐƯỜNG DẪN CŨ NẾU USER ĐANG ĐẶT PHÒNG DỞ
       const redirectUrl = localStorage.getItem("redirect_after_login");

@@ -76,7 +76,7 @@ export default function LandingPage() {
             fetch("https://booklab247.onrender.com/api/v1/bookings"),
             fetch("https://booklab247.onrender.com/api/v1/labs")
           ]);
-          
+
           if (!resBookings.ok || !resLabs.ok) return;
           const bookings: BookingItem[] = await resBookings.json();
           const labs = await resLabs.json();
@@ -201,7 +201,7 @@ export default function LandingPage() {
             >
               Danh sách phòng
             </Link>
-            
+
             {/* ĐÃ ẨN TAB THIẾT BỊ 
             <Link
               href="/dashboard/user/device"
@@ -216,6 +216,12 @@ export default function LandingPage() {
               className="hover:text-blue-600 transition-colors"
             >
               Lịch sử đặt phòng
+            </Link>
+            <Link
+              href="/dashboard/user/reports/"
+              className="hover:text-blue-600 transition-colors"
+            >
+              Báo cáo sự cố
             </Link>
           </nav>
           {/* 👇 KHU VỰC NÚT ĐĂNG NHẬP / THÔNG TIN TÀI KHOẢN 👇 */}

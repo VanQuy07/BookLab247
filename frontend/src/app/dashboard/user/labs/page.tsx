@@ -240,6 +240,12 @@ export default function UserLabsPage() {
             >
               Lịch sử đặt phòng
             </Link>
+            <Link
+              href="/dashboard/user/reports/"
+              className="hover:text-blue-600 transition-colors"
+            >
+              Báo cáo sự cố
+            </Link>
           </nav>
 
           <div className="flex items-center gap-4 relative z-50">
