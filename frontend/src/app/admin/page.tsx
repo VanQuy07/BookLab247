@@ -781,9 +781,7 @@ export default function AdvancedAdminDashboard() {
            }).catch(()=>{});
         }
 
-        // ==============================================================
-        // THÊM MỚI TẠI ĐÂY: GỌI HÀM TRỪ KHO THIẾT BỊ NGAY SAU KHI TẠO ĐƠN
-        // ==============================================================
+        
         await syncEquipmentStock(borrowedEquipments, "borrow");
   
         // 3. Tải lại dữ liệu sạch từ Backend và Đóng Modal
