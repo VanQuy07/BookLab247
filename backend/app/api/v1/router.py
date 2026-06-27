@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from app.api.v1 import auth, labs, equipments, bookings, dashboard
+from app.api.v1 import auth, labs, equipments, bookings, dashboard, reports
 
 api_router = APIRouter()
 
@@ -18,4 +18,11 @@ api_router.include_router(dashboard.router, prefix="/dashboard", tags=["Dashboar
 # API Đặt phòng
 api_router.include_router(
     bookings.router, prefix="/bookings", tags=["bookings"]
+)
+
+# API Báo cáo
+api_router.include_router(
+    reports.router,
+    prefix="/reports",
+    tags=["Reports"]
 )

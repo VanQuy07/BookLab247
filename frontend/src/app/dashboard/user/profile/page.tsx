@@ -130,6 +130,7 @@ export default function UserProfilePage() {
             <Link href="/" className="hover:text-blue-600 transition-colors">Trang chủ</Link>
             <Link href="/dashboard/user/labs" className="hover:text-blue-600 transition-colors">Danh sách phòng</Link>
             <Link href="/dashboard/user/device" className="hover:text-blue-600 transition-colors">Thiết bị</Link>
+            <Link href="/dashboard/user/history" className="hover:text-blue-600 transition-colors">Lịch sử đặt phòng</Link>
           </nav>
 
           <div className="flex items-center gap-4 relative z-50">

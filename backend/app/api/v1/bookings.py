@@ -251,9 +251,16 @@ async def create_booking(booking: BookingCreate):
             "date": booking.date,
             "start_time_mins": {"$lt": new_end_with_buffer},
             "end_time_with_buffer_mins": {"$gt": new_start},
+            # "status": {
+            #     "$in": ["pending", "confirmed", "CHO_DUYET", "DA_DUYET", "DANG_MUON"]
+            # },
             "status": {
-                "$in": ["pending", "confirmed", "CHO_DUYET", "DA_DUYET", "DANG_MUON"]
-            },
+                "$in": [
+                    "CHO_DUYET",
+                    "DA_DUYET",
+                    "DANG_MUON"
+                ]
+            }
         }
     )
     if overlapping:
@@ -290,7 +297,8 @@ async def create_booking(booking: BookingCreate):
     new_booking_data = booking.model_dump()
     new_booking_data["start_time_mins"] = new_start
     new_booking_data["end_time_with_buffer_mins"] = new_end_with_buffer
-    new_booking_data["status"] = "pending"
+    # new_booking_data["status"] = "pending"
+    new_booking_data["status"] = "CHO_DUYET"
     new_booking_data["rejection_reason"] = None
     new_booking_data["cancel_reason"] = None
     new_booking_data["created_at"] = datetime.now(timezone.utc)
@@ -363,7 +371,8 @@ class BookingStatusUpdate(BaseModel):
 
 
 # ================== 3.5. API LẤY LỊCH SỬ ĐẶT CỦA USER ==================
-@router.get("/user/{user_id}")
+# @router.get("/user/{user_id}") 23062026
+@router.get("/me")
 async def get_user_bookings(user_id: str):
     await _auto_update_booking_statuses()
 
@@ -394,11 +403,55 @@ async def update_booking_status(
         raise HTTPException(status_code=400, detail="ID đơn không hợp lệ")
 
     # Chuẩn hóa status của Master + Frontend của Hằng đang gửi "cancelled"
+    # normalized = status_update.status.strip().lower()
+    # if normalized in ("confirmed", "duyệt", "đã duyệt", "approved"):
+    #     new_status = "confirmed"
+    # elif normalized in ("rejected", "từ chối", "bị từ chối", "bi_tu_choi"):
+    #     new_status = "rejected"
     normalized = status_update.status.strip().lower()
-    if normalized in ("confirmed", "duyệt", "đã duyệt", "approved"):
-        new_status = "confirmed"
-    elif normalized in ("rejected", "từ chối", "bị từ chối", "bi_tu_choi", "cancelled"):
-        new_status = "cancelled"
+
+    #Trước khi sửa lúc 14h38 18062026
+    # if normalized in (
+    #     "confirmed",
+    #     "duyệt",
+    #     "đã duyệt",
+    #     "approved"
+    # ):
+    #     new_status = "DA_DUYET"
+
+    # elif normalized in (
+    #     "rejected",
+    #     "từ chối",
+    #     "bị từ chối",
+    #     "bi_tu_choi"
+    # ):
+    #     new_status = "DA_TU_CHOI"
+    # else:
+    #     new_status = status_update.status
+
+    if normalized in (
+        "confirmed",
+        "duyệt",
+        "đã duyệt",
+        "approved"
+    ):
+        new_status = "DA_DUYET"
+
+    elif normalized in (
+        "rejected",
+        "từ chối",
+        "bị từ chối",
+        "bi_tu_choi"
+    ):
+        new_status = "DA_TU_CHOI"
+
+    elif normalized in (
+        "cancelled",
+        "hủy",
+        "da_huy"
+    ):
+        new_status = "DA_HUY"
+
     else:
         new_status = status_update.status
 
@@ -406,10 +459,10 @@ async def update_booking_status(
         "status": new_status,
         "updated_at": datetime.now(timezone.utc),
     }
-
-    # Ghi nhận lý do hủy của Hằng
-    if new_status == "cancelled":
+    # if new_status == "rejected":
+    if new_status in ("DA_TU_CHOI", "DA_HUY"):
         update_data["rejection_reason"] = status_update.status
+
         if status_update.cancel_reason:
             update_data["cancel_reason"] = status_update.cancel_reason
 
@@ -463,7 +516,8 @@ async def cancel_booking(
         {"_id": ObjectId(booking_id)},
         {
             "$set": {
-                "status": "cancelled",
+                # "status": "cancelled",
+                "status": "DA_HUY",
                 "cancel_reason": cancel_reason,
                 "cancelled_at": datetime.now(timezone.utc),
                 "updated_at": datetime.now(timezone.utc),
