@@ -754,21 +754,36 @@ export default function ManagerDashboardPage() {
 
 
   useEffect(() => {
-    const timer = setInterval(() => setCurrentTime(new Date()), 60000);
-    return () => clearInterval(timer);
+    const clockTimer = setInterval(() => setCurrentTime(new Date()), 60000);
+    
+    const dataPollingTimer = setInterval(() => {
+      const token = localStorage.getItem("access_token");
+      if (token) {
+        loadData(true); 
+      }
+    }, 15000); 
+
+    return () => {
+      clearInterval(clockTimer);
+      clearInterval(dataPollingTimer);
+    };
   }, []);
 
   useEffect(() => {
     const token = localStorage.getItem("access_token");
-    if (!token) router.push("/login");
-    else loadData();
+    if (!token) {
+      router.push("/login");
+    } else {
+      // Lần đầu tiên vào trang thì vẫn load có kèm vòng xoay
+      loadData(false);
+    }
   }, [router]);
 
   const loadData = async (isSilent = false) => {
     if (!isSilent) setLoading(true);
 
     const token = localStorage.getItem("access_token");
-    // const API_URL = "https://booklab247.onrender.com/api/v1"; // Giữ nguyên link Cloud chạy đúng của bạn
+     //const API_URL = "https://booklab247.onrender.com/api/v1"; // Giữ nguyên link Cloud chạy đúng của bạn
     const API_URL = getApiBaseUrl();
 
     // ==========================================
@@ -1218,8 +1233,10 @@ export default function ManagerDashboardPage() {
       // const API_URL = "https://booklab247.onrender.com/api/v1";
       const API_URL = getApiBaseUrl();
 
+
       // const response = await fetch(`${API_URL}/bookings/${bookingId}/status`, {
       const response = await fetch(`${API_URL}/bookings/${bookingId}/status`, {
+
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
@@ -1835,31 +1852,52 @@ export default function ManagerDashboardPage() {
               ) : (
                 pendingBookings.map((booking) => {
                   const roomName = getRoomName(booking.roomId);
+                  const todayStr = new Date().toISOString().split("T")[0];
 
                   // 1. TÍNH TOÁN GIỜ KẾT THÚC CHÍNH XÁC
-                  const endTimeStr = minsToTime(timeToMins(booking.startTime) + booking.durationMins);
+                  const endTimeStr = minsToTime(timeToMins(booking.startTime) + Number(booking.durationMins));
+
+                  // 2. LOGIC KIỂM TRA TRÙNG LỊCH THÔNG MINH (Tự động tính trên Frontend)
+                  const conflictBooking = bookings.find(active => {
+                      if (active.id === booking.id) return false;
+                      if (active.roomId !== booking.roomId) return false;
+                      const activeDate = active.date || todayStr;
+                      const bDate = booking.date || todayStr;
+                      if (activeDate !== bDate) return false; // Khác ngày thì bỏ qua
+                      if (!['confirmed', 'checked-in', 'DANG_MUON'].includes(active.status)) return false;
+
+                      // ÉP KIỂU NUMBER TUYỆT ĐỐI ĐỂ CHỐNG LỖI CỘNG CHUỖI
+                      const bStart = timeToMins(booking.startTime);
+                      const bEnd = bStart + Number(booking.durationMins) + Number(booking.bufferMins || 15);
+                      
+                      const activeStart = timeToMins(active.startTime);
+                      const activeEnd = activeStart + Number(active.durationMins) + Number(active.bufferMins || 15);
+                      
+                      return (bStart < activeEnd && bEnd > activeStart);
+                  });
 
                   return (
-                    <div key={booking.id} className={`p-5 rounded-2xl flex flex-col gap-4 relative overflow-hidden transition-all ${booking.is_conflict
+                    <div key={booking.id} className={`p-5 rounded-2xl flex flex-col gap-4 relative overflow-hidden transition-all ${conflictBooking
                       ? "bg-red-50 border border-red-200"
                       : "bg-white border border-slate-200 shadow-sm hover:shadow-md hover:border-slate-300"
                       }`}>
                       {booking.is_urgent && (
                         <div className="absolute top-0 right-0 bg-red-500 text-white text-[10px] font-black px-3 py-1 rounded-bl-xl animate-pulse shadow-sm">
-                          DÙNG HÔM NAY
+                          HÔM NAY
                         </div>
                       )}
 
                       <div className="flex justify-between items-start">
                         <div className="w-full">
-                          {/* 2. HIỂN THỊ TÊN NGƯỜI ĐẶT (To, rõ và đậm hơn) */}
                           <p className="font-black text-slate-900 text-lg">
                             {booking.customerName || "Khách chưa có tên"}
                           </p>
+                          <p className="text-sm font-bold text-blue-600 mt-0.5">
+                            SĐT: {booking.phone || "Không có"}
+                          </p>
 
-                          {/* 3. HIỂN THỊ NGÀY VÀ KHOẢNG THỜI GIAN (Tăng size, thêm Icon) */}
                           <p className="text-sm font-medium text-slate-500 mt-2 flex items-center gap-1.5 flex-wrap">
-                            <CalendarDays className="w-4 h-4 text-slate-400" /> {booking.date}
+                            <CalendarDays className="w-4 h-4 text-slate-400" /> {booking.date || todayStr}
                             <span className="text-slate-300 mx-1">|</span>
                             <span className="font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-md border border-blue-100/50 flex items-center gap-1">
                               <Clock className="w-3.5 h-3.5" /> {booking.startTime} - {endTimeStr}
@@ -1871,7 +1909,6 @@ export default function ManagerDashboardPage() {
                             Phòng: <span className="font-black text-slate-800">{roomName}</span>
                           </p>
 
-                          {/* 4. HIỂN THỊ DANH SÁCH THIẾT BỊ MƯỢN KÈM (Tăng size tag) */}
                           {booking.equipments && booking.equipments.length > 0 && (
                             <div className="mt-4 pt-4 border-t border-slate-100">
                               <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2.5">Thiết bị mượn kèm:</p>
@@ -1888,20 +1925,20 @@ export default function ManagerDashboardPage() {
                         </div>
                       </div>
 
-                      {/* Cảnh báo trùng lịch */}
-                      {booking.is_conflict && (
+                      {/* CẢNH BÁO TRÙNG LỊCH (Đã đổi thành dùng conflictBooking) */}
+                      {conflictBooking && (
                         <div className="bg-red-50 text-red-700 text-sm p-3 rounded-xl font-medium border border-red-200 mt-1">
                           <AlertTriangle className="w-4 h-4 inline mr-1.5 -mt-0.5" />
-                          <b>Trùng lịch:</b> Khung giờ này đã được duyệt cho khách <b>{booking.conflict_with}</b>.
+                          <b>Trùng lịch:</b> Khung giờ này đã được duyệt cho khách <b>{conflictBooking.customerName}</b>.
                         </div>
                       )}
 
-                      {/* Nút hành động (To hơn, bo góc mạnh hơn) */}
+                      {/* NÚT DUYỆT ĐƠN (Đã đổi điều kiện khóa nút) */}
                       <div className="flex gap-3 mt-2 pt-2">
                         <button
                           onClick={() => handleUpdateStatus(booking.id, "confirmed")}
-                          disabled={booking.is_conflict}
-                          className={`flex-1 text-white text-sm font-black py-3 rounded-xl transition-all shadow-sm ${booking.is_conflict ? "bg-slate-300 cursor-not-allowed" : "bg-emerald-500 hover:bg-emerald-600 hover:shadow-md active:scale-95"
+                          disabled={!!conflictBooking} 
+                          className={`flex-1 text-white text-sm font-black py-3 rounded-xl transition-all shadow-sm ${conflictBooking ? "bg-slate-300 cursor-not-allowed" : "bg-emerald-500 hover:bg-emerald-600 hover:shadow-md active:scale-95"
                             }`}
                         >
                           Duyệt đơn
