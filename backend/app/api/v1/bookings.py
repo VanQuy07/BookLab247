@@ -8,6 +8,7 @@ from pydantic import BaseModel
 
 from app.core.database import db
 
+
 load_dotenv()
 
 router = APIRouter()
@@ -254,13 +255,7 @@ async def create_booking(booking: BookingCreate):
             # "status": {
             #     "$in": ["pending", "confirmed", "CHO_DUYET", "DA_DUYET", "DANG_MUON"]
             # },
-            "status": {
-                "$in": [
-                    "CHO_DUYET",
-                    "DA_DUYET",
-                    "DANG_MUON"
-                ]
-            }
+            "status": {"$in": ["CHO_DUYET", "DA_DUYET", "DANG_MUON"]},
         }
     )
     if overlapping:
@@ -317,7 +312,15 @@ async def get_bookings(
 ):
     await _auto_update_booking_statuses()
 
-    bookings_cursor = db["bookings"].find().sort("created_at", -1)
+    # bookings_cursor = db["bookings"].find().sort("created_at", -1)
+    # bookings_list = await bookings_cursor.to_list(length=500)
+
+    # Lọc bỏ các đơn đã bị hủy/từ chối
+    bookings_cursor = (
+        db["bookings"]
+        .find({"status": {"$nin": ["cancelled", "rejected", "DA_HUY", "DA_TU_CHOI"]}})
+        .sort("created_at", -1)
+    )
     bookings_list = await bookings_cursor.to_list(length=500)
 
     today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
@@ -410,7 +413,7 @@ async def update_booking_status(
     #     new_status = "rejected"
     normalized = status_update.status.strip().lower()
 
-    #Trước khi sửa lúc 14h38 18062026
+    # Trước khi sửa lúc 14h38 18062026
     # if normalized in (
     #     "confirmed",
     #     "duyệt",
@@ -429,28 +432,14 @@ async def update_booking_status(
     # else:
     #     new_status = status_update.status
 
-    if normalized in (
-        "confirmed",
-        "duyệt",
-        "đã duyệt",
-        "approved"
-    ):
-        new_status = "DA_DUYET"
+    if normalized in ("confirmed", "duyệt", "đã duyệt", "approved"):
+        new_status = "confirmed"
 
-    elif normalized in (
-        "rejected",
-        "từ chối",
-        "bị từ chối",
-        "bi_tu_choi"
-    ):
-        new_status = "DA_TU_CHOI"
+    elif normalized in ("rejected", "từ chối", "bị từ chối", "bi_tu_choi"):
+        new_status = "rejected"
 
-    elif normalized in (
-        "cancelled",
-        "hủy",
-        "da_huy"
-    ):
-        new_status = "DA_HUY"
+    elif normalized in ("cancelled", "hủy", "da_huy"):
+        new_status = "cancelled"
 
     else:
         new_status = status_update.status
@@ -460,7 +449,7 @@ async def update_booking_status(
         "updated_at": datetime.now(timezone.utc),
     }
     # if new_status == "rejected":
-    if new_status in ("DA_TU_CHOI", "DA_HUY"):
+    if new_status in ("rejected", "cancelled", "DA_TU_CHOI", "DA_HUY"):
         update_data["rejection_reason"] = status_update.status
 
         if status_update.cancel_reason:
@@ -479,6 +468,11 @@ async def update_booking_status(
 
     # Trả về data đầy đủ để Master không bị lỗi
     updated = await db["bookings"].find_one({"_id": ObjectId(booking_id)})
+    # KIỂM TRA: Nếu đơn vừa huỷ hoặc đã huỷ trước đó
+
+
+    if updated["status"] == "DA_HUY":
+        return {"status": "DA_HUY", "message": "Phòng này đã được huỷ trước đó."}
     updated = _serialize_booking(updated)
     updated["room"] = await _get_room_info(updated.get("room_id", ""))
     return updated
@@ -516,8 +510,8 @@ async def cancel_booking(
         {"_id": ObjectId(booking_id)},
         {
             "$set": {
-                # "status": "cancelled",
-                "status": "DA_HUY",
+                "status": "cancelled",
+                # "status": "DA_HUY",
                 "cancel_reason": cancel_reason,
                 "cancelled_at": datetime.now(timezone.utc),
                 "updated_at": datetime.now(timezone.utc),
